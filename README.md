@@ -29,3 +29,15 @@ Exercise results, personal PRs, community posts/comments, notice settings and de
 ## Deployment
 
 Publish the exact pushed Git commit and archive built from it. Worker artifact: `dist/server/index.js`, `dist/.openai/hosting.json`, `dist/drizzle/0000_gym.sql`. Preserve project_id and hosting audience. D1 schema changes are migration-owned; never create tables during a request.
+
+## Community notices, Korean holidays, and release-time settings
+
+Announcements are persisted in `gym_notices`. Only approved admins can create/edit/delete or pin them, enforced at the API boundary. Pinned announcements appear before other community posts. Regular community posts remain the existing browser-local preview.
+
+Release time is configurable by admins in Asia/Seoul (default 22:00) and persisted in `gym_settings`. A change atomically recalculates only unpublished workout release timestamps; already public workouts remain public, including when overwritten. The browser uses the server setting and published-date metadata for its release labels and checks.
+
+The server synchronizes Google Calendar's Korean public-holidays-only ICS feed on access, at most daily, and supports an admin refresh. Only events described as public holidays are imported; observances are excluded. Lunar and substitute holidays come from dated feed entries. The most recently retrieved calendar is cached in D1. If retrieval fails, a bundled snapshot is available; no paid API key is required. Source and fallback state are visible in the calendar. Feed changes depend on Google's calendar updates.
+
+The month picker and attendance calendar mark Korean holidays. Public holidays default to no classes/open gym. A holiday-specific workout must include explicit start times (`sessions`) and each class is one hour. This is configurable in the workout editor or the new `수업 시간(공휴일)` Excel column. Both server and import preview validate these times. Unreleased holiday workouts are subject to the same publication restrictions.
+
+Additive schema migration: `drizzle/0001_notices_settings_holidays.sql`. Existing migrations remain unchanged. GitHub and Supabase connection/migration remain deferred by user request.

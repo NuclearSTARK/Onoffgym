@@ -1,5 +1,5 @@
 import {pushConfigured,validateSubscription,pushDigest,enqueuePush,drainPush} from './push.js';
-import {MOVEMENTS,KINDS,kstDate,releaseAt,validateWorkouts,youtubeId} from '../web/core.js';
+import {MOVEMENTS,KINDS,kstDate,releaseAt,validateWorkouts,youtubeId,DEFAULT_BANNER,validBanner} from '../web/core.js';
 import {HOLIDAY_SOURCE,HOLIDAY_FALLBACK,parseHolidayCalendar} from '../web/holidays.js';
 const json=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Vary':'Cookie'}});
 const staff=m=>['admin','coach'].includes(m.role)&&m.status==='approved';
@@ -18,7 +18,9 @@ export async function api(req,env,now=new Date()){
   const sql=canSeeAll?'SELECT key,body FROM gym_workouts ORDER BY date':'SELECT key,body FROM gym_workouts WHERE release_at<=? ORDER BY date';const q=env.DB.prepare(sql);const ws=await(canSeeAll?q:q.bind(+now)).all();const members=isStaff?(await env.DB.prepare('SELECT id,name,role,status,created_at FROM gym_members ORDER BY created_at').all()).results:[];
   const calendar=await holidayCalendar(env,now),publishedDates=(await env.DB.prepare('SELECT DISTINCT date FROM gym_workouts WHERE release_at<=?').bind(+now).all()).results.map(w=>w.date);
   const attendance=(await env.DB.prepare('SELECT date FROM gym_attendance WHERE user_id=? ORDER BY date DESC LIMIT 1000').bind(m.id).all()).results.map(r=>r.date);
-  return json({push:{configured:pushConfigured(env),publicKey:env.VAPID_PUBLIC_KEY||'',schedulerConfigured:env.PUSH_SCHEDULER_CONFIGURED==='true',subscribed:(await env.DB.prepare('SELECT id FROM gym_push_subscriptions WHERE user_id=? LIMIT 1').bind(m.id).first())!==null},attendance,calendar,notices:await publicNotices(env),publishedDates,viewer:m,serverNow:now.toISOString(),workouts:Object.fromEntries(ws.results.map(w=>[w.key,JSON.parse(w.body)])),library:await library(env),members,memberView,releaseTime});
+  const bannerSetting=await env.DB.prepare('SELECT value FROM gym_settings WHERE key=?').bind('banner').first();
+  const banner=bannerSetting?JSON.parse(bannerSetting.value):DEFAULT_BANNER;
+  return json({banner,push:{configured:pushConfigured(env),publicKey:env.VAPID_PUBLIC_KEY||'',schedulerConfigured:env.PUSH_SCHEDULER_CONFIGURED==='true',subscribed:(await env.DB.prepare('SELECT id FROM gym_push_subscriptions WHERE user_id=? LIMIT 1').bind(m.id).first())!==null},attendance,calendar,notices:await publicNotices(env),publishedDates,viewer:m,serverNow:now.toISOString(),workouts:Object.fromEntries(ws.results.map(w=>[w.key,JSON.parse(w.body)])),library:await library(env),members,memberView,releaseTime});
  }
  if(url.pathname==='/api/profile'&&req.method==='POST'){const b=await req.json();if(typeof b.name!=='string'||b.name.trim().length<2||b.name.trim().length>30)problem('이름을 2~30자로 입력해주세요.');await env.DB.prepare('UPDATE gym_members SET name=? WHERE id=?').bind(b.name.trim(),m.id).run();return json({ok:true});}
  if(m.status!=='approved')problem('관리자 승인 후 이용할 수 있어요.',403);
@@ -30,6 +32,13 @@ export async function api(req,env,now=new Date()){
   if(!isStaff)problem('수업 관리 권한이 필요해요.',403);const text=await req.text();if(text.length>2_000_000)problem('파일 내용이 너무 커요.',413);const b=JSON.parse(text),lib=await library(env),calendar=await holidayCalendar(env,now),validated=validateWorkouts(b.workouts,lib.map(x=>x.name),calendar.dates);if(validated.errors.length)return json({error:'수업 내용을 확인해주세요.',errors:validated.errors},400);
   const collisions=[],previous=new Map();for(const w of validated.workouts){const old=await env.DB.prepare('SELECT key,release_at FROM gym_workouts WHERE key=?').bind(w.date+'_'+w.program).first();if(old){collisions.push(w.date+' '+w.program);previous.set(old.key,old.release_at)}}if(collisions.length&&!b.overwrite)return json({error:'이미 등록된 수업이 있어요. 덮어쓰기를 확인해주세요.',collisions},409);
   await env.DB.batch(validated.workouts.map(w=>env.DB.prepare('INSERT INTO gym_workouts (key,date,program,body,release_at,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET body=excluded.body,release_at=excluded.release_at,updated_at=excluded.updated_at').bind(w.date+'_'+w.program,w.date,w.program,JSON.stringify(w),(previous.has(w.date+'_'+w.program)&&previous.get(w.date+'_'+w.program)<=+now)?previous.get(w.date+'_'+w.program):releaseAt(w.date,releaseTime),now.toISOString())));return json({ok:true,count:validated.workouts.length});
+ }
+ if(url.pathname==='/api/banner'&&req.method==='POST'){
+  if(m.role!=='admin')problem('공지 배너는 운영자만 변경할 수 있어요.',403);
+  const b=await req.json();if(!validBanner(b))problem('공지 문구(1~500자), 노출 여부와 색상을 확인해주세요.');
+  const banner={enabled:b.enabled,text:b.text.trim(),color:b.color};
+  await env.DB.prepare('INSERT INTO gym_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('banner',JSON.stringify(banner)).run();
+  return json({ok:true,banner});
  }
  if(url.pathname==='/api/settings'&&req.method==='POST'){
   if(m.role!=='admin')problem('운영자만 공개 시간을 변경할 수 있어요.',403);const b=await req.json();if(typeof b.releaseTime!=='string'||!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.releaseTime))problem('공개 시간은 HH:mm 형식으로 입력해주세요.');const unreleased=(await env.DB.prepare('SELECT key,date FROM gym_workouts WHERE release_at>?').bind(+now).all()).results;await env.DB.batch([env.DB.prepare('INSERT INTO gym_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('releaseTime',b.releaseTime),...unreleased.map(w=>env.DB.prepare('UPDATE gym_workouts SET release_at=? WHERE key=?').bind(releaseAt(w.date,b.releaseTime),w.key))]);return json({ok:true,releaseTime:b.releaseTime});

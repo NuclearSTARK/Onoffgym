@@ -1,6 +1,8 @@
 export const MOVEMENTS = ['Front Squat','Back Squat','Deadlift','Clean','Clean & Jerk','Snatch','Power Snatch','Squat Snatch','Strict Press','Push Press','Split Jerk','Row','Box Step Over','Pull-up','Ring Dip','Burpee'];
 export const KINDS = ['없음','중량','1RM','시간','횟수','라운드 + 횟수','칼로리','세트별 횟수·칼로리','완료 여부'];
 export const HEADERS = ['날짜','수업','구간','제목','운동 내용','기록 종류','관련 동작','오늘 운동 설명 영상','수업 시간(공휴일)'];
+export const DEFAULT_BANNER={enabled:true,text:'온오프와 함께, 오늘의 나를 켜보세요! · 운동 후 나의 기록을 남겨주세요.',color:'blue'};
+export function validBanner(b){return !!b&&typeof b.enabled==='boolean'&&typeof b.text==='string'&&b.text.trim().length>0&&b.text.length<=500&&['blue','mint','amber'].includes(b.color);}
 export function kstDate(now=new Date()){return new Date(+now+9*3600000).toISOString().slice(0,10)}
 export function addDays(date,days){return new Date(Date.parse(date+'T12:00:00+09:00')+days*86400000).toISOString().slice(0,10)}
 export function releaseAt(date,time='22:00'){return Date.parse(addDays(date,-1)+'T'+time+':00+09:00')}

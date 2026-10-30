@@ -14,7 +14,7 @@ Dark-only Korean gym app, with protected server-side workout publishing, XLSX im
 
 The Worker uses dispatch-owned Sites authentication headers and D1 (`DB`). `ONOFF_OWNER_EMAIL` is configured as a runtime secret, never bundled; only a matching authenticated Site identity is provisioned as owner/admin. Other signed-in accounts are pending until approved. Admins can approve/suspend members and grant member/coach/admin roles. Coaches manage workouts and movement videos but cannot grant roles. There is no client-side role switch or first-visitor-admin bootstrap. All mutations require same-origin JSON requests and server authorization.
 
-Site hosting access remains owner-private; app roles do not grant Site hosting access. Broader member access and Kakao login are separate future integration steps. Do not tell members Kakao is connected. GPS attendance is also unconfigured.
+Site hosting access remains owner-private; app roles do not grant Site hosting access. Broader member access and Kakao login are separate future integration steps. Do not tell members Kakao is connected. Attendance uses the in-app check-in button; GPS is not used.
 
 Workout visibility: store `release_at` as the UTC instant corresponding to the previous day 22:00 Asia/Seoul. The server filters unreleased workouts out of member responses. Exactly 22:00 is inclusive. Staff can access all dates; staff member-view requests receive the same filtered workout response as a member. No cron or paid AI API is needed. The browser polls every 30 seconds and refreshes on visibility changes; a focused screen refreshes at the release boundary. Empty dates show preparation status; no example workout is substituted.
 
@@ -24,7 +24,7 @@ Movement video URLs are registered once in the movement library; related movemen
 
 ## Existing preview features
 
-Exercise results, personal PRs, community posts/comments, notice settings and demo attendance still use browser-local storage, with clear in-app notices. Workout schedules, movement metadata and actual login-account roles use server storage. Old local draft workouts and fake members are never imported into the server. Connecting the remaining member-shared records and Kakao/GPS is required before full gym operation.
+Exercise results (including coach batch entry), personal PRs and regular community posts/comments still use browser-local storage, with clear in-app notices. Workout schedules, movement metadata and actual login-account roles use server storage. Old local draft workouts and fake members are never imported into the server. Connecting the remaining member-shared records and Kakao login is required before full gym operation.
 
 ## Deployment
 
@@ -59,3 +59,13 @@ The repository must be Public for the chosen free Pages configuration. In Settin
 ## ONOFF app icon identity
 
 The app declares its own Apple home-screen icon, PNG/ICO favicons, ONOFF name and Web App Manifest. Manifest identity, scope, start URL and icon paths are project-relative so the GitHub Pages app stays under `/Onoffgym/` instead of reusing another app on the same GitHub hostname. Versioned icon filenames avoid stale asset URLs. Existing iOS home-screen shortcuts may need to be removed and added again after deployment. The square approved icon master is retained under `web/assets/`; `scripts/build-icons.mjs` exports the committed PNG/ICO variants if the optional `sharp` encoder is installed. Normal builds do not require it.
+
+## Folder menus, home banner, and coach entry
+
+The primary navigation is Home, Member Records, My Records, and Community, plus Operations for approved staff. My Records opens folder cards for workout history, 1RM, and attendance; `#records/rm` contains the existing movement cards and the percentage calculator. Legacy `#rm` links redirect into this folder. Operations opens folder cards rather than displaying every form at once. The banner, release time, and member permissions folders are admin-only.
+
+Home banner text, enabled state and one of three colors (blue, mint, amber) are stored as the `banner` key in `gym_settings`; no new migration is needed. `/api/banner` validates changes and rejects members, coaches, and unapproved users. Approved members receive the current banner at bootstrap; the isolated Pages demo keeps this configuration in its browser-local demo state. The scrolling banner is above the home introduction and respects reduced-motion settings.
+
+Operations → Coach Entry selects date, program, class start time and scoring section. Approved members appear with result and optional note fields. Enter advances to the next visible member. Search hides rows without discarding their input, and drafts survive changes of class or section within the current page session. All nonempty rows validate before any write. Empty rows never delete results; changing an existing result requires the overwrite checkbox. Matching uses member ID, date, program, start time and section. Saving the current account's 1RM result also updates that account's 1RM history. Other members' personal 1RM sharing awaits the shared-record backend.
+
+The calculator uses saved successful 1RM weights, stored canonically in lbs, for fixed percentage buttons and a custom 1–150% input. Changing display units does not change the saved weight. Calculated values are mathematical weights, not automatic plate combinations. Records in this public test remain browser-local; Supabase and actual Kakao authentication have not been connected.

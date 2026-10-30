@@ -1,5 +1,8 @@
 *.png
-!dist/assets/*.png
+!web/assets/*.png
 outputs/
 .env*
 node_modules/
+
+# Generated deployment output
+dist/

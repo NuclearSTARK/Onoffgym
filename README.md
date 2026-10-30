@@ -1,17 +1,31 @@
-# ONOFF CROSSFIT — first review version
+# ONOFF CROSSFIT
 
-Responsive Korean gym web app. Static HTML/CSS/JS; no paid API or dependency required. Uploaded logo retained in `dist/assets/onoff-logo.png`.
+Dark-only Korean gym app, with protected server-side workout publishing, XLSX imports, and movement videos. Existing Site identity and private audience retained.
 
-## Preview
+## Development
 
-Run `python -m http.server 5173 --directory dist`. Entry: `http://127.0.0.1:5173`.
+- `npm test`: validation, release-boundary, approval, authorization and upload tests.
+- `node scripts/dev.mjs`: local adapter at http://127.0.0.1:5173 using in-memory SQLite fixtures. Local-only test cookies `dev_user` and `dev_time` are consumed exclusively by this adapter and are not in the deployment artifact.
+- `node qa.cjs`: Chromium integration tests (requires locally installed Playwright and Chromium).
+- `python scripts/make-template.py`: rebuild blank workbook and separate example workbook (openpyxl).
+- `npm run build`: deterministic dependency-free Worker build; embeds all web assets, copies the hosting manifest and migration SQL into `dist/`.
 
-## Scope
+## Data and access
 
-This is an explicitly labelled browser-local preview, not a production membership system. Records, PRs, posts/comments/participation, demo approvals, workouts and notices persist in localStorage (`onoff-v1`). Theme uses `onoff-theme`. Demo coach switching is not an authorization mechanism. Hosted preview stays owner-private. No real personal data or secret is included.
+The Worker uses dispatch-owned Sites authentication headers and D1 (`DB`). `ONOFF_OWNER_EMAIL` is configured as a runtime secret, never bundled; only a matching authenticated Site identity is provisioned as owner/admin. Other signed-in accounts are pending until approved. Admins can approve/suspend members and grant member/coach/admin roles. Coaches manage workouts and movement videos but cannot grant roles. There is no client-side role switch or first-visitor-admin bootstrap. All mutations require same-origin JSON requests and server authorization.
 
-Implemented: Asia/Seoul timetable, 60-minute classes with Wednesday exceptions and open gym, current/next session selection, workout date picker, B/T and WOD sections, coach-defined record fields, member/coach record entry, lbs/kg conversion, 1RM history and percentage calculator, rank participation setting, community posts/comments/participation, notice banner visibility/text, light/dark/system themes, demo attendance calendar and signup approval flow.
+Site hosting access remains owner-private; app roles do not grant Site hosting access. Broader member access and Kakao login are separate future integration steps. Do not tell members Kakao is connected. GPS attendance is also unconfigured.
 
-Before actual gym operation: select hosting that supports Kakao as the login provider (Sites currently owns its own visitor authentication), configure Kakao developer app and redirects, implement server-side sessions/approval/roles and database access, replace localStorage records with shared database, set and verify gym coordinates/radius and implement attendance validation, publish appropriate privacy notice and account deletion/retention rules. Do not expose demo coach controls in an operational member app. Free-tier pricing/quotas must be checked for the selected final provider.
+Workout visibility: store `release_at` as the UTC instant corresponding to the previous day 22:00 Asia/Seoul. The server filters unreleased workouts out of member responses. Exactly 22:00 is inclusive. Staff can access all dates; staff member-view requests receive the same filtered workout response as a member. No cron or paid AI API is needed. The browser polls every 30 seconds and refreshes on visibility changes; a focused screen refreshes at the release boundary. Empty dates show preparation status; no example workout is substituted.
 
-Uploaded workout content is shown as sample content on unconfigured dates. All example members/posts are fictional demo content. Ranking is opt-in in the UI, but no mixed-metric scores are ranked; numerical ranking needs a per-section scoring direction and comparable scale/conditions in the production model.
+XLSX parsing uses vendored SheetJS CE 0.20.3 (Apache 2.0 license under web/assets). Only the 수업등록 sheet is imported; examples and instructions are separate sheets. Required headers, dates, Wednesday WOD-only rule, weekends, duplicates, sequential sections, related movements, scoring type, and YouTube URLs are validated in browser and again on server. Uploads are limited and D1 writes are atomic batches. Existing workouts require explicit overwrite confirmation in upload flow.
+
+Movement video URLs are registered once in the movement library; related movement names attach videos to workouts. Optional per-workout overview videos are independently supported. Embeds use youtube-nocookie.com, valid HTTPS YouTube links only, with an external YouTube fallback. No video bytes are hosted.
+
+## Existing preview features
+
+Exercise results, personal PRs, community posts/comments, notice settings and demo attendance still use browser-local storage, with clear in-app notices. Workout schedules, movement metadata and actual login-account roles use server storage. Old local draft workouts and fake members are never imported into the server. Connecting the remaining member-shared records and Kakao/GPS is required before full gym operation.
+
+## Deployment
+
+Publish the exact pushed Git commit and archive built from it. Worker artifact: `dist/server/index.js`, `dist/.openai/hosting.json`, `dist/drizzle/0000_gym.sql`. Preserve project_id and hosting audience. D1 schema changes are migration-owned; never create tables during a request.

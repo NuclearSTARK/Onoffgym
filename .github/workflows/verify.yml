@@ -18,6 +18,8 @@ jobs:
         run: npm test
       - name: Build and validate Worker
         run: npm run build
+      - name: Validate public Pages build
+        run: npm run build:pages
       - name: Package deployable artifact
         run: tar -czf onoff-worker.tar.gz .openai/hosting.json dist drizzle
       - uses: actions/upload-artifact@v4

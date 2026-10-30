@@ -1,1 +1,11 @@
-{"name":"onoff-crossfit","version":"2.0.0","private":true,"type":"module","scripts":{"build":"node scripts/build.mjs","test":"node --test tests/*.test.mjs"}}
+{
+  "name": "onoff-crossfit",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "build:pages": "node scripts/build-pages.mjs"
+  }
+}

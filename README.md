@@ -49,3 +49,9 @@ Attendance is now an approved-account server action at `/api/attendance`, with a
 Web Push uses Web Crypto (RFC 8291/8292), a notification-only service worker, opt-in subscriptions/preferences, explicit admin-notice sending and private per-user test notifications. Expired endpoints are removed; members must still be approved. The scheduled release handler and retry/deduplication queue are implemented, but unattended scheduling is not connected in the current preview. The UI shows that status. Runtime VAPID keys are never in source. Additive migration: `drizzle/0002_attendance_push.sql`.
 
 GitHub workflow runs tests/builds and produces an artifact; it does not claim to deploy to external hosting. Supabase work remains deferred. See [운영자 인수인계](docs/운영자-인수인계.md).
+
+## Public GitHub Pages test
+
+`npm run build:pages` creates an isolated static demonstration under `pages-dist/`. The Pages workflow deploys this output to `https://nuclearstark.github.io/Onoffgym/` after repository Pages is configured to use GitHub Actions. It contains public example data only. Login, role changes, attendance, workouts, notices and records are browser-local demonstrations. No real member API or notifications are called. The public test notice stays visible. This is separate from the existing authenticated Sites backend; Supabase remains deferred.
+
+The repository must be Public for the chosen free Pages configuration. In Settings → Pages, set Source to GitHub Actions once. Afterward, a main-branch push runs tests, builds the test site and deploys it automatically. Local test: serve `pages-dist` at the `/Onoffgym/` path and run `node qa-pages.cjs` against port 5183.

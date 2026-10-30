@@ -6,3 +6,5 @@ node_modules/
 
 # Generated deployment output
 dist/
+
+pages-dist/

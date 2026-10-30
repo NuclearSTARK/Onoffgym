@@ -15,5 +15,6 @@ export function createUnsavedGuard({root,extraDirty=()=>false,onDiscard=()=>{},c
     if(!confirmDiscard())return false;
     track(container);if(includeExtra)onDiscard();return true;
   }
-  return{track,dirty,allow,hasChanges:()=>dirty(root)||extraDirty()};
+  function dirtyExcept(except,container=root){return forms(container).some(form=>form!==except&&baselines.has(form)&&baselines.get(form)!==snapshot(form));}
+  return{track,dirty,dirtyExcept,allow,hasChanges:()=>dirty(root)||extraDirty()};
 }

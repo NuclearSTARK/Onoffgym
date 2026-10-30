@@ -1,0 +1,27 @@
+name: Verify ONOFF app
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Run server and Web Push tests
+        run: npm test
+      - name: Build and validate Worker
+        run: npm run build
+      - name: Package deployable artifact
+        run: tar -czf onoff-worker.tar.gz .openai/hosting.json dist drizzle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: onoff-worker
+          path: onoff-worker.tar.gz
+          retention-days: 7

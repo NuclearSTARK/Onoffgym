@@ -41,3 +41,11 @@ The server synchronizes Google Calendar's Korean public-holidays-only ICS feed o
 The month picker and attendance calendar mark Korean holidays. Public holidays default to no classes/open gym. A holiday-specific workout must include explicit start times (`sessions`) and each class is one hour. This is configurable in the workout editor or the new `수업 시간(공휴일)` Excel column. Both server and import preview validate these times. Unreleased holiday workouts are subject to the same publication restrictions.
 
 Additive schema migration: `drizzle/0001_notices_settings_holidays.sql`. Existing migrations remain unchanged. GitHub and Supabase connection/migration remain deferred by user request.
+
+## Button attendance, login and mobile inputs
+
+Attendance is now an approved-account server action at `/api/attendance`, with a unique member/Korean-date key. It ignores client-supplied dates. There is no geolocation request or location UI. The login design is at `/#login` (also the initial view); Kakao is clearly labelled as not connected. Mobile editable controls use at least 16px fonts to avoid iOS automatic input zoom without disabling user-controlled zoom. Time inputs and buttons are constrained to their container width.
+
+Web Push uses Web Crypto (RFC 8291/8292), a notification-only service worker, opt-in subscriptions/preferences, explicit admin-notice sending and private per-user test notifications. Expired endpoints are removed; members must still be approved. The scheduled release handler and retry/deduplication queue are implemented, but unattended scheduling is not connected in the current preview. The UI shows that status. Runtime VAPID keys are never in source. Additive migration: `drizzle/0002_attendance_push.sql`.
+
+GitHub workflow runs tests/builds and produces an artifact; it does not claim to deploy to external hosting. Supabase work remains deferred. See [운영자 인수인계](docs/운영자-인수인계.md).

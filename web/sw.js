@@ -1,0 +1,5 @@
+// Notification delivery only. Authenticated pages and member data are never cached.
+self.addEventListener('install',()=>self.skipWaiting());
+self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));
+self.addEventListener('push',event=>{let payload={title:'ONOFF CROSSFIT',body:'새로운 소식이 있어요.',url:'/#home'};try{if(event.data)payload={...payload,...event.data.json()}}catch{}event.waitUntil(self.registration.showNotification(payload.title,{body:payload.body,icon:'/assets/favicon.svg',tag:payload.tag||'onoff-notice',data:{url:payload.url||'/#home'}}))});
+self.addEventListener('notificationclick',event=>{event.notification.close();const target=new URL(event.notification.data?.url||'/#home',self.location.origin);if(target.origin!==self.location.origin)return;event.waitUntil((async()=>{const windows=await self.clients.matchAll({type:'window',includeUncontrolled:true});for(const client of windows){if(new URL(client.url).origin===self.location.origin){await client.navigate(target.href);return client.focus()}}return self.clients.openWindow(target.href)})())});

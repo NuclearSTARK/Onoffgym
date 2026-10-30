@@ -8,3 +8,5 @@ node_modules/
 dist/
 
 pages-dist/
+
+!web/apple-touch-icon.png

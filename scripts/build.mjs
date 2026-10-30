@@ -1,7 +1,7 @@
 import {readFile,writeFile,mkdir,readdir,rm,cp} from 'node:fs/promises';
 import path from 'node:path';
 const root=process.cwd(), assets={};
-async function collect(dir){for(const f of await readdir(dir,{withFileTypes:true})){const p=path.join(dir,f.name);if(f.isDirectory())await collect(p);else{const ext=path.extname(p),mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.png':'image/png','.svg':'image/svg+xml','.txt':'text/plain; charset=utf-8','.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}[ext]||'application/octet-stream';assets['/'+path.relative('web',p).replaceAll('\\','/')]={mime,data:(await readFile(p)).toString('base64')};}}}
+async function collect(dir){for(const f of await readdir(dir,{withFileTypes:true})){const p=path.join(dir,f.name);if(f.isDirectory())await collect(p);else{const ext=path.extname(p),mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.png':'image/png','.svg':'image/svg+xml','.ico':'image/x-icon','.webmanifest':'application/manifest+json','.txt':'text/plain; charset=utf-8','.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}[ext]||'application/octet-stream';assets['/'+path.relative('web',p).replaceAll('\\','/')]={mime,data:(await readFile(p)).toString('base64')};}}}
 await collect('web');
 const core=(await readFile('web/core.js','utf8')).replace(/^export /gm,'');
 const holidays=(await readFile('web/holidays.js','utf8')).replace(/^export /gm,'');

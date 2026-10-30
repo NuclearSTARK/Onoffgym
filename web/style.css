@@ -163,3 +163,73 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}.settings-grid>*{min-wi
   .notice-text>span{padding-right:0;overflow-wrap:anywhere}
   .notice-text>span[aria-hidden]{display:none}
 }
+
+/* Keep every class label in the same right-hand slot, including OPEN GYM. */
+.workout-panel .hero-title{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);align-items:center;gap:12px}
+.workout-panel .hero-title>div:first-child{min-width:0}
+.workout-panel .hero-title .time{font-size:clamp(40px,4.5vw,52px);white-space:nowrap}
+.workout-panel .hero-title .time>span{display:block;font-size:20px!important;margin-top:5px}
+.workout-panel .hero-type{justify-self:end;align-self:center;text-align:right;white-space:nowrap;min-width:0;max-width:100%;font-size:clamp(56px,6vw,75px)}
+.workout-panel .hero-type.open-gym{font-size:clamp(18px,9cqw,43px);letter-spacing:-1.1px;line-height:1;white-space:nowrap}
+.workout-panel .workout-hero{container-type:inline-size}
+
+/* One purpose-specific line icon, with a restrained color background. */
+.feature-icon{display:grid;place-items:center;width:56px;height:56px;border-radius:15px;border:1px solid #78a9ff30;background:#233d65;color:#a7c9ff;flex-shrink:0}
+.feature-icon svg{width:27px;height:27px;stroke-width:1.65}
+.feature-mint{background:#16463e;color:#8ee6ca;border-color:#6dcdb531}
+.feature-violet{background:#343457;color:#c6b8ff;border-color:#b7a4ff30}
+.feature-amber{background:#493a24;color:#f4d392;border-color:#dfbd7030}
+.feature-rose{background:#473044;color:#f4bad6;border-color:#ec9ec830}
+.menu-card{grid-template-columns:56px minmax(0,1fr) 20px;min-height:146px}
+.folder-copy>span{color:#b0bfd2;font-size:13px}
+.folder-copy small{font-size:12px}
+.menu-card.needs-attention{border-color:#53c4a16b;background:linear-gradient(125deg,#18372f55,var(--surface) 75%)}
+.menu-card .pending-label{color:#96e8cd;display:flex;align-items:center;gap:7px;font-weight:600}
+.pending-label i{width:6px;height:6px;background:#71d8b6;border-radius:50%}
+.approval-count{display:inline-grid;place-items:center;background:#a9edd6;color:#103c30;min-width:20px;height:20px;padding:0 5px;border-radius:10px;font-size:11px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
+.sidebar nav .approval-count{margin-left:auto}
+.sidebar-bottom .approval-count{margin-left:6px}
+.nav-icon{display:inline-flex;position:relative}
+.mobile-nav .approval-count{position:absolute;top:-7px;right:-13px;min-width:17px;height:17px;font-size:10px;border:2px solid var(--surface);padding:0 3px}
+.member-heading{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:22px}
+.member-heading .field-hint{margin:10px 0 0;font-size:12px;color:#aabbd0;line-height:1.8}
+.pending-pill,.complete-pill{border:1px solid #62cda04a;border-radius:7px;padding:7px 11px;font-size:12px;color:#a0eacb;background:#214e3738;white-space:nowrap}
+.complete-pill{color:var(--muted);border-color:var(--line);background:var(--bg)}
+.member-status-tabs{gap:9px;margin-bottom:24px}
+.member-status-tabs button{display:flex;align-items:center;gap:9px;font-size:13px;min-height:44px}
+.member-status-tabs button.active{background:#244d80;border-color:#6e9ad0;color:white}
+.member-status-tabs button>span{font-size:11px;min-width:18px;border-radius:5px;background:#ffffff12;padding:0 4px;text-align:center}
+.member-search-label{font-size:12px}
+.member-search-label input{margin:8px 0 0}
+.member-result-count{font-size:12px;color:var(--muted);margin-top:24px}
+.member-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:20px 0;border-bottom:1px solid var(--line)}
+.member-row:last-child{border-bottom:0}
+.member-identity{display:flex;align-items:center;gap:12px;min-width:0}
+.member-identity>div{min-width:0}
+.member-identity strong{font-size:15px;overflow-wrap:anywhere}
+.member-identity p{font-size:12px;color:var(--muted);margin:5px 0 0;line-height:1.7}
+.self-label{font-size:10px;color:var(--blue);margin-left:8px;white-space:nowrap}
+.member-row-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.member-row-actions .btn{font-size:13px;min-height:44px}
+.member-empty{display:flex;align-items:center;flex-direction:column;gap:14px;padding:42px 20px}
+.member-empty>svg{width:32px;height:32px;color:#90a7c5}
+.member-empty strong{font-size:15px;color:var(--ink)}
+.member-empty p{margin:0;font-size:12px}
+.member-detail-name{font-size:22px;font-weight:700;margin-bottom:8px}
+.member-detail-name~form{margin-top:24px}
+@media(max-width:760px){
+  .workout-panel .hero-title:has(.open-gym){display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);align-items:center;gap:8px}
+  .workout-panel .hero-title .time{font-size:46px}
+  .workout-panel .hero-type{font-size:clamp(55px,18vw,74px)}
+  .workout-panel .hero-type.open-gym{font-size:clamp(20px,9.5cqw,36px);letter-spacing:-1px}
+  .menu-card{grid-template-columns:50px minmax(0,1fr) 18px;min-height:130px}
+  .feature-icon{width:50px;height:50px;border-radius:13px}
+  .feature-icon svg{width:25px;height:25px}
+  .folder-copy>span{font-size:12px}
+  .member-status-tabs{gap:6px}
+  .member-status-tabs button{padding:8px 10px;font-size:12px;gap:5px}
+  .member-row{align-items:flex-start;flex-wrap:wrap;padding:20px 0}
+  .member-row-actions{margin-left:auto}
+  .member-row-actions .btn{min-width:80px}
+  .member-heading .field-hint{font-size:12px}
+}

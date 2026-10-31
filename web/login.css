@@ -11,8 +11,6 @@
 .login-final .login-entry{width:100%;max-width:392px;margin:auto 0; padding:35px 0 40px}
 .login-final .eyebrow{font:600 10px Arial,sans-serif;letter-spacing:2.3px;color:var(--blue);margin:0 0 17px}
 .login-final h1{font-size:34px;font-weight:700;line-height:1.5;letter-spacing:-.9px;margin:0 0 22px}
-.login-final .login-kakao{width:100%;display:flex;align-items:center;justify-content:center;gap:11px;position:relative;min-height:58px;margin:0;border:0;border-radius:10px;padding:15px 44px;font-size:14px;font-weight:700;box-shadow:0 4px 18px #00000014}
-.login-final .login-kakao svg{width:20px;height:20px}.login-final .login-kakao>span{position:absolute;right:18px;font-size:18px;font-weight:400}
 .login-final .login-description{font-size:13px;line-height:1.95;color:var(--muted);margin:18px 0 0}
 .login-final .login-mobile-eyebrow,.login-final .login-mobile-copy,.login-final .login-feature-line{display:none}
 .login-final .login-auth-note{font-size:10px;line-height:1.8;color:var(--muted);margin:0 0 6px}
@@ -36,7 +34,6 @@
  .login-final .login-mobile-eyebrow,.login-final .login-mobile-copy{display:inline}
  .login-final .eyebrow{font-size:10px;margin-bottom:16px;letter-spacing:2.3px}
  .login-final h1{font-size:26px;line-height:1.55;margin-bottom:22px}
- .login-final .login-kakao{min-height:54px}
  .login-final .login-description{font-size:12px;margin-top:18px}
  .login-final .login-feature-line{display:flex;justify-content:center;gap:14px;font-size:11px;color:var(--muted);margin:25px 0 0;white-space:nowrap}
  .login-final .login-feature-line span+span{border-left:1px solid var(--line);padding-left:14px}

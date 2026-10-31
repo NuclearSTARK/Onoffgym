@@ -16,6 +16,8 @@ test('Supabase API exposes no member data without a verified non-anonymous Auth 
   const f=fixture(options);const r=await f.request('/api/bootstrap',{token:options.valid===undefined&&!options.anonymous?null:'bad'});assert.equal(r.status,401);assert.equal(r.value.viewer,undefined);assert.equal(f.writes.length,0);
  }
 });
+test('account deletion never accepts an unauthenticated caller-selected identity',async()=>{const f=fixture();const r=await f.request('/api/account/delete',{body:{id:ADMIN,password:'guess',confirmed:true},token:null});assert.equal(r.status,401);assert.equal(f.writes.length,0);});
+
 test('API rejects disallowed origins, unexpected methods and JSON role escalation',async()=>{
  const f=fixture();assert.equal((await f.request('/api/bootstrap',{origin:'https://evil.example'})).status,403);
  assert.equal((await f.request('/api/attendance')).status,405);

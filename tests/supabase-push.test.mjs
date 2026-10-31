@@ -32,3 +32,6 @@ test('operator compose and history reject members; custom pre-login tests are al
  await testPush.publicRoute(new Request('https://example.test',{headers:{'X-OnOff-Push-Test':code}}),'/api/push/test-access/send',{mode:'all',title:'Custom title',body:'Custom body',endpoint:'own',delayed:true});
  assert.equal(g.calls[0].p.actor,null);assert.equal(g.calls[0].p.test_code,hash);assert.equal(g.calls[0].p.p.mode,'test');assert.equal(g.calls[0].p.p.title,'Custom title');
 });
+test('approval notifications recheck both operator role and the applicant pending state before provider delivery',async()=>{
+ for(const [role,pendingStatus] of [['member','pending'],['admin','approved'],['admin','pending']]){const f=fixture({gym_settings:[{key:'pushVapid',value:{}}],gym_push_subscriptions:[{id:'s',user_id:'u',preferences:{approvals:true}}],gym_members:[{id:'u',role,status:'approved'},{id:'p',role:'member',status:pendingStatus}]},[{jobId:'j',subscriptionId:'s',kind:'approvals',subjectId:'p',payload:{}}]);const push=createPushService(f.db,{now:()=>time,pushFetch:async()=>{throw Error('mock invalid subscription must never reach provider')}});await push.dispatch();if(role!=='admin'||pendingStatus!=='pending')assert.equal(f.updates[0].value.status,'skipped');else assert.equal(f.updates[0].value.status,'failed');}
+});

@@ -1,6 +1,26 @@
 // supabase/functions/onoff-api/entry.js
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
+// supabase/functions/onoff-api/account-service.js
+var fail = (message, status = 400) => {
+  throw Object.assign(Error(message), { status });
+};
+function createAccountService(db2, { reauthenticate } = {}) {
+  return { async withdraw(member, b) {
+    if (b.confirmed !== true || typeof b.password !== "string" || !b.password || b.password.length > 128) fail("\uD0C8\uD1F4 \uB3D9\uC758\uC640 \uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (!member.email || !reauthenticate) fail("\uC774\uBA54\uC77C \uB85C\uADF8\uC778\uC744 \uB2E4\uC2DC \uD655\uC778\uD574\uC8FC\uC138\uC694.", 401);
+    const session = await reauthenticate(member.email, b.password);
+    if (!session || session.user?.id !== member.id || !session.accessToken) fail("\uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.", 403);
+    const prepared = await db2.rpc("onoff_withdraw_prepare", { actor: member.id });
+    if (prepared.error) fail(prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uB2E4\uB978 \uC2B9\uC778\uB41C \uC6B4\uC601\uC790\uC5D0\uAC8C \uAD8C\uD55C\uC744 \uB118\uAE34 \uB4A4 \uD0C8\uD1F4\uD560 \uC218 \uC788\uC5B4\uC694." : "\uD0C8\uD1F4 \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", prepared.error.code === "23514" ? 409 : 503);
+    const revoked = await db2.auth.admin.signOut(session.accessToken, "global");
+    if (revoked.error) fail("\uB85C\uADF8\uC778 \uC5F0\uACB0 \uD574\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    const removed = await db2.auth.admin.deleteUser(member.id, false);
+    if (removed.error) fail("\uACC4\uC815 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    return { ok: true, deleted: true };
+  } };
+}
+
 // web/core.js
 var MOVEMENTS = ["Front Squat", "Back Squat", "Deadlift", "Clean", "Clean & Jerk", "Snatch", "Power Snatch", "Squat Snatch", "Strict Press", "Push Press", "Split Jerk", "Row", "Box Step Over", "Pull-up", "Ring Dip", "Burpee"];
 var KINDS = ["\uC5C6\uC74C", "\uC911\uB7C9", "1RM", "\uC2DC\uAC04", "\uD69F\uC218", "\uB77C\uC6B4\uB4DC + \uD69F\uC218", "\uCE7C\uB85C\uB9AC", "\uC138\uD2B8\uBCC4 \uD69F\uC218\xB7\uCE7C\uB85C\uB9AC", "\uC644\uB8CC \uC5EC\uBD80"];
@@ -331,7 +351,7 @@ async function pushDigest(value) {
 }
 
 // supabase/functions/onoff-api/push-service.js
-var fail = (message, status = 400) => {
+var fail2 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 var same = (a, b) => {
@@ -344,7 +364,7 @@ var same = (a, b) => {
 function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFetch = fetch } = {}) {
   async function result(q) {
     const { data, error } = await q;
-    if (error) fail(error.code === "42501" ? "\uC54C\uB9BC \uC694\uCCAD \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : "\uC54C\uB9BC \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : 400);
+    if (error) fail2(error.code === "42501" ? "\uC54C\uB9BC \uC694\uCCAD \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : "\uC54C\uB9BC \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : 400);
     return data;
   }
   const one = (table, key, value) => result(db2.from(table).select("*").eq(key, value).maybeSingle());
@@ -357,15 +377,15 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
   }
   async function access(req) {
     const code = req.headers.get("X-OnOff-Push-Test") || "";
-    if (!/^[a-f0-9]{32}$/.test(code)) fail("\uC720\uD6A8\uD55C \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C \uB610\uB294 \uCF54\uB4DC\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.", 401);
+    if (!/^[a-f0-9]{32}$/.test(code)) fail2("\uC720\uD6A8\uD55C \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C \uB610\uB294 \uCF54\uB4DC\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.", 401);
     const hash = await pushDigest(code), test = await one("gym_push_tests", "hash", hash);
-    if (!test || Date.parse(test.expires) <= +now()) fail("\uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB410\uC5B4\uC694.", 401);
+    if (!test || Date.parse(test.expires) <= +now()) fail2("\uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB410\uC5B4\uC694.", 401);
     return { hash, test };
   }
   async function subscribe(actor, testHash, b) {
     const sub = validateSubscription(b.subscription);
-    if (!sub) fail("\uC54C\uB9BC \uAD6C\uB3C5 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    const id = await pushDigest(sub.endpoint), preferences = { notices: b.preferences?.notices !== false, workouts: b.preferences?.workouts !== false };
+    if (!sub) fail2("\uC54C\uB9BC \uAD6C\uB3C5 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    const id = await pushDigest(sub.endpoint), preferences = { notices: b.preferences?.notices !== false, workouts: b.preferences?.workouts !== false, approvals: b.preferences?.approvals !== false };
     await result(db2.rpc("onoff_push_subscribe", { actor, test_code: testHash, sub_id: id, sub_body: sub, prefs: preferences }));
     return { ok: true, id };
   }
@@ -387,6 +407,10 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
           if (current.user_id) {
             const member = await one("gym_members", "id", current.user_id);
             allowed = member?.status === "approved" && (job.kind === "test" || current.preferences?.[job.kind] !== false);
+            if (job.kind === "approvals") {
+              const pending = await one("gym_members", "id", job.subjectId);
+              allowed = allowed && member?.role === "admin" && pending?.status === "pending";
+            }
           } else if (current.test_hash) {
             const test = await one("gym_push_tests", "hash", current.test_hash);
             allowed = job.kind === "test" && current.test_hash === job.testHash && Date.parse(test?.expires) > +now();
@@ -395,7 +419,8 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
           else {
             const subscription = validateSubscription(current.body);
             if (!subscription) throw Error("Invalid subscription");
-            const body = await encryptPush(subscription, job.payload), authorization = await vapidAuthorization(subscription.endpoint, { VAPID_PUBLIC_KEY: config.publicKey, VAPID_PRIVATE_JWK: JSON.stringify(config.privateJwk), VAPID_SUBJECT: config.subject }, now());
+            const payload = job.kind === "approvals" ? { ...job.payload, url: "/Onoffgym/?approval=" + encodeURIComponent(job.subjectId) + "#admin/members" } : job.payload;
+            const body = await encryptPush(subscription, payload), authorization = await vapidAuthorization(subscription.endpoint, { VAPID_PUBLIC_KEY: config.publicKey, VAPID_PRIVATE_JWK: JSON.stringify(config.privateJwk), VAPID_SUBJECT: config.subject }, now());
             const response = await pushFetch(subscription.endpoint, { method: "POST", headers: { Authorization: authorization, "Content-Encoding": "aes128gcm", "Content-Type": "application/octet-stream", TTL: "3600", Urgency: job.kind === "test" ? "high" : "normal" }, body, redirect: "error", signal: AbortSignal.timeout(8e3) });
             if (response.ok) {
               state = "sent";
@@ -425,7 +450,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
   async function publicRoute(req, path, b) {
     if (path === "/api/push/dispatch") {
       const secret = await setting("pushCronSecret");
-      if (!secret || !same(req.headers.get("X-OnOff-Worker"), secret)) fail("\uC54C\uB9BC \uBC1C\uC1A1 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 401);
+      if (!secret || !same(req.headers.get("X-OnOff-Worker"), secret)) fail2("\uC54C\uB9BC \uBC1C\uC1A1 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 401);
       return dispatch();
     }
     const { hash, test } = await access(req);
@@ -441,14 +466,14 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
       const job = await result(db2.rpc("onoff_push_compose", { actor: null, test_code: hash, p: { mode: "test", title: b.title || "ONOFF \uD478\uC2DC \uD14C\uC2A4\uD2B8", body: b.body || "\uC571\uC744 \uB2EB\uC740 \uC0C1\uD0DC\uC758 \uC54C\uB9BC \uC218\uC2E0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", subscriptionId: id, delayed: b.delayed === true } }));
       return { ok: true, job, queued: true };
     }
-    fail("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    fail2("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
   }
   async function memberRoute(member, path, b) {
     if (["/api/push/compose", "/api/push/history"].includes(path)) {
-      if (member.status !== "approved" || member.role !== "admin") fail("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (member.status !== "approved" || member.role !== "admin") fail2("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       if (path.endsWith("/history")) return { jobs: await result(db2.rpc("onoff_push_history", { actor: member.id })) };
-      if (!["test", "all"].includes(b.mode)) fail("\uBC1C\uC1A1 \uB300\uC0C1\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      if (b.mode === "test" && !b.endpoint) fail("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
+      if (!["test", "all"].includes(b.mode)) fail2("\uBC1C\uC1A1 \uB300\uC0C1\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.mode === "test" && !b.endpoint) fail2("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
       const job = await result(db2.rpc("onoff_push_compose", { actor: member.id, test_code: null, p: { mode: b.mode, title: b.title, body: b.body, subscriptionId: await pushDigest(b.endpoint || ""), delayed: b.mode === "test" } }));
       return { ok: true, queued: true, job };
     }
@@ -463,12 +488,12 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
     }
     if (path === "/api/push/test") {
       const sub = await result(db2.from("gym_push_subscriptions").select("id").eq("user_id", member.id).limit(1));
-      if (!sub.length) fail("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
+      if (!sub.length) fail2("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
       const target = b.endpoint ? id : sub[0].id;
       await result(db2.rpc("onoff_push_test_job", { actor: member.id, test_code: null, sub_id: target, delayed: false }));
       return { ok: true, queued: true, sent: 0 };
     }
-    fail("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    fail2("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
   }
   return { status, dispatch, enqueue, publicRoute, memberRoute };
 }
@@ -483,8 +508,8 @@ var text = (v, min, max, label) => {
   if (typeof v !== "string" || v.trim().length < min || v.length > max) bad(label + "\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
   return v.trim();
 };
-function createHandler(db2, { verifyUser, fetchCalendar = fetch, now = () => /* @__PURE__ */ new Date() } = {}) {
-  const push = createPushService(db2, { now });
+function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch, now = () => /* @__PURE__ */ new Date() } = {}) {
+  const push = createPushService(db2, { now }), account = createAccountService(db2, { reauthenticate });
   async function result(q) {
     const { data, error } = await q;
     if (error) {
@@ -502,12 +527,12 @@ function createHandler(db2, { verifyUser, fetchCalendar = fetch, now = () => /* 
   const commit = (actor, op, p = {}) => result(db2.rpc("onoff_commit", { actor, op, p }));
   async function member(req) {
     const token = req.headers.get("Authorization")?.match(/^Bearer (.+)$/)?.[1];
-    if (!token) bad("\uCE74\uCE74\uC624 \uB85C\uADF8\uC778 \uC5F0\uACB0 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 401);
+    if (!token) bad("\uC774\uBA54\uC77C\uB85C \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694.", 401);
     const user = await verifyUser(token);
     if (!user?.id || user.is_anonymous) bad("\uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694.", 401);
     let m = await one("gym_members", "id", user.id);
     if (!m) m = await commit(user.id, "ensure-member");
-    return m;
+    return { ...m, email: user.email || "" };
   }
   const approved = (m) => {
     if (m.status !== "approved") bad("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
@@ -652,6 +677,7 @@ function createHandler(db2, { verifyUser, fetchCalendar = fetch, now = () => /* 
     if (path === "/api/push/dispatch" || path.startsWith("/api/push/test-access/")) return push.publicRoute(req, path, b);
     if (["/api/tv/login", "/api/tv/logout", "/api/tv/bootstrap", "/api/tv/heartbeat"].includes(path)) return tv(req, path, b);
     const m = await member(req);
+    if (path === "/api/account/delete") return account.withdraw(m, b);
     if (path === "/api/revision") return revision(m);
     if (path === "/api/bootstrap") return bootstrap(m, url);
     if (path === "/api/profile") return commit(m.id, "profile", { name: text(b.name, 2, 30, "\uC2E4\uBA85") });
@@ -821,7 +847,11 @@ function createHandler(db2, { verifyUser, fetchCalendar = fetch, now = () => /* 
 
 // supabase/functions/onoff-api/entry.js
 var db = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false, autoRefreshToken: false } });
-Deno.serve(createHandler(db, { verifyUser: async (token) => {
+Deno.serve(createHandler(db, { reauthenticate: async (email, password) => {
+  const client = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data, error } = await client.auth.signInWithPassword({ email, password });
+  return error ? null : { user: data.user, accessToken: data.session?.access_token };
+}, verifyUser: async (token) => {
   const { data, error } = await db.auth.getUser(token);
   return error ? null : data.user;
 } }));

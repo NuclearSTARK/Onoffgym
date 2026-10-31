@@ -1,3 +1,4 @@
+import {createAccountService} from './account-service.js';
 import {MOVEMENTS,DEFAULT_BANNER,KINDS,kstDate,normalizeDate,validateWorkouts,youtubeId,validBanner,tvWorkoutDate,workoutDayState,addDays} from '../../../web/core.js';
 import {HOLIDAY_FALLBACK,HOLIDAY_SOURCE,parseHolidayCalendar} from '../../../web/holidays.js';
 import {DEFAULT_RM_CATALOGUE,updateRmCatalogue,findRmMovement} from '../../../web/rm-catalogue.js';
@@ -10,14 +11,14 @@ const ORIGINS=new Set(['https://nuclearstark.github.io','https://onoff-crossfit-
 const bad=(message,status=400)=>{throw Object.assign(Error(message),{status});};
 const uuid=v=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const text=(v,min,max,label)=>{if(typeof v!=='string'||v.trim().length<min||v.length>max)bad(label+'을 확인해주세요.');return v.trim();};
-export function createHandler(db,{verifyUser,fetchCalendar=fetch,now=()=>new Date()}={}){
- const push=createPushService(db,{now});
+export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,now=()=>new Date()}={}){
+ const push=createPushService(db,{now}),account=createAccountService(db,{reauthenticate});
  async function result(q){const {data,error}=await q;if(error){const code=error.code;bad(code==='42501'?'이 요청을 처리할 권한이 없어요.':code==='23505'?'이미 등록된 항목이 있어요. 새로 불러온 뒤 확인해주세요.':code==='40001'?'다른 기기에서 변경됐어요. 다시 불러와 주세요.':'저장 요청을 처리하지 못했어요.',code==='42501'?403:['23505','40001'].includes(code)?409:503);}return data;}
  const rows=(table,configure=q=>q)=>result(configure(db.from(table).select('*')));
  const one=(table,key,value)=>result(db.from(table).select('*').eq(key,value).maybeSingle());
  async function setting(key,fallback){const row=await one('gym_settings','key',key);return row?.value??fallback;}
  const commit=(actor,op,p={})=>result(db.rpc('onoff_commit',{actor,op,p}));
- async function member(req){const token=req.headers.get('Authorization')?.match(/^Bearer (.+)$/)?.[1];if(!token)bad('카카오 로그인 연결 후 이용할 수 있어요.',401);const user=await verifyUser(token);if(!user?.id||user.is_anonymous)bad('다시 로그인해주세요.',401);let m=await one('gym_members','id',user.id);if(!m)m=await commit(user.id,'ensure-member');return m;}
+ async function member(req){const token=req.headers.get('Authorization')?.match(/^Bearer (.+)$/)?.[1];if(!token)bad('이메일로 로그인해주세요.',401);const user=await verifyUser(token);if(!user?.id||user.is_anonymous)bad('다시 로그인해주세요.',401);let m=await one('gym_members','id',user.id);if(!m)m=await commit(user.id,'ensure-member');return {...m,email:user.email||''};}
  const approved=m=>{if(m.status!=='approved')bad('관리자 승인 후 이용할 수 있어요.',403);};
  const admin=m=>{approved(m);if(m.role!=='admin')bad('운영자 권한이 필요해요.',403);};
  async function library(){const [custom,catalogue]=await Promise.all([rows('gym_movements'),setting('rmCatalogue',DEFAULT_RM_CATALOGUE)]);const map=new Map(MOVEMENTS.map(name=>[name,{name,videoId:'',notes:''}]));for(const m of custom)map.set(m.name,m.body);for(const m of catalogue)for(const name of [m.name,...(m.aliases||[])])if(!map.has(name))map.set(name,{name,videoId:'',notes:''});return [...map.values()];}
@@ -79,6 +80,7 @@ export function createHandler(db,{verifyUser,fetchCalendar=fetch,now=()=>new Dat
   if(path==='/api/push/dispatch'||path.startsWith('/api/push/test-access/'))return push.publicRoute(req,path,b);
   if(['/api/tv/login','/api/tv/logout','/api/tv/bootstrap','/api/tv/heartbeat'].includes(path))return tv(req,path,b);
   const m=await member(req);
+  if(path==='/api/account/delete')return account.withdraw(m,b);
   if(path==='/api/revision')return revision(m);
   if(path==='/api/bootstrap')return bootstrap(m,url);
   if(path==='/api/profile')return commit(m.id,'profile',{name:text(b.name,2,30,'실명')});

@@ -87,3 +87,49 @@ footer .privacy-links{margin:0;gap:8px 16px}
 }
 @media(max-width:360px){.mobile-brand>.brand-mark{width:96px}.topbar{gap:5px}.top-actions{gap:4px}#live-clock{font-size:9px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+
+.instagram-link{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--muted);border-radius:8px}
+.instagram-link svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.6}
+.instagram-link:hover{color:var(--blue);background:var(--soft)}
+.app>.site-footer{display:grid;grid-template-columns:minmax(0,1fr) 44px minmax(0,1fr);align-items:center;gap:18px;padding:18px 42px 28px;border-top:1px solid var(--line);margin-top:25px}
+.login-mode .app>.site-footer{display:none}
+.site-footer .footer-wordmark{display:flex;align-items:center;min-height:44px;font:600 12px/20px Arial,sans-serif;letter-spacing:.9px;color:var(--muted)}
+.site-footer .instagram-link{justify-self:center}
+.site-footer .privacy-links{display:flex;justify-content:flex-end;align-items:center;gap:14px;margin:0}
+.site-footer .privacy-links button{display:flex;align-items:center;min-height:44px;font-size:12px;line-height:20px;white-space:nowrap;text-decoration:none;padding:0}
+.name-locked{font-size:11px;color:var(--muted);flex-shrink:0}
+.tv-connection-panel{border:1px solid var(--line);border-radius:9px;background:var(--bg);padding:18px;margin:20px 0}
+.tv-connection-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.tv-connection-heading h3{margin:0;font-size:15px}
+.tv-device{border-top:1px solid var(--line);margin-top:14px;padding-top:14px;font-size:12px}.tv-device-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.tv-device p{margin:9px 0 0;color:var(--muted);line-height:1.8}.tv-online{color:#8ee6ca}.tv-offline{color:var(--muted)}.tv-device-colors{display:flex;gap:15px;align-items:center;margin-top:9px;font-size:11px}.tv-device-colors i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
+@media(max-width:760px){
+ .app>.site-footer{grid-template-columns:auto minmax(0,1fr);gap:2px 12px;padding:15px max(18px,var(--safe-right)) calc(92px + var(--safe-bottom)) max(18px,var(--safe-left))}
+ .site-footer .footer-wordmark{display:flex;font-size:11px;letter-spacing:.6px}
+ .site-footer .privacy-links{gap:12px}.site-footer .privacy-links button{font-size:11px;line-height:20px}
+ .site-footer>.instagram-link{grid-column:1/-1;grid-row:2;justify-self:center;margin-top:3px}
+ .tv-connection-panel{padding:14px}.tv-connection-heading{flex-wrap:wrap}
+}
+@media(max-width:360px){.site-footer .footer-wordmark,.site-footer .privacy-links button{font-size:10px}.site-footer .privacy-links{gap:8px}.app>.site-footer{column-gap:8px}}
+
+.home-compact .right-column{display:block}.home-compact .hero-bottom{display:none}.home-compact .workout-hero{padding-top:20px;padding-bottom:20px}
+.section-movement-links{display:flex;align-items:center;gap:4px 12px;flex-wrap:wrap;margin-top:10px}.section-movement-links .movement-link{display:inline-flex;align-items:center;gap:5px;min-height:36px;font-size:11px;color:var(--blue);padding:5px 0;text-align:left}.home-compact .workout-section{padding-top:18px;padding-bottom:18px}
+.home-timetable{height:max-content;overflow:hidden}.home-timetable>summary{cursor:pointer;list-style:none;margin:0}.home-timetable>summary::-webkit-details-marker{display:none}
+.timetable-toggle{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);flex-shrink:0}.timetable-toggle>span{display:none}.timetable-toggle:after{content:'펼치기'}.home-timetable[open] .timetable-toggle:after{content:'접기'}
+.section-rm-reference{margin:16px 0;padding:12px;background:var(--bg);border:1px solid var(--line);border-radius:8px}
+.section-rm-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;line-height:1.8;flex-wrap:wrap}.section-rm-heading>span{color:var(--muted)}
+.section-rm-heading>strong{font-size:14px;white-space:nowrap}.section-rm-heading small{font-size:11px;font-weight:400;color:var(--muted)}
+.section-rm-heading label{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted)}.section-rm-heading select{min-width:0;max-width:100%;font-size:16px;padding:5px 8px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--ink)}
+.section-percentages{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px;margin-top:10px}
+.section-percentages>div{background:var(--soft);padding:9px 3px;text-align:center;border-radius:7px;min-width:0}
+.section-percentages span{display:block;font-size:11px;color:var(--muted);line-height:1.8}.section-percentages strong{display:block;font-size:17px;letter-spacing:-.5px;line-height:1.5;white-space:nowrap}.section-percentages small{display:block;font-size:9px;color:var(--muted);font-weight:400;letter-spacing:0}
+.attendance-emoji{display:block!important;font-size:22px!important;line-height:1.35;min-height:28px;padding:0!important;margin:2px 0 0!important;background:transparent!important;color:inherit!important}
+.holiday-calendar .attended{min-height:61px}.rm-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.rm-personal-grid h3{overflow-wrap:anywhere}
+.rm-picker-group{border:0;padding:0;margin:0 0 20px;min-width:0}.rm-picker-group legend{font-size:13px;font-weight:700;color:var(--blue);margin-bottom:9px}
+.rm-picker-row{display:flex;align-items:center;gap:12px;min-height:47px;font-size:13px;border-bottom:1px solid var(--line);cursor:pointer;padding:7px 0}.rm-picker-row input{width:19px;height:19px;flex-shrink:0;accent-color:var(--accent)}.rm-picker-row small{font-size:10px;color:var(--muted)}
+.rm-picker-row[hidden],.rm-picker-group[hidden]{display:none}
+.rm-admin-group{border-top:1px solid var(--line);margin-top:22px;padding-top:20px}.rm-admin-group h3{color:var(--blue);font-size:14px}
+.rm-admin-row{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:12px 0;border-bottom:1px solid var(--line);font-size:13px}.rm-admin-row>div{min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}.rm-admin-row strong{overflow-wrap:anywhere;font-weight:500}.rm-admin-row>.link{min-height:40px;flex-shrink:0}
+@media(max-width:760px){
+ .home-compact .workout-hero{padding:18px 20px}.home-compact .right-column{display:block}.home-timetable .panel-head{padding:17px 18px}.home-timetable .panel-head h2{font-size:15px}
+ .section-rm-reference{padding:10px;margin:13px 0}.section-percentages{gap:5px}.section-percentages strong{font-size:clamp(12px,3.3vw,17px)}.section-rm-heading{font-size:11px}
+ .rm-toolbar{gap:8px}.rm-toolbar .btn{font-size:11px}.rm-personal-grid .rm-number{font-size:38px}
+}

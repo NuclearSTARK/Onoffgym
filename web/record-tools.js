@@ -10,7 +10,7 @@ export function percentageWeight(lbs,percent,unit='lbs'){
 
 export function findClassRecord(records,member,context){
   return records.find(r=>r.date===context.date&&r.program===context.program&&r.session===context.session&&r.section===context.section&&
-    (r.memberId?r.memberId===member.id:r.name===member.name));
+    r.memberId===member.id);
 }
 
 // Validate the complete batch before returning changes. Empty rows never delete records.

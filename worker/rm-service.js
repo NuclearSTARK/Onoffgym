@@ -1,0 +1,3 @@
+import {DEFAULT_RM_CATALOGUE,updateRmCatalogue} from '../web/rm-catalogue.js';
+export async function readRmCatalogue(env){const row=await env.DB.prepare('SELECT value FROM gym_settings WHERE key=?').bind('rmCatalogue').first();return row?JSON.parse(row.value):structuredClone(DEFAULT_RM_CATALOGUE);}
+export async function writeRmCatalogue(env,body){const result=updateRmCatalogue(await readRmCatalogue(env),body);await env.DB.prepare('INSERT INTO gym_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('rmCatalogue',JSON.stringify(result.catalogue)).run();return result;}

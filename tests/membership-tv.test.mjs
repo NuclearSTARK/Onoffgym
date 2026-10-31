@@ -87,3 +87,34 @@ test('TV rejects non-four-digit PIN settings and requires deliberate replacement
  assert.equal((await call('owner','/api/bootstrap')).data.tv.needsPinUpdate,false);
  assert.equal((await call('','/api/tv/login',{password:'0456'})).status,200);
 });
+test('only pending members edit their own name; operator corrections retain member ID, pass and attendance',async()=>{
+ const {call}=await setup();
+ for(const id of ['member','owner'])assert.equal((await call(id,'/api/profile',{name:'새로운이름'})).status,403);
+ assert.equal((await call('pending-person','/api/profile',{name:'가입실명'})).status,200);
+ assert.equal((await call('member','/api/member-name',{id:'other',name:'변경시도'})).status,403);
+ await call('owner','/api/membership',{id:'member',action:'register',kind:'visits',visits:5,startDate:'2026-11-02'});await call('member','/api/attendance',{});
+ const before=(await call('member','/api/bootstrap')).data;
+ assert.equal((await call('owner','/api/member-name',{id:'member',name:'other'})).status,200);
+ const after=(await call('member','/api/bootstrap')).data;
+ assert.equal(after.viewer.id,before.viewer.id);assert.equal(after.viewer.name,'other');assert.deepEqual(after.attendance,before.attendance);assert.deepEqual(after.membership,before.membership);
+ const members=(await call('owner','/api/bootstrap')).data.members;assert.equal(members.filter(m=>m.name==='other').length,2);assert.equal(new Set(members.filter(m=>m.name==='other').map(m=>m.id)).size,2);
+ assert.equal((await call('owner','/api/member-name',{id:'member',name:' '})).status,400);
+});
+test('TV status uses acknowledged display data, enforces roles and expires online state without exposing session secrets',async()=>{
+ const {call,now}=await setup();await call('owner','/api/tv/admin',{password:'0123'});
+ assert.deepEqual((await call('owner','/api/tv/status')).data.devices,[]);
+ assert.equal((await call('member','/api/tv/status')).status,403);
+ assert.equal((await call('','/api/tv/heartbeat',{displayDate:'2026-11-02'})).status,401);
+ const login=await call('','/api/tv/login',{password:'0123'}),cookie=login.headers.get('Set-Cookie').split(';')[0];
+ let status=(await call('owner','/api/tv/status')).data;assert.equal(status.devices[0].online,false);assert.equal(status.devices[0].lastSeen,null);
+ const preferences={btColor:'mint',wodColor:'purple',unit:'lbs',pageSeconds:20};
+ assert.equal((await call('','/api/tv/heartbeat',{displayDate:'2026-11-03',preferences},now,{Cookie:cookie})).status,400);
+ assert.equal((await call('','/api/tv/heartbeat',{displayDate:'2026-11-02',preferences},now,{Cookie:cookie})).status,200);
+ status=(await call('owner','/api/tv/status')).data;assert.equal(status.devices[0].online,true);assert.equal(status.devices[0].displayDate,'2026-11-02');assert.deepEqual(status.devices[0].preferences,preferences);
+ const id=status.devices[0].id;assert.ok(id);assert.equal(JSON.stringify(status).includes(cookie.split('=')[1]),false);assert.equal(JSON.stringify(status).includes('hash'),false);
+ assert.equal((await call('','/api/tv/status',undefined,now,{Cookie:cookie})).status,401);
+ assert.equal((await call('owner','/api/tv/status',undefined,new Date(+now+91000))).data.devices[0].online,false);
+ await call('','/api/tv/heartbeat',{displayDate:'2026-11-02',preferences},new Date(+now+92000),{Cookie:cookie});
+ status=(await call('owner','/api/tv/status',undefined,new Date(+now+92000))).data;assert.equal(status.devices[0].id,id);assert.equal(status.devices[0].online,true);
+ await call('','/api/tv/logout',{},now,{Cookie:cookie});assert.deepEqual((await call('owner','/api/tv/status')).data.devices,[]);
+});

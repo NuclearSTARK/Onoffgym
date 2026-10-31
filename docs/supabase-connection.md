@@ -44,7 +44,7 @@ node --test --test-isolation=none tests/*.test.mjs
 - `supabase/config.toml`의 `verify_jwt=false`는 PIN으로 접속하는 TV 요청을 받기 위해 필요하다. 회원 요청은 함수 본문에서 반드시 Auth 검증을 한다.
 - CORS 허용 주소는 API 원본의 `ORIGINS`에 있다. GitHub 이전으로 도메인이 바뀌면 함께 수정·재배포한다.
 - 로컬 CLI는 이 실행 환경의 읽기 전용 홈 디렉터리 때문에 초기화하지 못했다. 마이그레이션은 연결 도구로 적용했고, 서버가 부여한 실제 version으로 `supabase/migrations`에 그대로 보관했다. 파일명을 임의로 만들지 않았다.
-- `supabase/tests.sql`은 단일 트랜잭션 안에서 임시 Auth/회원 데이터를 만들어 DB 동작을 확인한 후 모두 rollback한다. 실사용자 로그인이나 실제 기기 간 테스트를 대신하지 않는다.
+- `supabase/tests.sql`은 단일 트랜잭션 안에서 임시 Auth 데이터를 준비한 다음 실제 Edge 서버의 `service_role` 권한으로 가입 초기 처리와 DB 동작을 확인한 후 모두 rollback한다. 실사용자 로그인이나 실제 기기 간 테스트를 대신하지 않는다.
 
 ## 비용과 인수인계
 

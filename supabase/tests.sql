@@ -1,12 +1,18 @@
 -- Run against a dedicated test project, or via a single management SQL request.
 -- Everything, including Auth fixtures and settings changes, is rolled back.
 begin;
+-- Provision ephemeral Auth fixtures as the management role, then exercise every
+-- app transaction with exactly the role used by the deployed Edge Function.
+do $$ declare a uuid:=gen_random_uuid();m uuid:=gen_random_uuid();o uuid:=gen_random_uuid();p uuid:=gen_random_uuid();begin
+ perform set_config('onoff.test_admin',a::text,true);perform set_config('onoff.test_member',m::text,true);perform set_config('onoff.test_other',o::text,true);perform set_config('onoff.test_pending',p::text,true);
+ insert into auth.users(id,email,role,aud,is_anonymous) values(a,a||'@example.invalid','authenticated','authenticated',false),(m,m||'@example.invalid','authenticated','authenticated',false),(o,o||'@example.invalid','authenticated','authenticated',false),(p,p||'@example.invalid','authenticated','authenticated',false);
+end $$;
+set local role service_role;
 do $$
-declare admin_id uuid:=gen_random_uuid(); member_id uuid:=gen_random_uuid(); other_id uuid:=gen_random_uuid(); pending_id uuid:=gen_random_uuid();
+declare admin_id uuid:=current_setting('onoff.test_admin')::uuid; member_id uuid:=current_setting('onoff.test_member')::uuid; other_id uuid:=current_setting('onoff.test_other')::uuid; pending_id uuid:=current_setting('onoff.test_pending')::uuid;
  pass_id uuid:=gen_random_uuid(); replacement_id uuid:=gen_random_uuid();record_id uuid:=gen_random_uuid(); other_record uuid:=gen_random_uuid();
  day date:=(now() at time zone 'Asia/Seoul')::date;outcome jsonb;entry jsonb;v_post_id uuid;cnt integer;
 begin
- insert into auth.users(id,email,role,aud,is_anonymous) values(admin_id,admin_id||'@example.invalid','authenticated','authenticated',false),(member_id,member_id||'@example.invalid','authenticated','authenticated',false),(other_id,other_id||'@example.invalid','authenticated','authenticated',false),(pending_id,pending_id||'@example.invalid','authenticated','authenticated',false);
  perform public.onoff_commit(admin_id,'ensure-member');perform public.onoff_commit(member_id,'ensure-member');perform public.onoff_commit(other_id,'ensure-member');perform public.onoff_commit(pending_id,'ensure-member');
  update public.gym_members set role=case when id=admin_id then 'admin' else 'member' end,status='approved',name='동명이인' where id in(admin_id,member_id,other_id);
  begin perform public.onoff_commit(pending_id,'attendance');raise exception 'FAILED pending approval';exception when insufficient_privilege then null;end;

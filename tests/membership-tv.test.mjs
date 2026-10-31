@@ -46,16 +46,44 @@ test('staff-only distinguishing notes do not appear in ordinary member bootstrap
  assert.equal((await call('owner','/api/bootstrap')).data.members.find(m=>m.id==='member').note,'오전 방문');
  assert.equal(JSON.stringify((await call('member','/api/bootstrap')).data).includes('오전 방문'),false);
 });
-test('TV password sessions expose only published workouts for today, without member authentication',async()=>{
+test('TV four-digit PIN sessions expose only the selected published day without member authentication',async()=>{
  const {call,db,now}=await setup();await call('owner','/api/workouts',{workouts:[fixture('2026-11-02'),fixture('2026-11-02','B/T'),fixture('2026-11-03')]});
- assert.equal((await call('coach','/api/tv/admin',{password:'123456',theme:'mint',unit:'lbs',pageSeconds:20})).status,403);
- assert.equal((await call('owner','/api/tv/admin',{password:'123456',theme:'mint',unit:'lbs',pageSeconds:20})).status,200);
- const stored=await db.prepare('SELECT value FROM gym_settings WHERE key=?').bind('tvPassword').first();assert.equal(stored.value.includes('123456'),false);
+ assert.equal((await call('coach','/api/tv/admin',{password:'0123',theme:'mint',unit:'lbs',pageSeconds:20})).status,403);
+ assert.equal((await call('owner','/api/tv/admin',{password:'0123',theme:'mint',unit:'lbs',pageSeconds:20})).status,200);
+ const stored=await db.prepare('SELECT value FROM gym_settings WHERE key=?').bind('tvPassword').first();assert.equal(stored.value.includes('0123'),false);
  assert.equal((await call('','/api/tv/bootstrap')).status,401);
- const login=await call('','/api/tv/login',{password:'123456'});assert.equal(login.status,200);assert.match(login.headers.get('Set-Cookie'),/HttpOnly/);assert.match(login.headers.get('Set-Cookie'),/Secure/);
+ const login=await call('','/api/tv/login',{password:'0123'});assert.equal(login.status,200);assert.match(login.headers.get('Set-Cookie'),/HttpOnly/);assert.match(login.headers.get('Set-Cookie'),/Secure/);
  const cookie=login.headers.get('Set-Cookie').split(';')[0];const tv=await call('','/api/tv/bootstrap?date=2026-11-03',undefined,now,{Cookie:cookie});assert.equal(tv.status,200);assert.equal(tv.data.workouts.length,2);assert.ok(tv.data.workouts.every(w=>w.date==='2026-11-02'));assert.equal(tv.data.members,undefined);assert.equal(tv.data.memberships,undefined);
  assert.equal((await call('','/api/bootstrap',undefined,now,{Cookie:cookie})).status,401);
- await call('owner','/api/tv/admin',{password:'new-password',theme:'orange',unit:'kg',pageSeconds:30});assert.equal((await call('','/api/tv/bootstrap',undefined,now,{Cookie:cookie})).status,401);
+ await call('owner','/api/tv/admin',{password:'4567',theme:'orange',unit:'kg',pageSeconds:30});assert.equal((await call('','/api/tv/bootstrap',undefined,now,{Cookie:cookie})).status,401);
  for(let i=0;i<5;i++)assert.equal((await call('','/api/tv/login',{password:'wrong' },now,{'CF-Connecting-IP':'test-rate-limit'})).status,401);
- assert.equal((await call('','/api/tv/login',{password:'new-password'},now,{'CF-Connecting-IP':'test-rate-limit'})).status,429);
+ assert.equal((await call('','/api/tv/login',{password:'4567'},now,{'CF-Connecting-IP':'test-rate-limit'})).status,429);
+});
+test('TV switches exactly at release time, keeps the workout across midnight and ignores requested future dates',async()=>{
+ const {call,now}=await setup();
+ await call('owner','/api/workouts',{workouts:[fixture('2026-11-02'),fixture('2026-11-03'),fixture('2026-11-04')]});
+ await call('owner','/api/tv/admin',{password:'0000'});
+ const login=await call('','/api/tv/login',{password:'0000'}),cookie=login.headers.get('Set-Cookie').split(';')[0];
+ for(const [time,date] of [['2026-11-02T12:59:59Z','2026-11-02'],['2026-11-02T13:00:00Z','2026-11-03'],['2026-11-02T15:00:00Z','2026-11-03']]){
+  const r=await call('','/api/tv/bootstrap?date=2026-11-04',undefined,new Date(time),{Cookie:cookie});
+  assert.equal(r.status,200);assert.equal(r.data.date,date);assert.equal(r.data.releaseTime,'22:00');assert.equal(r.data.workouts.length,1);assert.ok(r.data.workouts.every(w=>w.date===date));
+ }
+ await call('owner','/api/settings',{releaseTime:'21:30'},now);
+ const before=await call('','/api/tv/bootstrap',undefined,new Date('2026-11-02T12:29:59Z'),{Cookie:cookie});
+ const exact=await call('','/api/tv/bootstrap',undefined,new Date('2026-11-02T12:30:00Z'),{Cookie:cookie});
+ assert.equal(before.data.date,'2026-11-02');assert.equal(exact.data.date,'2026-11-03');assert.equal(exact.data.releaseTime,'21:30');assert.equal(exact.data.workouts[0].date,'2026-11-03');
+ const empty=await call('','/api/tv/bootstrap',undefined,new Date('2026-11-07T01:00:00Z'),{Cookie:cookie});
+ assert.deepEqual(empty.data.workouts,[]);assert.equal(empty.data.dayState,'open-gym');
+});
+test('TV rejects non-four-digit PIN settings and requires deliberate replacement of a legacy password',async()=>{
+ const {call,db}=await setup();
+ for(const password of ['123','12345','abcd',1234])assert.equal((await call('owner','/api/tv/admin',{password})).status,400);
+ assert.equal((await call('owner','/api/tv/admin',{password:'0123'})).status,200);
+ const stored=JSON.parse((await db.prepare('SELECT value FROM gym_settings WHERE key=?').bind('tvPassword').first()).value);delete stored.format;
+ await db.prepare('UPDATE gym_settings SET value=? WHERE key=?').bind(JSON.stringify(stored),'tvPassword').run();
+ assert.equal((await call('owner','/api/bootstrap')).data.tv.needsPinUpdate,true);
+ const legacy=await call('','/api/tv/login',{password:'0123'});assert.equal(legacy.status,503);assert.match(legacy.data.error,/4자리/);
+ await call('owner','/api/tv/admin',{password:'0456'});
+ assert.equal((await call('owner','/api/bootstrap')).data.tv.needsPinUpdate,false);
+ assert.equal((await call('','/api/tv/login',{password:'0456'})).status,200);
 });

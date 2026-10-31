@@ -19,3 +19,14 @@
 .tv-color-choice{display:grid;place-items:center;gap:7px;padding:9px 5px;min-width:0;font-size:13px!important;min-height:66px;background:var(--bg)}
 .tv-color-choice>span{display:block;width:100%;height:20px;border-radius:3px}
 .tv-color-choice[aria-pressed=true]{outline:2px solid #fff;outline-offset:1px;border-color:#fff}
+
+/* Course abbreviation and subtitle share one compact colored heading. */
+.tv-program{display:flex;align-items:center;gap:1.1vw;background:var(--course-color);color:#111820;padding:10px 18px;min-width:0;margin-bottom:2vh}
+.tv-program strong{background:transparent;color:inherit;padding:0;width:auto;flex-shrink:0;font-size:clamp(26px,2.4vw,60px)}
+.tv-program p{margin:0;color:inherit;font-size:clamp(13px,1.1vw,30px);letter-spacing:.3px;font-weight:600;min-width:0;line-height:1.4}
+.tv-section h2 .tv-section-number{font-size:clamp(22px,1.65vw,66px);padding:6px 10px}
+.tv-date{display:flex;align-items:center;gap:1vw;flex-wrap:wrap}
+.tv-date small{font-size:clamp(12px,.9vw,26px);border:1px solid #ffffff50;padding:5px 10px;border-radius:5px;color:#fff}
+.tv-rest h1{font-family:'Noto Sans KR',sans-serif;font-size:clamp(28px,3.7vw,90px);line-height:1.4}
+.tv-rest p{font-size:clamp(16px,1.6vw,38px);line-height:1.7;overflow-wrap:anywhere}
+@media(max-width:800px){.tv-program{padding:8px 12px;gap:10px}.tv-program strong{font-size:25px}.tv-program p{font-size:12px}.tv-section h2 .tv-section-number{font-size:22px}}

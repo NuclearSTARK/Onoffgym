@@ -44,3 +44,46 @@ dialog{overflow-x:hidden;overscroll-behavior:contain}
   .modal-content .form-footer{flex-wrap:wrap}.modal-content .form-footer .btn{flex:1;min-width:0}
 }
 @media(max-width:760px){.login-logo.brand-mark{height:60px}.settings-stack>.panel{padding:20px}.theme-options{gap:7px}.theme-choice{padding:12px 5px;font-size:11px}.settings-stack .setting-row strong{font-size:14px}}
+
+/* Keep the test notice and app tools together, below device system UI. */
+:root{--safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px);--safe-left:env(safe-area-inset-left,0px);--safe-right:env(safe-area-inset-right,0px)}
+html{scroll-padding-top:calc(var(--app-header-height,100px) + 12px)}
+.app-header{position:sticky;top:0;z-index:60;padding-top:var(--safe-top);background:var(--surface);box-shadow:0 5px 20px #00000018}
+.app-header .public-test-notice{position:static;min-height:34px;padding-left:max(12px,var(--safe-left));padding-right:max(12px,var(--safe-right));text-align:center;flex-wrap:wrap;gap:3px 10px}
+.app-header .topbar{position:static}
+.personal-settings{min-width:44px;min-height:44px;color:var(--ink);flex-shrink:0}
+.personal-settings svg{width:22px;height:22px}
+.sidebar{padding-top:calc(36px + var(--safe-top))}
+.login-mode .app-header{box-shadow:none}.login-mode .app-header:empty{display:none}
+.tomorrow-card{padding:12px 16px;margin:0 0 22px;background:var(--soft);border:1px solid var(--line);border-left:3px solid var(--blue);border-radius:9px;display:flex;align-items:center;gap:12px;min-width:0}
+.tomorrow-symbol{color:var(--blue);display:flex;flex-shrink:0}.tomorrow-symbol svg{width:22px;height:22px}
+.tomorrow-card>div{min-width:0;flex:1}.tomorrow-card strong{font-size:13px;line-height:1.7;color:var(--ink);overflow-wrap:anywhere}
+.tomorrow-card p{font-size:11px;line-height:1.6;margin:3px 0 0;color:var(--muted)}
+.tomorrow-link{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--blue);min-height:44px;flex-shrink:0}.tomorrow-link svg{width:17px;height:17px}
+.scroll-top{position:fixed;right:max(22px,calc(var(--safe-right) + 12px));bottom:calc(26px + var(--safe-bottom));z-index:45;width:46px;height:46px;border:1px solid var(--line);border-radius:50%;display:grid;place-items:center;background:var(--surface);color:var(--blue);font-size:25px;box-shadow:0 5px 20px #0004}
+.scroll-top[hidden],.login-mode .scroll-top{display:none!important}
+.privacy-links{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;margin-top:15px}
+.privacy-links button{font-size:12px;min-height:44px;color:var(--muted);text-decoration:underline;text-underline-offset:4px;text-align:left}
+footer .privacy-links{margin:0;gap:8px 16px}
+.withdrawal-link{display:block;min-height:44px;margin-top:10px;font-size:12px;color:var(--muted)}
+.privacy-draft{padding:16px;border:1px solid var(--blue);border-radius:8px;background:var(--soft);margin-bottom:22px}
+.privacy-draft>strong{font-size:15px;color:var(--blue)}.privacy-draft p{margin:8px 0 0}
+.privacy-document h3{font-size:15px;line-height:1.7;margin:24px 0 9px}
+.privacy-document p,.privacy-document dd,.privacy-document dt{font-size:13px;line-height:1.9;overflow-wrap:anywhere}
+.privacy-document dl{display:grid;gap:5px;margin:14px 0}.privacy-document dt{color:var(--muted);margin-top:8px}.privacy-document dd{margin:0}
+.privacy-document button:disabled{opacity:.6;cursor:default}
+@media(max-width:760px){
+ .topbar{padding-left:max(16px,var(--safe-left));padding-right:max(16px,var(--safe-right));gap:8px;height:64px}
+ .top-actions{gap:8px;min-width:0}.top-actions .profile-button,.top-actions .admin-shortcut{display:none}#live-clock{font-size:10px;white-space:nowrap}
+ main{padding-left:max(18px,var(--safe-left));padding-right:max(18px,var(--safe-right))}
+ .mobile-nav{padding-left:max(9px,var(--safe-left));padding-right:max(9px,var(--safe-right));padding-bottom:calc(8px + var(--safe-bottom))}
+ footer{padding-bottom:calc(105px + var(--safe-bottom));padding-left:max(18px,var(--safe-left));padding-right:max(18px,var(--safe-right))}
+ .scroll-top{bottom:calc(88px + var(--safe-bottom));right:calc(16px + var(--safe-right));width:44px;height:44px}
+ .tomorrow-card{padding:10px 12px;gap:9px;flex-wrap:wrap}.tomorrow-card>div{flex-basis:calc(100% - 40px)}
+ .tomorrow-card strong{font-size:12px}.tomorrow-card p{font-size:10px}.tomorrow-link{margin-left:31px;min-height:36px}
+ .login-mode .login-shell{padding-left:var(--safe-left);padding-right:var(--safe-right);padding-bottom:var(--safe-bottom)}
+ .privacy-links{gap:3px 14px}.login-card .privacy-links button{font-size:11px}
+ dialog{max-height:calc(100dvh - var(--safe-top) - var(--safe-bottom) - 24px)}
+}
+@media(max-width:360px){.mobile-brand>.brand-mark{width:96px}.topbar{gap:5px}.top-actions{gap:4px}#live-clock{font-size:9px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}

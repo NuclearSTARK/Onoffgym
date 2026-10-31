@@ -9,7 +9,7 @@ export const TV_COLORS=[
   {id:'red',name:'레드',color:'#f2a6a6'}
 ];
 export function normalizeTvPreferences(value={}){
-  const b={btColor:value.btColor??'blue',wodColor:value.wodColor??'orange',unit:value.unit??'lbs',pageSeconds:Number(value.pageSeconds??20)};
-  if(!TV_COLORS.some(c=>c.id===b.btColor)||!TV_COLORS.some(c=>c.id===b.wodColor)||!['lbs','kg'].includes(b.unit)||![15,20,30,45].includes(b.pageSeconds))throw Error('수업 색상·중량 단위·페이지 전환 시간을 확인해주세요.');
+  const b={orientation:value.orientation??'landscape',btColor:value.btColor??'blue',wodColor:value.wodColor??'orange',unit:value.unit??'lbs',pageSeconds:Number(value.pageSeconds??20)};
+  if(!['landscape','portrait'].includes(b.orientation)||!TV_COLORS.some(c=>c.id===b.btColor)||!TV_COLORS.some(c=>c.id===b.wodColor)||!['lbs','kg'].includes(b.unit)||![15,20,30,45].includes(b.pageSeconds))throw Error('수업 색상·중량 단위·페이지 전환 시간을 확인해주세요.');
   return b;
 }

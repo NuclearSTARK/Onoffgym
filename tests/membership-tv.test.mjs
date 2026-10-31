@@ -3,9 +3,11 @@ import {api} from '../worker/api.js';import {database,addMember,identity,fixture
 import {periodEnd,changeMembership,membershipState} from '../web/membership.js';
 import {normalizeTvPreferences} from '../web/tv-colors.js';
 test('TV course colors are independent and legacy themes are omitted',()=>{
- assert.deepEqual(normalizeTvPreferences({theme:'mint'}),{btColor:'blue',wodColor:'orange',unit:'lbs',pageSeconds:20});
- assert.deepEqual(normalizeTvPreferences({btColor:'mint',wodColor:'purple',unit:'kg',pageSeconds:30}),{btColor:'mint',wodColor:'purple',unit:'kg',pageSeconds:30});
+ assert.deepEqual(normalizeTvPreferences({theme:'mint'}),{orientation:'landscape',btColor:'blue',wodColor:'orange',unit:'lbs',pageSeconds:20});
+ assert.deepEqual(normalizeTvPreferences({btColor:'mint',wodColor:'purple',unit:'kg',pageSeconds:30}),{orientation:'landscape',btColor:'mint',wodColor:'purple',unit:'kg',pageSeconds:30});
  assert.throws(()=>normalizeTvPreferences({btColor:'arbitrary-color'}));
+ assert.equal(normalizeTvPreferences({orientation:'portrait'}).orientation,'portrait');
+ assert.throws(()=>normalizeTvPreferences({orientation:'auto'}));
 });
 async function setup(){const {db}=database();for(const m of [identity('member'),identity('other'),identity('coach','coach')])await addMember(db,m);const env={DB:db,ONOFF_OWNER_EMAIL:'owner@example.test',holidayFetch:async()=>{throw Error('offline')}};const now=new Date('2026-11-02T01:00:00Z');async function call(user,path,body,time=now,extra={}){const headers={...extra};if(user){headers['oai-authenticated-user-id']=user;headers['oai-authenticated-user-email']=user==='owner'?'owner@example.test':user+'@example.test'}if(body){headers.Origin='https://gym.test';headers['Content-Type']='application/json'}const r=await api(new Request('https://gym.test'+path,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined}),env,time);return{status:r.status,data:await r.json(),headers:r.headers};}return{db,env,call,now};}
 test('calendar-month passes, leap years and pause/resume preserve remaining days and visits',()=>{
@@ -107,7 +109,7 @@ test('TV status uses acknowledged display data, enforces roles and expires onlin
  assert.equal((await call('','/api/tv/heartbeat',{displayDate:'2026-11-02'})).status,401);
  const login=await call('','/api/tv/login',{password:'0123'}),cookie=login.headers.get('Set-Cookie').split(';')[0];
  let status=(await call('owner','/api/tv/status')).data;assert.equal(status.devices[0].online,false);assert.equal(status.devices[0].lastSeen,null);
- const preferences={btColor:'mint',wodColor:'purple',unit:'lbs',pageSeconds:20};
+ const preferences={orientation:'landscape',btColor:'mint',wodColor:'purple',unit:'lbs',pageSeconds:20};
  assert.equal((await call('','/api/tv/heartbeat',{displayDate:'2026-11-03',preferences},now,{Cookie:cookie})).status,400);
  assert.equal((await call('','/api/tv/heartbeat',{displayDate:'2026-11-02',preferences},now,{Cookie:cookie})).status,200);
  status=(await call('owner','/api/tv/status')).data;assert.equal(status.devices[0].online,true);assert.equal(status.devices[0].displayDate,'2026-11-02');assert.deepEqual(status.devices[0].preferences,preferences);

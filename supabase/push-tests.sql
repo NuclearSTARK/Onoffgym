@@ -27,6 +27,18 @@ declare a uuid:=current_setting('onoff.push_a')::uuid;b uuid:=current_setting('o
  perform public.onoff_push_subscribe(a,null,sid,sub,'{"notices":true,"workouts":true}');
  begin perform public.onoff_push_subscribe(b,null,sid,sub,'{}');raise exception 'FAILED member subscription isolation';exception when insufficient_privilege then null;end;
  begin perform public.onoff_push_subscribe(null,h,sid,sub,'{}');raise exception 'FAILED test reclaim of member device';exception when insufficient_privilege then null;end;
+ -- Custom composition must retain test ownership and broadcast role checks.
+ begin perform public.onoff_push_compose(null,h,jsonb_build_object('mode','all','title','Unauthorized','body','No broadcast'));raise exception 'FAILED capability broadcast';exception when insufficient_privilege then null;end;
+ begin perform public.onoff_push_compose(a,null,jsonb_build_object('mode','all','title','Member','body','No broadcast'));raise exception 'FAILED member broadcast';exception when insufficient_privilege then null;end;
+ update public.gym_members set role='admin' where id=a;
+ job:=public.onoff_push_compose(a,null,jsonb_build_object('mode','test','title','Custom test','body','My device only','subscriptionId',sid,'delayed',true));
+ if (select payload->>'title' from public.gym_push_jobs where id=job)<>'Custom test' or (select target_id from public.gym_push_jobs where id=job)<>sid then raise exception 'FAILED custom targeted payload';end if;
+ begin perform public.onoff_push_compose(a,null,jsonb_build_object('mode','test','title','Other device','body','Rejected','subscriptionId','foreign'));raise exception 'FAILED compose foreign endpoint';exception when insufficient_privilege then null;end;
+ job:=public.onoff_push_compose(a,null,jsonb_build_object('mode','all','title','Operator notice','body','Approved members only'));
+ if jsonb_array_length(public.onoff_push_history(a))<1 then raise exception 'FAILED history';end if;
+ begin perform public.onoff_push_history(b);raise exception 'FAILED member history';exception when insufficient_privilege then null;end;
+ begin perform public.onoff_push_compose(a,null,jsonb_build_object('mode','all','title',' ','body','Empty'));raise exception 'FAILED empty title';exception when raise_exception then if sqlerrm='FAILED empty title' then raise;end if;end;
+ if has_function_privilege('anon','public.onoff_push_compose(uuid,text,jsonb)','EXECUTE') or has_function_privilege('authenticated','public.onoff_push_history(uuid)','EXECUTE') then raise exception 'FAILED compose privileges';end if;
  if has_table_privilege('anon','public.gym_push_tests','SELECT') or has_function_privilege('authenticated','public.onoff_push_claim(integer)','EXECUTE') or has_function_privilege('anon','public.onoff_push_keys(jsonb)','EXECUTE') then raise exception 'FAILED push privilege boundary';end if;
 end $$;
 rollback;

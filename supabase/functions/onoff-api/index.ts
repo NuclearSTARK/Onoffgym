@@ -265,8 +265,8 @@ var TV_COLORS = [
   { id: "red", name: "\uB808\uB4DC", color: "#f2a6a6" }
 ];
 function normalizeTvPreferences(value = {}) {
-  const b = { btColor: value.btColor ?? "blue", wodColor: value.wodColor ?? "orange", unit: value.unit ?? "lbs", pageSeconds: Number(value.pageSeconds ?? 20) };
-  if (!TV_COLORS.some((c) => c.id === b.btColor) || !TV_COLORS.some((c) => c.id === b.wodColor) || !["lbs", "kg"].includes(b.unit) || ![15, 20, 30, 45].includes(b.pageSeconds)) throw Error("\uC218\uC5C5 \uC0C9\uC0C1\xB7\uC911\uB7C9 \uB2E8\uC704\xB7\uD398\uC774\uC9C0 \uC804\uD658 \uC2DC\uAC04\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  const b = { orientation: value.orientation ?? "landscape", btColor: value.btColor ?? "blue", wodColor: value.wodColor ?? "orange", unit: value.unit ?? "lbs", pageSeconds: Number(value.pageSeconds ?? 20) };
+  if (!["landscape", "portrait"].includes(b.orientation) || !TV_COLORS.some((c) => c.id === b.btColor) || !TV_COLORS.some((c) => c.id === b.wodColor) || !["lbs", "kg"].includes(b.unit) || ![15, 20, 30, 45].includes(b.pageSeconds)) throw Error("\uC218\uC5C5 \uC0C9\uC0C1\xB7\uC911\uB7C9 \uB2E8\uC704\xB7\uD398\uC774\uC9C0 \uC804\uD658 \uC2DC\uAC04\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
   return b;
 }
 
@@ -418,7 +418,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
     return { configured: !!config, publicKey: config?.publicKey || "", schedulerConfigured: await setting("pushCronEnabled", false), subscribed: sub.length > 0 };
   }
   async function testStatus(hash) {
-    const jobs = await result(db2.from("gym_push_jobs").select("id,due_at,created_at").eq("test_hash", hash).order("created_at", { ascending: false }).limit(10)), ids = jobs.map((j) => j.id);
+    const jobs = await result(db2.from("gym_push_jobs").select("id,due_at,created_at,payload").eq("test_hash", hash).order("created_at", { ascending: false }).limit(10)), ids = jobs.map((j) => j.id);
     const deliveries = ids.length ? await result(db2.from("gym_push_deliveries").select("job_id,status").in("job_id", ids)) : [];
     return jobs.map((j) => ({ ...j, status: deliveries.find((d) => d.job_id === j.id)?.status || "pending" }));
   }
@@ -438,12 +438,20 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
       return { ok: true };
     }
     if (path === "/api/push/test-access/send") {
-      const job = await result(db2.rpc("onoff_push_test_job", { actor: null, test_code: hash, sub_id: id, delayed: b.delayed === true }));
+      const job = await result(db2.rpc("onoff_push_compose", { actor: null, test_code: hash, p: { mode: "test", title: b.title || "ONOFF \uD478\uC2DC \uD14C\uC2A4\uD2B8", body: b.body || "\uC571\uC744 \uB2EB\uC740 \uC0C1\uD0DC\uC758 \uC54C\uB9BC \uC218\uC2E0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", subscriptionId: id, delayed: b.delayed === true } }));
       return { ok: true, job, queued: true };
     }
     fail("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
   }
   async function memberRoute(member, path, b) {
+    if (["/api/push/compose", "/api/push/history"].includes(path)) {
+      if (member.status !== "approved" || member.role !== "admin") fail("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (path.endsWith("/history")) return { jobs: await result(db2.rpc("onoff_push_history", { actor: member.id })) };
+      if (!["test", "all"].includes(b.mode)) fail("\uBC1C\uC1A1 \uB300\uC0C1\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.mode === "test" && !b.endpoint) fail("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
+      const job = await result(db2.rpc("onoff_push_compose", { actor: member.id, test_code: null, p: { mode: b.mode, title: b.title, body: b.body, subscriptionId: await pushDigest(b.endpoint || ""), delayed: b.mode === "test" } }));
+      return { ok: true, queued: true, job };
+    }
     if (path === "/api/push/subscribe") {
       await keys();
       return subscribe(member.id, null, b);
@@ -789,7 +797,7 @@ function createHandler(db2, { verifyUser, fetchCalendar = fetch, now = () => /* 
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
       const url = new URL(req.url), match = url.pathname.match(/\/api\/[^?]+$/), path = match?.[0];
       if (!path) bad("\uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
-      const get = /* @__PURE__ */ new Set(["/api/health", "/api/bootstrap", "/api/revision", "/api/tv/bootstrap", "/api/tv/status", "/api/push/test-access/config", "/api/push/test-access/status"]);
+      const get = /* @__PURE__ */ new Set(["/api/health", "/api/bootstrap", "/api/revision", "/api/tv/bootstrap", "/api/tv/status", "/api/push/test-access/config", "/api/push/test-access/status", "/api/push/history"]);
       if (req.method !== (get.has(path) ? "GET" : "POST")) bad("\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uC694\uCCAD \uBC29\uC2DD\uC774\uC5D0\uC694.", 405);
       let b = {};
       if (req.method === "POST") {

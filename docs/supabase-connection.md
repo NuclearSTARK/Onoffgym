@@ -63,3 +63,10 @@ node --test --test-isolation=none tests/*.test.mjs
 - `supabase/push-tests.sql`은 서버 역할로 구독 소유권·기기 제한·지연 예약·중복 claim·재시도 상한을 검사한 뒤 rollback한다. `tests/supabase-push.test.mjs`는 암호화 전송과 승인/설정 재확인, 잘못된 URL 차단을 검사한다.
 - 서비스 워커는 `/Onoffgym/` 프로젝트 범위에 등록하며 회원 페이지·API를 캐시하지 않는다. 알림을 눌러도 다른 GitHub 앱의 창으로 이동하지 않는다.
 - DB 마이그레이션은 Cron을 비활성 상태로 만든다. Edge API 배포·검증 후 `cron.alter_job(..., active := true)`와 `pushCronEnabled=true`로 활성화했다. 복원 시 같은 순서를 따른다. Cron 실행 이력은 자동 삭제되지 않으므로 장기 운영 시 Usage와 로그 정리 정책도 점검한다.
+
+
+### 운영자 푸시 작성과 테스트
+
+`20261031203109_onoff_push_compose_history.sql`은 서비스 역할 전용 작성·이력 RPC를 추가한다. 전체 발송은 승인 운영자로 제한하며 공지 알림을 허용한 회원 기기에만 전달한다. 내 기기 시험은 검증된 회원 또는 기간 제한 테스트 코드가 소유한 구독만 대상으로 한다. 제목 80자, 내용 300자이며 기존 기기별 시험 발송 제한을 그대로 사용한다. 시험 알림은 30초 뒤 예약하고 매분 Cron이 처리한다. 미리보기 화면은 실제 푸시를 보내지 않는다.
+
+발송 이력은 최근 30건이며 기존 큐 보관 기간 안에서 표시한다. ‘전달’은 푸시 제공자 접수 상태다. 운영 → TV 모드의 가로·세로 설정은 `tvDisplay.orientation`에 저장하고 기본값은 `landscape`다. 색상과 달리 방향은 TV 로컬 설정으로 덮어쓰지 않는다.

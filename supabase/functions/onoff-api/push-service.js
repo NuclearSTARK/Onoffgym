@@ -24,7 +24,7 @@ export function createPushService(db,{now=()=>new Date(),pushFetch=fetch}={}){
   return {ok:true,processed:jobs.length,sent,failed};
  }
  async function status(member){const config=await setting('pushVapid'),sub=await result(db.from('gym_push_subscriptions').select('id').eq('user_id',member.id).limit(1));return {configured:!!config,publicKey:config?.publicKey||'',schedulerConfigured:await setting('pushCronEnabled',false),subscribed:sub.length>0};}
- async function testStatus(hash){const jobs=await result(db.from('gym_push_jobs').select('id,due_at,created_at').eq('test_hash',hash).order('created_at',{ascending:false}).limit(10)),ids=jobs.map(j=>j.id);const deliveries=ids.length?await result(db.from('gym_push_deliveries').select('job_id,status').in('job_id',ids)):[];return jobs.map(j=>({...j,status:deliveries.find(d=>d.job_id===j.id)?.status||'pending'}));}
+ async function testStatus(hash){const jobs=await result(db.from('gym_push_jobs').select('id,due_at,created_at,payload').eq('test_hash',hash).order('created_at',{ascending:false}).limit(10)),ids=jobs.map(j=>j.id);const deliveries=ids.length?await result(db.from('gym_push_deliveries').select('job_id,status').in('job_id',ids)):[];return jobs.map(j=>({...j,status:deliveries.find(d=>d.job_id===j.id)?.status||'pending'}));}
  async function publicRoute(req,path,b){
   if(path==='/api/push/dispatch'){const secret=await setting('pushCronSecret');if(!secret||!same(req.headers.get('X-OnOff-Worker'),secret))fail('알림 발송 권한이 없어요.',401);return dispatch();}
   const {hash,test}=await access(req);
@@ -33,10 +33,12 @@ export function createPushService(db,{now=()=>new Date(),pushFetch=fetch}={}){
   if(path==='/api/push/test-access/subscribe')return subscribe(null,hash,b);
   const endpoint=typeof b.endpoint==='string'?b.endpoint:'',id=await pushDigest(endpoint);
   if(path==='/api/push/test-access/unsubscribe'){await result(db.from('gym_push_subscriptions').delete().eq('id',id).eq('test_hash',hash));return {ok:true};}
-  if(path==='/api/push/test-access/send'){const job=await result(db.rpc('onoff_push_test_job',{actor:null,test_code:hash,sub_id:id,delayed:b.delayed===true}));return {ok:true,job,queued:true};}
+  if(path==='/api/push/test-access/send'){const job=await result(db.rpc('onoff_push_compose',{actor:null,test_code:hash,p:{mode:'test',title:b.title||'ONOFF 푸시 테스트',body:b.body||'앱을 닫은 상태의 알림 수신을 확인해주세요.',subscriptionId:id,delayed:b.delayed===true}}));return {ok:true,job,queued:true};}
   fail('알림 요청을 찾을 수 없어요.',404);
  }
  async function memberRoute(member,path,b){
+  if(['/api/push/compose','/api/push/history'].includes(path)){if(member.status!=='approved'||member.role!=='admin')fail('운영자 권한이 필요해요.',403);if(path.endsWith('/history'))return {jobs:await result(db.rpc('onoff_push_history',{actor:member.id}))};if(!['test','all'].includes(b.mode))fail('발송 대상을 확인해주세요.');if(b.mode==='test'&&!b.endpoint)fail('이 기기에서 알림을 먼저 켜주세요.');const job=await result(db.rpc('onoff_push_compose',{actor:member.id,test_code:null,p:{mode:b.mode,title:b.title,body:b.body,subscriptionId:await pushDigest(b.endpoint||''),delayed:b.mode==='test'}}));return {ok:true,queued:true,job};}
+
   if(path==='/api/push/subscribe'){await keys();return subscribe(member.id,null,b);}
   const id=await pushDigest(typeof b.endpoint==='string'?b.endpoint:'');
   if(path==='/api/push/unsubscribe'){await result(db.from('gym_push_subscriptions').delete().eq('id',id).eq('user_id',member.id));return {ok:true};}

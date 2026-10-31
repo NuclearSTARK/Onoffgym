@@ -1,6 +1,12 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {api} from '../worker/api.js';import {database,addMember,identity,fixture} from './db.mjs';
 import {periodEnd,changeMembership,membershipState} from '../web/membership.js';
+import {normalizeTvPreferences} from '../web/tv-colors.js';
+test('TV course colors are independent and legacy themes are omitted',()=>{
+ assert.deepEqual(normalizeTvPreferences({theme:'mint'}),{btColor:'blue',wodColor:'orange',unit:'lbs',pageSeconds:20});
+ assert.deepEqual(normalizeTvPreferences({btColor:'mint',wodColor:'purple',unit:'kg',pageSeconds:30}),{btColor:'mint',wodColor:'purple',unit:'kg',pageSeconds:30});
+ assert.throws(()=>normalizeTvPreferences({btColor:'arbitrary-color'}));
+});
 async function setup(){const {db}=database();for(const m of [identity('member'),identity('other'),identity('coach','coach')])await addMember(db,m);const env={DB:db,ONOFF_OWNER_EMAIL:'owner@example.test',holidayFetch:async()=>{throw Error('offline')}};const now=new Date('2026-11-02T01:00:00Z');async function call(user,path,body,time=now,extra={}){const headers={...extra};if(user){headers['oai-authenticated-user-id']=user;headers['oai-authenticated-user-email']=user==='owner'?'owner@example.test':user+'@example.test'}if(body){headers.Origin='https://gym.test';headers['Content-Type']='application/json'}const r=await api(new Request('https://gym.test'+path,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined}),env,time);return{status:r.status,data:await r.json(),headers:r.headers};}return{db,env,call,now};}
 test('calendar-month passes, leap years and pause/resume preserve remaining days and visits',()=>{
  assert.equal(periodEnd('2026-11-10',1),'2026-12-09');assert.equal(periodEnd('2028-02-29',12),'2029-02-27');
@@ -37,7 +43,7 @@ test('expired or paused passes hide workouts; old attendance cannot refund a new
 test('staff-only distinguishing notes do not appear in ordinary member bootstrap',async()=>{
  const {call}=await setup();assert.equal((await call('coach','/api/member-note',{id:'member',note:'오전 방문'})).status,403);
  await call('owner','/api/member-note',{id:'member',note:'오전 방문'});
- assert.equal((await call('coach','/api/bootstrap')).data.members.find(m=>m.id==='member').note,'오전 방문');
+ assert.equal((await call('owner','/api/bootstrap')).data.members.find(m=>m.id==='member').note,'오전 방문');
  assert.equal(JSON.stringify((await call('member','/api/bootstrap')).data).includes('오전 방문'),false);
 });
 test('TV password sessions expose only published workouts for today, without member authentication',async()=>{

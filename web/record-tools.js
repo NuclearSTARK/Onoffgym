@@ -38,7 +38,7 @@ export function prepareBatchRecords({rows,context,records=[],today,overwrite=fal
     if(unchanged)continue;
     if(old&&!overwrite){errors.push(`${member.name}: 기존 기록 수정 허용을 체크해주세요.`);continue;}
     const movement=section.movement||section.movements?.[0]||'';
-    const record={...old,id:old?.id||idFactory(),memberId:member.id,name:member.name,date:context.date,program:context.program,session:context.session,section:context.section,kind:section.kind,movement,movements:section.movements||[],rank:old?.rank??!!row.rank,note,writer:'coach'};
+    const record={...old,id:old?.id||idFactory(),memberId:member.id,name:member.name,date:context.date,program:context.program,session:context.session,section:context.section,kind:section.kind,movement,movements:section.movements||[],rank:old?.rank??!!row.rank,note,writer:'admin'};
     delete record.lbs;delete record.value;
     if(isWeight)record.lbs=lbs;else record.value=value;
     changes.push(record);

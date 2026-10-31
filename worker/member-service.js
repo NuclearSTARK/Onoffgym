@@ -14,7 +14,7 @@ export async function memberPassAction(env,actor,b,now){
 export async function memberCheckIn(env,member,now){
   const day=kstDate(now),id=member.id;
   if(await env.DB.prepare('SELECT date FROM gym_attendance WHERE user_id=? AND date=?').bind(id,day).first())return{ok:true,date:day,already:true};
-  const pass=await readMembership(env,id),isStaff=['admin','coach'].includes(member.role);
+  const pass=await readMembership(env,id),isStaff=member.role==='admin';
   if(pass&&!membershipState(pass,day).active&&!isStaff)throw Object.assign(Error('회원권 기간·잔여횟수 또는 휴회 상태를 확인해주세요.'),{status:403});
   if(!pass||isStaff&&(!membershipState(pass,day).active)){
     await env.DB.prepare('INSERT OR IGNORE INTO gym_attendance (user_id,date,created_at,pass_debited) VALUES (?,?,?,-1)').bind(id,day,now.toISOString()).run();return{ok:true,date:day};

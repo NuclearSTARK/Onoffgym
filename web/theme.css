@@ -21,4 +21,26 @@
 .member-note{font-size:12px;color:var(--blue);margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}.membership-history{max-height:240px;overflow:auto;font-size:12px}.membership-history>div{border-bottom:1px solid var(--line);padding:12px 0}.membership-history small{display:block;color:var(--muted);margin-top:5px}
 .membership-warning{border-left:3px solid var(--blue);background:var(--soft);padding:16px 18px;margin-bottom:22px;font-size:14px;line-height:1.8;border-radius:6px}.membership-preview{font-size:13px;color:var(--blue);padding:12px;background:var(--soft);border-radius:5px;margin-bottom:18px}
 .tv-admin-preview{display:grid;grid-template-columns:1fr 1fr;gap:15px;padding:24px;background:var(--bg);border:1px solid var(--line);border-radius:8px;margin:20px 0}.tv-admin-preview>span{border-left:2px solid var(--blue);padding:14px;color:var(--blue);font-weight:800;font-size:25px}.tv-url{word-break:break-all;font-size:12px;color:var(--blue)}
+.pinned-post{border-color:var(--blue);background:linear-gradient(110deg,var(--soft),var(--surface))}
+.notice-tag{color:var(--blue);background:var(--soft);border:1px solid var(--line)}
+.date-picker-direct{padding:0;gap:0;max-width:100%;flex-wrap:wrap;background:var(--surface)}
+.date-picker-direct .date-select-button{display:flex;align-items:center;gap:10px;min-height:48px;padding:10px 14px;font-size:14px;text-align:left;max-width:100%}
+.date-select-button>span:first-of-type{overflow-wrap:anywhere}.date-select-button>span:last-of-type{color:var(--muted);margin-left:5px}
+.date-picker-direct .date-today{min-height:44px;padding:8px 12px;font-size:13px;color:var(--blue);border-left:1px solid var(--line)}
+html.has-modal,html.has-modal body{overflow:hidden;overscroll-behavior:none}
+dialog{overflow-x:hidden;overscroll-behavior:contain}
+.modal-head{min-width:0}.modal-head h2{min-width:0;overflow-wrap:anywhere}.modal-head>button{flex-shrink:0;min-width:40px;min-height:40px}
+.modal-content,.modal-content form,.modal-content details,.modal-content section,.modal-content fieldset,.modal-content .field,.modal-content .field-row{min-width:0;max-width:100%}
+.modal-content{overflow-wrap:anywhere;touch-action:pan-y pinch-zoom}
+.modal-content input,.modal-content select,.modal-content textarea{min-inline-size:0;max-inline-size:100%;box-sizing:border-box}
+.modal-content .checkbox-label{white-space:normal;overflow-wrap:anywhere}
+@media(max-width:760px){
+  dialog{width:calc(100vw - 24px);max-width:calc(100vw - 24px);max-height:90dvh;margin:auto;border-radius:12px}
+  .modal-head{padding:14px 16px}.modal-head h2{font-size:18px}
+  .modal-content{padding:18px 16px}
+  .modal-content .field-row{display:grid;grid-template-columns:minmax(0,1fr);gap:0}
+  .modal-content input[type=date],.modal-content input[type=time]{inline-size:100%;min-height:48px;appearance:none;-webkit-appearance:none}
+  .modal-content input::-webkit-date-and-time-value{text-align:left}
+  .modal-content .form-footer{flex-wrap:wrap}.modal-content .form-footer .btn{flex:1;min-width:0}
+}
 @media(max-width:760px){.login-logo.brand-mark{height:60px}.settings-stack>.panel{padding:20px}.theme-options{gap:7px}.theme-choice{padding:12px 5px;font-size:11px}.settings-stack .setting-row strong{font-size:14px}}

@@ -1,15 +1,16 @@
+import {normalizeTvPreferences} from '../web/tv-colors.js';
 import {kstDate} from '../web/core.js';
 const tvJson=(body,status=200,headers={})=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store',...headers}});
 const tvHex=bytes=>[...new Uint8Array(bytes)].map(n=>n.toString(16).padStart(2,'0')).join('');
 export async function tvDigest(value){return tvHex(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)));}
 export async function tvPassword(password,salt){const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveBits']);return tvHex(await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:new TextEncoder().encode(salt),iterations:100000},key,256));}
 async function tvSetting(env,key){const row=await env.DB.prepare('SELECT value FROM gym_settings WHERE key=?').bind(key).first();return row?JSON.parse(row.value):null;}
-export async function tvConfiguration(env){return{configured:!!await tvSetting(env,'tvPassword'),preferences:await tvSetting(env,'tvDisplay')||{theme:'navy',pageSeconds:20,unit:'lbs'}};}
+export async function tvConfiguration(env){return{configured:!!await tvSetting(env,'tvPassword'),preferences:normalizeTvPreferences(await tvSetting(env,'tvDisplay')||{})};}
 function tvCookie(req,value,seconds){return `onoff_tv=${value}; Path=/api/tv; HttpOnly; SameSite=Strict; Max-Age=${seconds}${new URL(req.url).protocol==='https:'?'; Secure':''}`;}
 export async function tvAdminSettings(req,env,member){
   if(member.role!=='admin'||member.status!=='approved')return tvJson({error:'운영자만 TV 설정을 변경할 수 있어요.'},403);
-  const b=await req.json();if(!['navy','mint','orange'].includes(b.theme)||!['lbs','kg'].includes(b.unit)||![15,20,30,45].includes(Number(b.pageSeconds)))return tvJson({error:'TV 테마와 페이지 전환 시간을 확인해주세요.'},400);
-  const jobs=[env.DB.prepare('INSERT INTO gym_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('tvDisplay',JSON.stringify({theme:b.theme,unit:b.unit,pageSeconds:Number(b.pageSeconds)}))];
+  const b=await req.json();let preferences;try{preferences=normalizeTvPreferences(b)}catch(e){return tvJson({error:e.message},400)}
+  const jobs=[env.DB.prepare('INSERT INTO gym_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('tvDisplay',JSON.stringify(preferences))];
   if(b.password){if(typeof b.password!=='string'||b.password.length<6||b.password.length>64)return tvJson({error:'TV 암호를 6~64자로 입력해주세요.'},400);const salt=tvHex(crypto.getRandomValues(new Uint8Array(16))),hash=await tvPassword(b.password,salt);jobs.push(env.DB.prepare('INSERT INTO gym_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('tvPassword',JSON.stringify({salt,hash})),env.DB.prepare('DELETE FROM gym_tv_sessions'));}
   if(b.revoke===true)jobs.push(env.DB.prepare('DELETE FROM gym_tv_sessions'));
   await env.DB.batch(jobs);return tvJson({ok:true,...await tvConfiguration(env)});

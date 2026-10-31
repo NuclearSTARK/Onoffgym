@@ -23,7 +23,7 @@ jobs:
           node-version: '24'
       - name: Validate application
         run: npm test
-      - name: Build isolated public test
+      - name: Build app with Supabase backend
         run: npm run build:pages
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

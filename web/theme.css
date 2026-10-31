@@ -1,7 +1,7 @@
 :root,[data-theme=navy]{--bg:#0c1422;--surface:#142135;--ink:#e9eff9;--muted:#a6b6cb;--line:#2a3b54;--blue:#8bb3ff;--soft:#20355a;--accent:#2868ee;--on-accent:#fff;--sidebar:#112646;--hero:#153564;--logo:#fff;color-scheme:dark}
 [data-theme=mint]{--bg:#0b1110;--surface:#15221f;--ink:#effaf5;--muted:#a6beb5;--line:#30473d;--blue:#8ee6ca;--soft:#203d32;--accent:#77dcb8;--on-accent:#09251a;--sidebar:#101f19;--hero:#173a2b;--logo:#a0ecd4}
 [data-theme=orange]{--bg:#17191d;--surface:#24262b;--ink:#fff4ea;--muted:#c1b4a9;--line:#48403a;--blue:#ffb477;--soft:#453326;--accent:#f2a15e;--on-accent:#28170d;--sidebar:#201d1b;--hero:#493023;--logo:#ffc18f}
-.brand-mark{display:inline-block;background:var(--logo);-webkit-mask:url('./assets/onoff-logo-v3.svg?v=3') center/contain no-repeat;mask:url('./assets/onoff-logo-v3.svg?v=3') center/contain no-repeat;vertical-align:middle;aspect-ratio:620/236}
+.brand-mark{display:inline-block;background:var(--logo);-webkit-mask:url('./assets/onoff-logo-v4.svg?v=4') center/contain no-repeat;mask:url('./assets/onoff-logo-v4.svg?v=4') center/contain no-repeat;vertical-align:middle;aspect-ratio:620/236}
 .brand-mark>img{width:100%;height:100%;object-fit:contain;visibility:hidden}
 @supports not (mask-image:url('')){.brand-mark{background:none}.brand-mark>img{visibility:visible}}
 .sidebar{background:var(--sidebar)}.brand>.brand-mark{width:100%;height:88px}.mobile-brand>.brand-mark{width:108px;height:49px}.login-logo.brand-mark{height:105px;-webkit-mask-position:left center;mask-position:left center}

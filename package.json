@@ -6,6 +6,12 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --test tests/*.test.mjs",
-    "build:pages": "node scripts/build-pages.mjs"
+    "build:pages": "node scripts/build-pages.mjs",
+    "build:backend": "node scripts/build-supabase.mjs"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "2.118.0",
+    "esbuild": "0.25.12",
+    "potrace": "2.1.8"
   }
 }

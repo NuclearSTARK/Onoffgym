@@ -1,0 +1,6 @@
+project_id = "onoffgym"
+
+# The handler validates member JWTs with Auth and TV tokens itself.
+[functions.onoff-api]
+verify_jwt = false
+

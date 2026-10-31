@@ -10,3 +10,7 @@ dist/
 pages-dist/
 
 !web/apple-touch-icon.png
+
+# Supabase CLI local state
+supabase/.temp/
+supabase/.branches/

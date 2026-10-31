@@ -1,0 +1,48 @@
+/* Shared header, paired workout cards and compact navigation. */
+:root{--login-brand-bg:#183b6a}
+[data-theme=mint]{--login-brand-bg:#12392f}[data-theme=orange]{--login-brand-bg:#392b23}
+.login-mode .app-header,.login-mode .app-header .public-test-notice,.login-final .login-art,[data-theme=navy] .login-final .login-art{background:var(--login-brand-bg);border:0;box-shadow:none}
+.login-final .login-entry-approval{font-size:12px;line-height:1.9;color:var(--blue);letter-spacing:0;margin:0 0 18px;text-wrap:balance}
+.login-final .login-feature-line{display:flex;justify-content:flex-start;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);margin:22px 0 0}
+.login-final .login-feature-line span+span{border-left:1px solid var(--line);padding-left:12px}
+.login-final .login-description{margin-top:13px}
+@media(min-width:800px){.login-final .login-art{justify-content:center;align-items:center;padding:65px 40px}.login-final .login-logo.brand-mark{width:min(400px,100%)}.login-final .login-location{display:block;margin-top:30px;letter-spacing:2px;font-size:11px;color:var(--muted)}}
+@media(max-width:799px){.login-final .login-entry-approval{font-size:10px;margin-bottom:15px}.login-final .login-feature-line{justify-content:center;font-size:11px;gap:11px;margin-top:21px}.login-final .login-description{margin-top:12px}}
+body:not([data-page=home]) .sidebar-bottom>p{display:none}
+body[data-page=home] .topbar{border-bottom:0}
+#home-header-banner .notice{margin:0;border-radius:0;border-width:0;box-shadow:none;min-height:49px;padding:8px max(18px,var(--safe-right)) 8px max(18px,var(--safe-left));font-size:12px}
+#home-header-banner .notice-text{font-size:12px}#home-header-banner .notice>span{font-size:11px}
+#home-header-banner .banner-manage{min-height:32px;padding:4px 10px}
+.home-swipe-panel{min-width:0;border:0;background:transparent;box-shadow:none;border-radius:0;overflow:visible}
+.home-swipe-panel .home-program-tabs{padding:0 0 12px;border:0;gap:10px}
+.home-swipe-panel .home-program-tabs button{min-height:49px;font-size:24px;border-radius:10px}
+.home-course-carousel{display:grid;grid-auto-flow:column;grid-auto-columns:100%;gap:16px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scrollbar-width:none;overscroll-behavior-x:contain;align-items:start;position:relative}
+.home-course-carousel::-webkit-scrollbar{display:none}
+.course-card{scroll-snap-align:start;scroll-snap-stop:always;background:var(--surface);border:1px solid var(--line);border-radius:14px;min-width:0;overflow:hidden}
+.course-card>.home-workout-tools{padding:13px 17px;min-height:44px;border-bottom:1px solid var(--line);font-size:11px;display:flex;justify-content:space-between;align-items:center}
+.course-sections{padding:13px;display:grid;gap:11px;align-items:start}
+.course-section-card{--section-color:#8db9ff;--section-tint:#7ba6ff0e;background:var(--section-tint);border:1px solid var(--line);border-left:3px solid var(--section-color);border-radius:10px;min-width:0;padding:12px}
+.course-section-card:nth-of-type(even){--section-color:#ffc184;--section-tint:#ffb4770d}
+.course-section-detail>summary{list-style:none;cursor:pointer;display:block}.course-section-detail>summary::-webkit-details-marker{display:none}
+.course-section-heading{display:flex;align-items:flex-start;gap:10px;min-width:0}
+.course-section-badge{display:inline-flex;align-items:center;justify-content:center;border-radius:6px;padding:3px 7px;background:var(--section-color);color:#102039;font-size:14px;font-weight:800;flex-shrink:0;line-height:1.6}
+.course-section-title{font-size:15px;line-height:1.6;margin:2px 0 0;overflow-wrap:anywhere;min-width:0}
+.course-section-preview{display:block;white-space:pre-line;font-size:14px;line-height:1.7;color:var(--ink);margin:10px 0 0;overflow-wrap:anywhere}
+.course-section-more{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:10px;color:var(--muted);margin-top:10px}.course-section-more:after{content:'전체 보기 +';color:var(--section-color)}
+.course-section-detail[open] .course-section-more:after{content:'접기 −'}.course-section-detail[open] .course-section-preview{display:none}
+.course-section-full{padding-top:11px}.course-section-full .exercise{font-size:14px;line-height:1.8;white-space:pre-line;overflow-wrap:anywhere}
+.course-card .section-rm-reference{margin-top:12px;padding-top:9px;border-top:1px solid var(--line);font-size:10px}
+.course-card .section-percentages strong{font-size:13px}.course-card .section-movement-links{margin-top:10px;display:flex;gap:9px;flex-wrap:wrap}
+.course-card .workout-overview{margin:0 0 11px}.course-card .empty{padding:34px 18px}
+@media(min-width:1100px){.course-sections{grid-template-columns:repeat(2,minmax(0,1fr));padding:19px;gap:16px}.course-section-card{padding:17px}.course-section-title{font-size:18px}.course-section-preview,.course-section-full .exercise{font-size:16px}}
+.app>.site-footer{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:2px;padding:20px 18px 26px}
+.site-footer .privacy-links{order:0;justify-content:center;gap:0;flex-wrap:nowrap}
+.site-footer .privacy-links button{font-size:12px;justify-content:center}
+.site-footer .privacy-links button+button:before{content:'|';padding:0 12px;color:var(--muted);opacity:.6}
+.site-footer .footer-wordmark{order:1;justify-content:center;min-height:28px;font-size:12px;letter-spacing:.8px}
+.site-footer>.instagram-link{order:2;margin:2px auto 0;min-height:40px}
+@media(max-width:760px){.mobile-nav{height:calc(57px + var(--safe-bottom));padding:4px max(9px,var(--safe-right)) calc(5px + var(--safe-bottom)) max(9px,var(--safe-left))}.mobile-nav button{min-height:44px;padding:2px 0;gap:2px;font-size:9px}.app>.site-footer{padding-bottom:calc(76px + var(--safe-bottom))}.scroll-top{bottom:calc(71px + var(--safe-bottom))}}
+@media(prefers-reduced-motion:reduce){.home-course-carousel{transition:none;scroll-behavior:auto}}
+
+.login-push-test{display:block;width:max-content;max-width:100%;margin:14px 0 0;font-size:11px;color:var(--muted);text-decoration:underline;text-underline-offset:4px}
+@media(max-width:799px){.login-push-test{margin-left:auto;margin-right:auto}}

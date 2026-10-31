@@ -14,7 +14,7 @@ Dark-only Korean gym app, with protected server-side workout publishing, XLSX im
 
 The GitHub Pages app now targets the representative-owned Supabase project. Kakao login is intentionally pending; the shared app requires a validated Auth session and operator approval. No temporary email login or real test account was created. An explicit `?preview=1#login` opens the existing isolated browser demo. The original owner-private Sites preview retains its D1 backend; its data was not copied into Supabase.
 
-See [Supabase 연결·인수인계](docs/supabase-connection.md) for deployed schema/API, access controls, verification, the later Kakao setup and remaining limits. Web Push sending/scheduling, ranking aggregation and withdrawal are still pending separate integration. The older sections below document the retained D1 implementation unless explicitly referring to Supabase.
+See [Supabase 연결·인수인계](docs/supabase-connection.md) for deployed schema/API, access controls, verification, the later Kakao setup and remaining limits. Web Push sending/scheduling is now connected to Supabase; ranking aggregation and withdrawal remain pending. The older sections below document the retained D1 implementation unless explicitly referring to Supabase.
 
 ## Data and access
 
@@ -127,3 +127,10 @@ Migration `0005_tv_status.sql` adds acknowledged TV display status. Authorized o
 The latest supplied ONOFF logo, including its original tagline, is used in login, app navigation, TV and versioned v4 browser/home-screen icons. App themes tint the original artwork; TV remains white.
 
 The v4 logo uses paths traced from the supplied artwork, without embedded JPEGs, runtime color filters or substituted fonts. Its original JPEG remains unchanged. Theme masks tint those paths; versioned SVG and app icon URLs bypass previous image caches.
+
+
+## Latest screen and push update
+
+The login uses the original themed logo on a unified solid header, without decorative stripes. Approval guidance sits above the title and the feature list precedes its description. Home joins the banner to the sticky header and uses swipeable B/T/WOD cards with distinct S1/S2 summaries, expandable content and personal 1RM references. The footer is centered in three rows and mobile navigation is shorter. Community cards show both joins and comments. TV uses date/logo/time and switches to a full vertical preview on phones.
+
+Supabase Web Push now has encrypted server delivery, bounded retries, expired-subscription removal, per-minute Cron dispatch, operator notices and release notifications. The one-time test access in `push-test.html` is separate from member auth, limited to three devices and expires. Test codes and VAPID private material are not in source. Actual device receipt awaits the tester's permission and physical phone check; see [push setup and test instructions](docs/supabase-connection.md).

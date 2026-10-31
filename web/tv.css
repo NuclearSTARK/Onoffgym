@@ -30,3 +30,21 @@
 .tv-rest h1{font-family:'Noto Sans KR',sans-serif;font-size:clamp(28px,3.7vw,90px);line-height:1.4}
 .tv-rest p{font-size:clamp(16px,1.6vw,38px);line-height:1.7;overflow-wrap:anywhere}
 @media(max-width:800px){.tv-program{padding:8px 12px;gap:10px}.tv-program strong{font-size:25px}.tv-program p{font-size:12px}.tv-section h2 .tv-section-number{font-size:22px}}
+
+/* Date / original logo / clock. Mobile uses a readable vertical preview. */
+html,body{max-width:100%;min-width:0;overflow-x:hidden}
+.tv-shell{width:100%;max-width:100%;min-height:0}
+.tv-header{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:2vw}
+.tv-date{min-width:0;justify-self:start;display:block;overflow-wrap:anywhere;font-size:clamp(12px,1.9vw,40px)}
+.tv-header .tv-logo{justify-self:center;width:clamp(100px,12vw,300px);min-width:0;height:auto;min-height:0}
+.tv-clock{justify-self:end;margin:0;font-size:clamp(20px,3.1vw,70px)}
+@media(max-width:760px){
+ .tv-shell{height:auto;min-height:100svh;padding:18px 14px 20px;overflow:visible}
+ .tv-header{gap:10px;padding-bottom:14px}.tv-header .tv-logo{width:105px}.tv-date{font-size:12px;line-height:1.6}.tv-clock{font-size:23px;letter-spacing:0}
+ .tv-columns,.tv-columns.single{display:grid;grid-template-columns:minmax(0,1fr);gap:22px;max-width:none;margin:0;padding-top:20px;flex:none}
+ .tv-column{min-height:180px;padding-left:12px}.tv-program{margin-bottom:13px}.tv-program strong{font-size:28px}.tv-program p{font-size:13px}
+ .tv-sections{flex:none;overflow:visible;min-height:0}.tv-section{margin-bottom:20px}.tv-section h2{font-size:17px;line-height:1.5;margin-bottom:10px;gap:10px}
+ .tv-exercise,.tv-columns.single .tv-exercise{font-size:20px;line-height:1.65;letter-spacing:0}
+ .tv-pagination{display:none}.tv-footer{margin-top:25px;flex-wrap:wrap;font-size:10px;gap:6px 15px;letter-spacing:1px}
+ .tv-gate{padding:18px}.tv-login-card h1{font-size:23px}
+}

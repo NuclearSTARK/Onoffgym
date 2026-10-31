@@ -4,12 +4,14 @@ import {DEFAULT_RM_CATALOGUE,updateRmCatalogue,findRmMovement} from '../../../we
 import {membershipState,changeMembership} from '../../../web/membership.js';
 import {normalizeTvPreferences} from '../../../web/tv-colors.js';
 import {tvDigest,tvPassword} from '../../../worker/tv-service.js';
+import {createPushService} from './push-service.js';
 
 const ORIGINS=new Set(['https://nuclearstark.github.io','https://onoff-crossfit-gym.powerloding.chatgpt.site']);
 const bad=(message,status=400)=>{throw Object.assign(Error(message),{status});};
 const uuid=v=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const text=(v,min,max,label)=>{if(typeof v!=='string'||v.trim().length<min||v.length>max)bad(label+'을 확인해주세요.');return v.trim();};
 export function createHandler(db,{verifyUser,fetchCalendar=fetch,now=()=>new Date()}={}){
+ const push=createPushService(db,{now});
  async function result(q){const {data,error}=await q;if(error){const code=error.code;bad(code==='42501'?'이 요청을 처리할 권한이 없어요.':code==='23505'?'이미 등록된 항목이 있어요. 새로 불러온 뒤 확인해주세요.':code==='40001'?'다른 기기에서 변경됐어요. 다시 불러와 주세요.':'저장 요청을 처리하지 못했어요.',code==='42501'?403:['23505','40001'].includes(code)?409:503);}return data;}
  const rows=(table,configure=q=>q)=>result(configure(db.from(table).select('*')));
  const one=(table,key,value)=>result(db.from(table).select('*').eq(key,value).maybeSingle());
@@ -69,11 +71,12 @@ export function createHandler(db,{verifyUser,fetchCalendar=fetch,now=()=>new Dat
    records:records.map(r=>({...r.body,id:r.id,memberId:r.user_id,name:names.get(r.user_id)||'회원',rank:rank.get(r.user_id)!==false})),
    rms:rms.map(r=>({...r.body,id:r.id,memberId:r.user_id})),preferences:prefs?.body||{},
    posts:posts.map(p=>({...p,authorId:p.author_id,author:names.get(p.author_id)||'회원',date:kstDate(new Date(p.created_at)),joined:[],joinedIds:joins.filter(j=>j.post_id===p.id).map(j=>j.user_id),joinedNames:Object.fromEntries(joins.filter(j=>j.post_id===p.id).map(j=>[j.user_id,names.get(j.user_id)||'회원'])),comments:comments.filter(c=>c.post_id===p.id).map(c=>({...c,authorId:c.author_id,author:names.get(c.author_id)||'회원'}))})),
-   tv:staff?await tvSettings():undefined,push:{configured:false,publicKey:'',schedulerConfigured:false},historyLimit:1000
+   tv:staff?await tvSettings():undefined,push:await push.status(m),historyLimit:1000
   };
  }
  async function route(req,path,url,b){
   if(path==='/api/health')return {ok:true,backend:'supabase',serverNow:now().toISOString()};
+  if(path==='/api/push/dispatch'||path.startsWith('/api/push/test-access/'))return push.publicRoute(req,path,b);
   if(['/api/tv/login','/api/tv/logout','/api/tv/bootstrap','/api/tv/heartbeat'].includes(path))return tv(req,path,b);
   const m=await member(req);
   if(path==='/api/revision')return revision(m);
@@ -103,7 +106,7 @@ export function createHandler(db,{verifyUser,fetchCalendar=fetch,now=()=>new Dat
   if(path==='/api/rms'){const cat=await setting('rmCatalogue',DEFAULT_RM_CATALOGUE),mov=findRmMovement(cat,b.movementId||b.movement);if(!mov?.active||!Number.isFinite(b.lbs)||b.lbs<=0||b.lbs>6614||!normalizeDate(b.date)||b.date>kstDate(now()))bad('1RM 종목·중량·날짜를 확인해주세요.');return commit(m.id,'rm',{id:crypto.randomUUID(),memberId:m.id,movementId:mov.id,movement:mov.name,lbs:b.lbs,date:b.date});}
   if(path==='/api/posts'){if(!['운동 번개','공동구매','자유글'].includes(b.category))bad('말머리를 확인해주세요.');return commit(m.id,'post',{category:b.category,title:text(b.title,1,80,'제목'),body:text(b.body,1,3000,'내용')});}
   if(['/api/posts/delete','/api/posts/join','/api/posts/comment'].includes(path)){if(!uuid(b.id))bad('게시글을 확인해주세요.');return commit(m.id,path.endsWith('delete')?'post-delete':path.endsWith('join')?'join':'comment',{id:b.id,...(path.endsWith('comment')?{text:text(b.text,1,300,'댓글')}:{})});}
-  if(path.startsWith('/api/push/'))bad('Supabase 알림 발송 연결을 준비 중입니다.',503);
+  if(path.startsWith('/api/push/'))return push.memberRoute(m,path,b);
   admin(m);
   if(path==='/api/tv/status')return tvSettings();
   if(path==='/api/tv/admin'){const p={preferences:normalizeTvPreferences(b),revoke:b.revoke===true};if(b.password){if(!/^\d{4}$/.test(b.password))bad('TV 암호는 숫자 4자리예요.');const salt=crypto.randomUUID();p.password={salt,hash:await tvPassword(b.password,salt),format:'pin4'};}await commit(m.id,'tv-admin',p);return {ok:true,...await tvSettings()};}
@@ -115,17 +118,17 @@ export function createHandler(db,{verifyUser,fetchCalendar=fetch,now=()=>new Dat
   if(path==='/api/banner'){if(!validBanner(b))bad('공지 문구·색상·노출 여부를 확인해주세요.');const banner={text:b.text.trim(),color:b.color,enabled:b.enabled};await commit(m.id,'setting',{key:'banner',value:banner});return {ok:true,banner};}
   if(path==='/api/rm-catalogue'){let value;try{value=updateRmCatalogue(await setting('rmCatalogue',DEFAULT_RM_CATALOGUE),b);}catch(e){bad(e.message);}await commit(m.id,'setting',{key:'rmCatalogue',value:value.catalogue});return {ok:true,...value};}
   if(path==='/api/movements'){const name=text(b.name,2,80,'동작 이름'),videoId=b.url?youtubeId(b.url):'';if(videoId===null)bad('유튜브 주소를 확인해주세요.');return commit(m.id,'movements',{name,videoId,notes:text(b.notes,0,1000,'설명')});}
-  if(path==='/api/notices'){if(b.sendPush)bad('알림 서버 연결 전에는 알림 보내기를 해제해주세요.',503);if(b.id&&!uuid(b.id))bad('공지를 확인해주세요.');if(b.action==='delete')return commit(m.id,'notices',{action:'delete',id:b.id});if(typeof b.pinned!=='boolean')bad('상단 고정 여부를 확인해주세요.');return commit(m.id,'notices',{id:b.id,title:text(b.title,1,100,'제목'),body:text(b.body,1,5000,'내용'),pinned:b.pinned});}
+  if(path==='/api/notices'){if(b.id&&!uuid(b.id))bad('공지를 확인해주세요.');if(b.action==='delete')return commit(m.id,'notices',{action:'delete',id:b.id});if(typeof b.pinned!=='boolean')bad('상단 고정 여부를 확인해주세요.');const notice={id:b.id||crypto.randomUUID(),title:text(b.title,1,100,'제목'),body:text(b.body,1,5000,'내용'),pinned:b.pinned};await commit(m.id,'notices',notice);if(b.sendPush===true)await push.enqueue({id:'notice:'+notice.id+':'+crypto.randomUUID(),kind:'notices',payload:{title:'ONOFF 공지 · '+notice.title,body:notice.body.slice(0,140),url:'/Onoffgym/#community',tag:'notice:'+notice.id}});return {ok:true};}
   if(path==='/api/holidays/sync')return {ok:true,calendar:await calendar(true)};
   bad('요청을 찾을 수 없어요.',404);
  }
  return async req=>{
-  const origin=req.headers.get('Origin'),allowed=!origin||ORIGINS.has(origin),cors={'Access-Control-Allow-Origin':allowed&&origin?origin:'https://nuclearstark.github.io','Access-Control-Allow-Headers':'authorization,apikey,content-type,x-onoff-tv-token','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Vary':'Origin','Cache-Control':'no-store','Content-Type':'application/json; charset=utf-8','X-Content-Type-Options':'nosniff'};
+  const origin=req.headers.get('Origin'),allowed=!origin||ORIGINS.has(origin),cors={'Access-Control-Allow-Origin':allowed&&origin?origin:'https://nuclearstark.github.io','Access-Control-Allow-Headers':'authorization,apikey,content-type,x-onoff-tv-token,x-onoff-push-test','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Vary':'Origin','Cache-Control':'no-store','Content-Type':'application/json; charset=utf-8','X-Content-Type-Options':'nosniff'};
   const response=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:cors});
   try{
    if(!allowed)bad('허용된 앱에서 접속해주세요.',403);if(req.method==='OPTIONS')return new Response(null,{status:204,headers:cors});
    const url=new URL(req.url),match=url.pathname.match(/\/api\/[^?]+$/),path=match?.[0];if(!path)bad('요청을 찾을 수 없어요.',404);
-   const get=new Set(['/api/health','/api/bootstrap','/api/revision','/api/tv/bootstrap','/api/tv/status']);if(req.method!==(get.has(path)?'GET':'POST'))bad('지원하지 않는 요청 방식이에요.',405);
+   const get=new Set(['/api/health','/api/bootstrap','/api/revision','/api/tv/bootstrap','/api/tv/status','/api/push/test-access/config','/api/push/test-access/status']);if(req.method!==(get.has(path)?'GET':'POST'))bad('지원하지 않는 요청 방식이에요.',405);
    let b={};if(req.method==='POST'){if(!req.headers.get('Content-Type')?.startsWith('application/json'))bad('JSON 요청만 사용할 수 있어요.',415);const raw=await req.text();if(raw.length>2_000_000)bad('요청이 너무 커요.',413);try{b=JSON.parse(raw);}catch{bad('요청 형식을 확인해주세요.');}if(!b||typeof b!=='object'||Array.isArray(b))bad('요청 형식을 확인해주세요.');}
    return response(await route(req,path,url,b));
   }catch(e){if(!e.status)console.error('ONOFF request failed',e.name);return response({error:e.status?e.message:'서버 연결을 확인해주세요.'},e.status||503);}

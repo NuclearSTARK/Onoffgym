@@ -280,6 +280,191 @@ async function tvPassword(password, salt) {
   return tvHex(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(salt), iterations: 1e5 }, key, 256));
 }
 
+// worker/push.js
+function unbase64(s) {
+  return Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+}
+function base64(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+var utf = (s) => new TextEncoder().encode(s);
+var concat = (...arrays) => {
+  const out = new Uint8Array(arrays.reduce((n, a) => n + a.length, 0));
+  let offset = 0;
+  for (const a of arrays) {
+    out.set(a, offset);
+    offset += a.length;
+  }
+  return out;
+};
+function validateSubscription(value) {
+  try {
+    const u = new URL(value.endpoint), h = u.hostname;
+    const allowed = h === "fcm.googleapis.com" || h === "updates.push.services.mozilla.com" || h.endsWith(".push.services.mozilla.com") || h === "web.push.apple.com" || h.endsWith(".push.apple.com") || h.endsWith(".notify.windows.com");
+    if (u.protocol !== "https:" || u.username || u.password || u.port || !allowed || value.endpoint.length > 2e3) return null;
+    const auth = unbase64(value.keys.auth), p256dh = unbase64(value.keys.p256dh);
+    if (auth.length !== 16 || p256dh.length !== 65 || p256dh[0] !== 4) return null;
+    return { endpoint: u.href, keys: { auth: value.keys.auth, p256dh: value.keys.p256dh } };
+  } catch {
+    return null;
+  }
+}
+async function hkdf(ikm, salt, info, size) {
+  const key = await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info }, key, size * 8));
+}
+async function encryptPush(subscription, payload) {
+  const receiver = unbase64(subscription.keys.p256dh), auth = unbase64(subscription.keys.auth), ephemeral = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]), server = new Uint8Array(await crypto.subtle.exportKey("raw", ephemeral.publicKey)), client = await crypto.subtle.importKey("raw", receiver, { name: "ECDH", namedCurve: "P-256" }, false, []), shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: client }, ephemeral.privateKey, 256)), salt = crypto.getRandomValues(new Uint8Array(16));
+  const ikm = await hkdf(shared, auth, concat(utf("WebPush: info\0"), receiver, server), 32), cek = await hkdf(ikm, salt, utf("Content-Encoding: aes128gcm\0"), 16), nonce = await hkdf(ikm, salt, utf("Content-Encoding: nonce\0"), 12), key = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["encrypt"]);
+  const plain = concat(utf(JSON.stringify(payload)), new Uint8Array([2]));
+  if (plain.length > 3e3) throw Error("Push payload too large");
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, key, plain)), rs = new Uint8Array(4);
+  new DataView(rs.buffer).setUint32(0, 4096);
+  return concat(salt, rs, new Uint8Array([server.length]), server, ciphertext);
+}
+async function vapidAuthorization(endpoint, env, now = /* @__PURE__ */ new Date()) {
+  const header = base64(utf(JSON.stringify({ typ: "JWT", alg: "ES256" }))), claims = base64(utf(JSON.stringify({ aud: new URL(endpoint).origin, exp: Math.floor(+now / 1e3) + 12 * 3600, sub: env.VAPID_SUBJECT }))), unsigned = header + "." + claims, key = await crypto.subtle.importKey("jwk", JSON.parse(env.VAPID_PRIVATE_JWK), { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]), signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, utf(unsigned));
+  return "vapid t=" + unsigned + "." + base64(signature) + ", k=" + env.VAPID_PUBLIC_KEY;
+}
+async function pushDigest(value) {
+  return base64(await crypto.subtle.digest("SHA-256", utf(value)));
+}
+
+// supabase/functions/onoff-api/push-service.js
+var fail = (message, status = 400) => {
+  throw Object.assign(Error(message), { status });
+};
+var same = (a, b) => {
+  a = String(a || "");
+  b = String(b || "");
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ (b.charCodeAt(i) || 0);
+  return diff === 0;
+};
+function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFetch = fetch } = {}) {
+  async function result(q) {
+    const { data, error } = await q;
+    if (error) fail(error.code === "42501" ? "\uC54C\uB9BC \uC694\uCCAD \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : "\uC54C\uB9BC \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : 400);
+    return data;
+  }
+  const one = (table, key, value) => result(db2.from(table).select("*").eq(key, value).maybeSingle());
+  const setting = async (key, fallback = null) => (await one("gym_settings", "key", key))?.value ?? fallback;
+  async function keys() {
+    let value = await setting("pushVapid");
+    if (value) return value;
+    const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]), candidate = { publicKey: base64(await crypto.subtle.exportKey("raw", pair.publicKey)), privateJwk: await crypto.subtle.exportKey("jwk", pair.privateKey), subject: "mailto:goffo@naver.com" };
+    return result(db2.rpc("onoff_push_keys", { candidate }));
+  }
+  async function access(req) {
+    const code = req.headers.get("X-OnOff-Push-Test") || "";
+    if (!/^[a-f0-9]{32}$/.test(code)) fail("\uC720\uD6A8\uD55C \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C \uB610\uB294 \uCF54\uB4DC\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.", 401);
+    const hash = await pushDigest(code), test = await one("gym_push_tests", "hash", hash);
+    if (!test || Date.parse(test.expires) <= +now()) fail("\uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB410\uC5B4\uC694.", 401);
+    return { hash, test };
+  }
+  async function subscribe(actor, testHash, b) {
+    const sub = validateSubscription(b.subscription);
+    if (!sub) fail("\uC54C\uB9BC \uAD6C\uB3C5 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    const id = await pushDigest(sub.endpoint), preferences = { notices: b.preferences?.notices !== false, workouts: b.preferences?.workouts !== false };
+    await result(db2.rpc("onoff_push_subscribe", { actor, test_code: testHash, sub_id: id, sub_body: sub, prefs: preferences }));
+    return { ok: true, id };
+  }
+  async function enqueue({ id, kind, payload, targetId = null, testHash = null, dueAt }) {
+    await result(db2.from("gym_push_jobs").upsert({ id, kind, payload, target_id: targetId, test_hash: testHash, ...dueAt ? { due_at: dueAt } : {} }, { onConflict: "id", ignoreDuplicates: true }));
+  }
+  async function dispatch() {
+    const config = await keys(), jobs = await result(db2.rpc("onoff_push_claim", { max_count: 100 }));
+    let cursor = 0, sent = 0, failed = 0;
+    await Promise.all(Array.from({ length: Math.min(8, jobs.length) }, async () => {
+      for (; ; ) {
+        const job = jobs[cursor++];
+        if (!job) return;
+        let state = "failed";
+        try {
+          const current = await one("gym_push_subscriptions", "id", job.subscriptionId);
+          if (!current) continue;
+          let allowed = false;
+          if (current.user_id) {
+            const member = await one("gym_members", "id", current.user_id);
+            allowed = member?.status === "approved" && (job.kind === "test" || current.preferences?.[job.kind] !== false);
+          } else if (current.test_hash) {
+            const test = await one("gym_push_tests", "hash", current.test_hash);
+            allowed = job.kind === "test" && current.test_hash === job.testHash && Date.parse(test?.expires) > +now();
+          }
+          if (!allowed) state = "skipped";
+          else {
+            const subscription = validateSubscription(current.body);
+            if (!subscription) throw Error("Invalid subscription");
+            const body = await encryptPush(subscription, job.payload), authorization = await vapidAuthorization(subscription.endpoint, { VAPID_PUBLIC_KEY: config.publicKey, VAPID_PRIVATE_JWK: JSON.stringify(config.privateJwk), VAPID_SUBJECT: config.subject }, now());
+            const response = await pushFetch(subscription.endpoint, { method: "POST", headers: { Authorization: authorization, "Content-Encoding": "aes128gcm", "Content-Type": "application/octet-stream", TTL: "3600", Urgency: job.kind === "test" ? "high" : "normal" }, body, redirect: "error", signal: AbortSignal.timeout(8e3) });
+            if (response.ok) {
+              state = "sent";
+              sent++;
+            } else if ([404, 410].includes(response.status)) {
+              await result(db2.from("gym_push_subscriptions").delete().eq("id", job.subscriptionId));
+              continue;
+            }
+          }
+        } catch {
+          failed++;
+        }
+        await result(db2.from("gym_push_deliveries").update({ status: state, updated_at: now().toISOString() }).eq("job_id", job.jobId).eq("subscription_id", job.subscriptionId));
+      }
+    }));
+    return { ok: true, processed: jobs.length, sent, failed };
+  }
+  async function status(member) {
+    const config = await setting("pushVapid"), sub = await result(db2.from("gym_push_subscriptions").select("id").eq("user_id", member.id).limit(1));
+    return { configured: !!config, publicKey: config?.publicKey || "", schedulerConfigured: await setting("pushCronEnabled", false), subscribed: sub.length > 0 };
+  }
+  async function testStatus(hash) {
+    const jobs = await result(db2.from("gym_push_jobs").select("id,due_at,created_at").eq("test_hash", hash).order("created_at", { ascending: false }).limit(10)), ids = jobs.map((j) => j.id);
+    const deliveries = ids.length ? await result(db2.from("gym_push_deliveries").select("job_id,status").in("job_id", ids)) : [];
+    return jobs.map((j) => ({ ...j, status: deliveries.find((d) => d.job_id === j.id)?.status || "pending" }));
+  }
+  async function publicRoute(req, path, b) {
+    if (path === "/api/push/dispatch") {
+      const secret = await setting("pushCronSecret");
+      if (!secret || !same(req.headers.get("X-OnOff-Worker"), secret)) fail("\uC54C\uB9BC \uBC1C\uC1A1 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 401);
+      return dispatch();
+    }
+    const { hash, test } = await access(req);
+    if (path === "/api/push/test-access/config") return { publicKey: (await keys()).publicKey, expires: test.expires, schedulerConfigured: await setting("pushCronEnabled", false) };
+    if (path === "/api/push/test-access/status") return { jobs: await testStatus(hash) };
+    if (path === "/api/push/test-access/subscribe") return subscribe(null, hash, b);
+    const endpoint = typeof b.endpoint === "string" ? b.endpoint : "", id = await pushDigest(endpoint);
+    if (path === "/api/push/test-access/unsubscribe") {
+      await result(db2.from("gym_push_subscriptions").delete().eq("id", id).eq("test_hash", hash));
+      return { ok: true };
+    }
+    if (path === "/api/push/test-access/send") {
+      const job = await result(db2.rpc("onoff_push_test_job", { actor: null, test_code: hash, sub_id: id, delayed: b.delayed === true }));
+      return { ok: true, job, queued: true };
+    }
+    fail("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+  }
+  async function memberRoute(member, path, b) {
+    if (path === "/api/push/subscribe") {
+      await keys();
+      return subscribe(member.id, null, b);
+    }
+    const id = await pushDigest(typeof b.endpoint === "string" ? b.endpoint : "");
+    if (path === "/api/push/unsubscribe") {
+      await result(db2.from("gym_push_subscriptions").delete().eq("id", id).eq("user_id", member.id));
+      return { ok: true };
+    }
+    if (path === "/api/push/test") {
+      const sub = await result(db2.from("gym_push_subscriptions").select("id").eq("user_id", member.id).limit(1));
+      if (!sub.length) fail("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
+      const target = b.endpoint ? id : sub[0].id;
+      await result(db2.rpc("onoff_push_test_job", { actor: member.id, test_code: null, sub_id: target, delayed: false }));
+      return { ok: true, queued: true, sent: 0 };
+    }
+    fail("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+  }
+  return { status, dispatch, enqueue, publicRoute, memberRoute };
+}
+
 // supabase/functions/onoff-api/server.js
 var ORIGINS = /* @__PURE__ */ new Set(["https://nuclearstark.github.io", "https://onoff-crossfit-gym.powerloding.chatgpt.site"]);
 var bad = (message, status = 400) => {
@@ -291,6 +476,7 @@ var text = (v, min, max, label) => {
   return v.trim();
 };
 function createHandler(db2, { verifyUser, fetchCalendar = fetch, now = () => /* @__PURE__ */ new Date() } = {}) {
+  const push = createPushService(db2, { now });
   async function result(q) {
     const { data, error } = await q;
     if (error) {
@@ -449,12 +635,13 @@ function createHandler(db2, { verifyUser, fetchCalendar = fetch, now = () => /* 
       preferences: prefs?.body || {},
       posts: posts.map((p) => ({ ...p, authorId: p.author_id, author: names.get(p.author_id) || "\uD68C\uC6D0", date: kstDate(new Date(p.created_at)), joined: [], joinedIds: joins.filter((j) => j.post_id === p.id).map((j) => j.user_id), joinedNames: Object.fromEntries(joins.filter((j) => j.post_id === p.id).map((j) => [j.user_id, names.get(j.user_id) || "\uD68C\uC6D0"])), comments: comments.filter((c) => c.post_id === p.id).map((c) => ({ ...c, authorId: c.author_id, author: names.get(c.author_id) || "\uD68C\uC6D0" })) })),
       tv: staff ? await tvSettings() : void 0,
-      push: { configured: false, publicKey: "", schedulerConfigured: false },
+      push: await push.status(m),
       historyLimit: 1e3
     };
   }
   async function route(req, path, url, b) {
     if (path === "/api/health") return { ok: true, backend: "supabase", serverNow: now().toISOString() };
+    if (path === "/api/push/dispatch" || path.startsWith("/api/push/test-access/")) return push.publicRoute(req, path, b);
     if (["/api/tv/login", "/api/tv/logout", "/api/tv/bootstrap", "/api/tv/heartbeat"].includes(path)) return tv(req, path, b);
     const m = await member(req);
     if (path === "/api/revision") return revision(m);
@@ -515,7 +702,7 @@ function createHandler(db2, { verifyUser, fetchCalendar = fetch, now = () => /* 
       if (!uuid(b.id)) bad("\uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return commit(m.id, path.endsWith("delete") ? "post-delete" : path.endsWith("join") ? "join" : "comment", { id: b.id, ...path.endsWith("comment") ? { text: text(b.text, 1, 300, "\uB313\uAE00") } : {} });
     }
-    if (path.startsWith("/api/push/")) bad("Supabase \uC54C\uB9BC \uBC1C\uC1A1 \uC5F0\uACB0\uC744 \uC900\uBE44 \uC911\uC785\uB2C8\uB2E4.", 503);
+    if (path.startsWith("/api/push/")) return push.memberRoute(m, path, b);
     admin(m);
     if (path === "/api/tv/status") return tvSettings();
     if (path === "/api/tv/admin") {
@@ -583,24 +770,26 @@ function createHandler(db2, { verifyUser, fetchCalendar = fetch, now = () => /* 
       return commit(m.id, "movements", { name, videoId, notes: text(b.notes, 0, 1e3, "\uC124\uBA85") });
     }
     if (path === "/api/notices") {
-      if (b.sendPush) bad("\uC54C\uB9BC \uC11C\uBC84 \uC5F0\uACB0 \uC804\uC5D0\uB294 \uC54C\uB9BC \uBCF4\uB0B4\uAE30\uB97C \uD574\uC81C\uD574\uC8FC\uC138\uC694.", 503);
       if (b.id && !uuid(b.id)) bad("\uACF5\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       if (b.action === "delete") return commit(m.id, "notices", { action: "delete", id: b.id });
       if (typeof b.pinned !== "boolean") bad("\uC0C1\uB2E8 \uACE0\uC815 \uC5EC\uBD80\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      return commit(m.id, "notices", { id: b.id, title: text(b.title, 1, 100, "\uC81C\uBAA9"), body: text(b.body, 1, 5e3, "\uB0B4\uC6A9"), pinned: b.pinned });
+      const notice = { id: b.id || crypto.randomUUID(), title: text(b.title, 1, 100, "\uC81C\uBAA9"), body: text(b.body, 1, 5e3, "\uB0B4\uC6A9"), pinned: b.pinned };
+      await commit(m.id, "notices", notice);
+      if (b.sendPush === true) await push.enqueue({ id: "notice:" + notice.id + ":" + crypto.randomUUID(), kind: "notices", payload: { title: "ONOFF \uACF5\uC9C0 \xB7 " + notice.title, body: notice.body.slice(0, 140), url: "/Onoffgym/#community", tag: "notice:" + notice.id } });
+      return { ok: true };
     }
     if (path === "/api/holidays/sync") return { ok: true, calendar: await calendar(true) };
     bad("\uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
   }
   return async (req) => {
-    const origin = req.headers.get("Origin"), allowed = !origin || ORIGINS.has(origin), cors = { "Access-Control-Allow-Origin": allowed && origin ? origin : "https://nuclearstark.github.io", "Access-Control-Allow-Headers": "authorization,apikey,content-type,x-onoff-tv-token", "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Vary": "Origin", "Cache-Control": "no-store", "Content-Type": "application/json; charset=utf-8", "X-Content-Type-Options": "nosniff" };
+    const origin = req.headers.get("Origin"), allowed = !origin || ORIGINS.has(origin), cors = { "Access-Control-Allow-Origin": allowed && origin ? origin : "https://nuclearstark.github.io", "Access-Control-Allow-Headers": "authorization,apikey,content-type,x-onoff-tv-token,x-onoff-push-test", "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Vary": "Origin", "Cache-Control": "no-store", "Content-Type": "application/json; charset=utf-8", "X-Content-Type-Options": "nosniff" };
     const response = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: cors });
     try {
       if (!allowed) bad("\uD5C8\uC6A9\uB41C \uC571\uC5D0\uC11C \uC811\uC18D\uD574\uC8FC\uC138\uC694.", 403);
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
       const url = new URL(req.url), match = url.pathname.match(/\/api\/[^?]+$/), path = match?.[0];
       if (!path) bad("\uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
-      const get = /* @__PURE__ */ new Set(["/api/health", "/api/bootstrap", "/api/revision", "/api/tv/bootstrap", "/api/tv/status"]);
+      const get = /* @__PURE__ */ new Set(["/api/health", "/api/bootstrap", "/api/revision", "/api/tv/bootstrap", "/api/tv/status", "/api/push/test-access/config", "/api/push/test-access/status"]);
       if (req.method !== (get.has(path) ? "GET" : "POST")) bad("\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uC694\uCCAD \uBC29\uC2DD\uC774\uC5D0\uC694.", 405);
       let b = {};
       if (req.method === "POST") {

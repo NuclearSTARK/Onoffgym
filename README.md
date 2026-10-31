@@ -40,6 +40,7 @@ SQL 검증은 `supabase/tests.sql`, `supabase/push-tests.sql`, `supabase/email-t
 
 GitHub main push 시 검증 후 Pages에 배포한다. Sites 미리보기는 소스 커밋과 동일하게 빌드한 아카이브를 배포하고 기존 비공개 접근 범위를 유지한다. Supabase Edge 함수와 SQL 마이그레이션은 별도로 적용한다.
 
+- [GitHub 이전 준비](docs/github-이전준비.md) · `npm run handover:plan`으로 대상 미정 상태 검사, `-- --owner 대표아이디`로 새 주소 계획 확인(실제 이전 없음).
 - [대표·운영자 인수인계](docs/운영자-인수인계.md)
 - [Supabase 연결](docs/supabase-connection.md)
 - [테스트 체크리스트](docs/handover-test-plan.md)

@@ -15,6 +15,6 @@ test('operator custom self-test waits and remains scoped when a new device subsc
  const request=new Request('https://gym.test/api/push/compose',{method:'POST',body:JSON.stringify({mode:'test',title:'My title',body:'Only my device',endpoint:subscription.endpoint})});await pushAdminRequest(request,env,owner,now);assert.equal((await drainPush(env,now)).sent,0);
  await db.prepare('INSERT INTO gym_push_subscriptions(id,user_id,body,preferences,created_at) VALUES(?,?,?,?,?)').bind('new-device','other',JSON.stringify(subscription),'{"notices":true}',new Date(+now+10000).toISOString()).run();
  assert.equal((await drainPush(env,new Date(+now+31000))).sent,1);assert.equal(sent,1);assert.equal((await drainPush(env,new Date(+now+32000))).sent,0);
- const history=await pushAdminRequest(new Request('https://gym.test/api/push/history'),env,owner,now);assert.equal(history.jobs[0].title,'My title');assert.equal(history.jobs[0].sent,1);
+ const history=await pushAdminRequest(new Request('https://gym.test/api/push/history'),env,owner,now);assert.equal(history.jobs[0].title,'ONOFF');assert.equal(history.jobs[0].sent,1);
  await assert.rejects(pushAdminRequest(new Request('https://gym.test/api/push/history'),env,identity('other'),now),e=>e.status===403);
 });

@@ -474,7 +474,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
       if (path.endsWith("/history")) return { jobs: await result(db2.rpc("onoff_push_history", { actor: member.id })) };
       if (!["test", "all"].includes(b.mode)) fail2("\uBC1C\uC1A1 \uB300\uC0C1\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       if (b.mode === "test" && !b.endpoint) fail2("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
-      const job = await result(db2.rpc("onoff_push_compose", { actor: member.id, test_code: null, p: { mode: b.mode, title: b.title, body: b.body, subscriptionId: await pushDigest(b.endpoint || ""), delayed: b.mode === "test" } }));
+      const job = await result(db2.rpc("onoff_push_compose", { actor: member.id, test_code: null, p: { mode: b.mode, title: "ONOFF", body: b.body, subscriptionId: await pushDigest(b.endpoint || ""), delayed: b.mode === "test" } }));
       return { ok: true, queued: true, job };
     }
     if (path === "/api/push/subscribe") {
@@ -740,7 +740,13 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     admin(m);
     if (path === "/api/tv/status") return tvSettings();
     if (path === "/api/tv/admin") {
-      const p = { preferences: normalizeTvPreferences(b), revoke: b.revoke === true };
+      let preferences;
+      try {
+        preferences = normalizeTvPreferences(b);
+      } catch (e) {
+        bad(e.message);
+      }
+      const p = { preferences, revoke: b.revoke === true };
       if (b.password) {
         if (!/^\d{4}$/.test(b.password)) bad("TV \uC554\uD638\uB294 \uC22B\uC790 4\uC790\uB9AC\uC608\uC694.");
         const salt = crypto.randomUUID();
@@ -809,7 +815,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       if (typeof b.pinned !== "boolean") bad("\uC0C1\uB2E8 \uACE0\uC815 \uC5EC\uBD80\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const notice = { id: b.id || crypto.randomUUID(), title: text(b.title, 1, 100, "\uC81C\uBAA9"), body: text(b.body, 1, 5e3, "\uB0B4\uC6A9"), pinned: b.pinned };
       await commit(m.id, "notices", notice);
-      if (b.sendPush === true) await push.enqueue({ id: "notice:" + notice.id + ":" + crypto.randomUUID(), kind: "notices", payload: { title: "ONOFF \uACF5\uC9C0 \xB7 " + notice.title, body: notice.body.slice(0, 140), url: "/Onoffgym/#community", tag: "notice:" + notice.id } });
+      if (b.sendPush === true) await push.enqueue({ id: "notice:" + notice.id + ":" + crypto.randomUUID(), kind: "notices", payload: { title: notice.title, body: notice.body.slice(0, 140), url: "/Onoffgym/#community", tag: "notice:" + notice.id } });
       return { ok: true };
     }
     if (path === "/api/holidays/sync") return { ok: true, calendar: await calendar(true) };

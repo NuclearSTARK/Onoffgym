@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 const out='pages-dist';await rm(out,{recursive:true,force:true});await cp('web',out,{recursive:true});
 const demo=process.argv.includes('--demo'),config=JSON.parse(await readFile('supabase/public-project.json','utf8'));
 await writeFile(out+'/backend-config.js',demo?'window.ONOFF_DEMO=true;window.ONOFF_BACKEND=null;':'window.ONOFF_BACKEND='+JSON.stringify(config)+';');
-let html=await readFile(out+'/index.html','utf8');html=html.replace('<div class="app-header">','<div class="app-header"><aside class="public-test-notice" id="backend-notice"><strong>회원 전용</strong><span>이메일 로그인 · 운영자 승인 후 이용</span></aside>');
+let html=await readFile(out+'/index.html','utf8');
 await writeFile(out+'/index.html',html);
 await writeFile(out+'/.nojekyll','');
 // Push-only service worker is project-scoped; it never caches member pages.

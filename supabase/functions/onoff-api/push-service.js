@@ -38,7 +38,7 @@ export function createPushService(db,{now=()=>new Date(),pushFetch=fetch}={}){
   fail('알림 요청을 찾을 수 없어요.',404);
  }
  async function memberRoute(member,path,b){
-  if(['/api/push/compose','/api/push/history'].includes(path)){if(member.status!=='approved'||member.role!=='admin')fail('운영자 권한이 필요해요.',403);if(path.endsWith('/history'))return {jobs:await result(db.rpc('onoff_push_history',{actor:member.id}))};if(!['test','all'].includes(b.mode))fail('발송 대상을 확인해주세요.');if(b.mode==='test'&&!b.endpoint)fail('이 기기에서 알림을 먼저 켜주세요.');const job=await result(db.rpc('onoff_push_compose',{actor:member.id,test_code:null,p:{mode:b.mode,title:b.title,body:b.body,subscriptionId:await pushDigest(b.endpoint||''),delayed:b.mode==='test'}}));return {ok:true,queued:true,job};}
+  if(['/api/push/compose','/api/push/history'].includes(path)){if(member.status!=='approved'||member.role!=='admin')fail('운영자 권한이 필요해요.',403);if(path.endsWith('/history'))return {jobs:await result(db.rpc('onoff_push_history',{actor:member.id}))};if(!['test','all'].includes(b.mode))fail('발송 대상을 확인해주세요.');if(b.mode==='test'&&!b.endpoint)fail('이 기기에서 알림을 먼저 켜주세요.');const job=await result(db.rpc('onoff_push_compose',{actor:member.id,test_code:null,p:{mode:b.mode,title:'ONOFF',body:b.body,subscriptionId:await pushDigest(b.endpoint||''),delayed:b.mode==='test'}}));return {ok:true,queued:true,job};}
 
   if(path==='/api/push/subscribe'){await keys();return subscribe(member.id,null,b);}
   const id=await pushDigest(typeof b.endpoint==='string'?b.endpoint:'');

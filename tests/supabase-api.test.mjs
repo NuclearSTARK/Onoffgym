@@ -8,7 +8,7 @@ const fixture=({role='member',status='approved',anonymous=false,valid=true}={})=
  const db={from(name){let data=structuredClone(tables[name]||[]),single=false;const q={select(){return q},eq(k,v){data=data.filter(x=>x[k]===v);return q},gt(k,v){data=data.filter(x=>x[k]>v);return q},lte(k,v){data=data.filter(x=>x[k]<=v);return q},or(){return q},order(){return q},limit(n){data=data.slice(0,n);return q},maybeSingle(){single=true;return q},then(resolve,reject){return Promise.resolve({data:single?data[0]||null:data,error:null}).then(resolve,reject)}};return q;},rpc(name,p){writes.push(p);return Promise.resolve({data:{ok:true},error:null})}};
  const handle=createHandler(db,{verifyUser:async()=>valid?{id:MEMBER,is_anonymous:anonymous,user_metadata:{role:'admin'}}:null,now:()=>new Date('2026-11-02T01:00:00Z')});
  async function request(path,{body,token='valid',method=body?'POST':'GET',origin='https://nuclearstark.github.io'}={}){const headers={Origin:origin};if(token)headers.Authorization='Bearer '+token;if(body)headers['Content-Type']='application/json';const res=await handle(new Request('https://project.supabase.co/functions/v1/onoff-api'+path,{method,headers,body:body?JSON.stringify(body):undefined}));return {status:res.status,value:await res.json(),headers:res.headers};}
- return {tables,writes,request};
+ return {tables,writes,request,db};
 };
 
 test('Supabase API exposes no member data without a verified non-anonymous Auth session',async()=>{
@@ -42,4 +42,12 @@ test('member cannot impersonate another 1RM owner or override a catalogue moveme
 test('revision heartbeat is small and TV PIN has no default on the shared backend',async()=>{
  const f=fixture(),r=await f.request('/api/revision');assert.equal(r.status,200);assert.ok(JSON.stringify(r.value).length<150);assert.equal(r.value.workouts,undefined);
  f.tables.gym_settings=f.tables.gym_settings.filter(x=>x.key!=='tvPassword');assert.equal((await f.request('/api/tv/login',{body:{password:'0000'},token:null})).status,503);
+});
+
+test('an approved operator can save a four-digit TV PIN then authenticate a TV with the same PIN',async()=>{
+ const f=fixture({role:'admin'});f.tables.gym_tv_sessions=[];
+ f.db.rpc=async(name,args)=>{f.writes.push({name,...args});if(name==='onoff_tv_attempt')return {data:{allowed:true},error:null};if(args.op==='tv-admin'){for(const [key,value]of [['tvDisplay',args.p.preferences],...(args.p.password?[['tvPassword',args.p.password]]:[])]){f.tables.gym_settings=f.tables.gym_settings.filter(x=>x.key!==key);f.tables.gym_settings.push({key,value});}}if(args.op==='tv-login')f.tables.gym_tv_sessions.push({hash:args.p.hash,expires:'2026-12-01T00:00:00Z'});return {data:{ok:true},error:null};};
+ const saved=await f.request('/api/tv/admin',{body:{password:'0123',orientation:'landscape',btColor:'mint',wodColor:'orange',unit:'lbs',pageSeconds:'20',revoke:false}});assert.equal(saved.status,200);assert.equal(saved.value.configured,true);assert.equal(saved.value.preferences.btColor,'mint');assert.ok(!JSON.stringify(saved.value).includes('hash'));assert.ok(!JSON.stringify(saved.value).includes('0123'));
+ const login=await f.request('/api/tv/login',{body:{password:'0123'},token:null});assert.equal(login.status,200);assert.match(login.value.token,/^[a-f0-9]{64}$/);const wrong=await f.request('/api/tv/login',{body:{password:'9999'},token:null});assert.equal(wrong.status,401);
+ const invalid=await f.request('/api/tv/admin',{body:{password:'12345'}});assert.equal(invalid.status,400);
 });

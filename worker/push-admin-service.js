@@ -9,7 +9,7 @@ export async function pushAdminRequest(req,env,member,now){
  }
  if(path.endsWith('/compose')&&req.method==='POST'){
   if(!pushConfigured(env))fail('이 미리보기 서버에는 알림이 연결되지 않았어요. GitHub 배포 앱에서 시험해주세요.',503);
-  const b=await req.json(),title=typeof b.title==='string'?b.title.trim():'',body=typeof b.body==='string'?b.body.trim():'';
+  const b=await req.json(),title='ONOFF',body=typeof b.body==='string'?b.body.trim():'';
   if(!title||title.length>80||!body||body.length>300||!['test','all'].includes(b.mode))fail('제목 1~80자, 내용 1~300자를 입력해주세요.');
   let target=null;if(b.mode==='test'){target=await pushDigest(b.endpoint||'');if(!await env.DB.prepare('SELECT id FROM gym_push_subscriptions WHERE id=? AND user_id=?').bind(target,member.id).first())fail('이 기기에서 알림을 먼저 켜주세요.',403);}
   const id=(target?'test:':'notice:')+crypto.randomUUID(),due=new Date(+now+(target?30000:0)).toISOString(),jobs=[env.DB.prepare('INSERT INTO gym_push_events(id,kind,payload,created_at) VALUES(?,?,?,?)').bind(id,target?'test':'notices',JSON.stringify({title,body,...(target?{targetId:target}:{}),url:target?'./#login':'./#community',tag:id}),due)];

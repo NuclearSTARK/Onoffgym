@@ -6,7 +6,9 @@ export const connected=!!config?.url;
 const preview=new URLSearchParams(location.search).get('preview')==='1';
 if(connected)globalThis.ONOFF_DEMO=preview;
 export const shared=connected&&!preview;
-const notice=document.querySelector('#backend-notice');
+let notice=document.querySelector('#backend-notice');
+if(globalThis.ONOFF_DEMO&&!notice){notice=document.createElement('aside');notice.id='backend-notice';notice.className='public-test-notice';document.querySelector('.app-header')?.prepend(notice);}
+if(shared&&notice){notice.remove();notice=null;}
 if(notice&&(!shared||preview))notice.innerHTML='<strong>공개 테스트</strong><span>예시 데이터 · 입력은 이 브라우저에만 저장됩니다.</span><a href="./#login">회원 로그인</a>';
 const client=shared?createClient(config.url,config.publishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,flowType:'implicit',storageKey:'onoff-auth-'+config.projectId}}):null;
 export const emailAuth=createEmailAuth(client,{callbackUrl:new URL('auth-callback.html',import.meta.url).href,checkRegistration:async()=>{if(!config?.url)return false;const r=await fetch(config.url+'/auth/v1/settings',{headers:{apikey:config.publishableKey}});if(!r.ok)throw Error('가입 설정을 확인하지 못했어요. 잠시 후 다시 시도해주세요.');const value=await r.json();return value.external?.email===true&&value.disable_signup!==true&&value.mailer_autoconfirm===true;}});

@@ -3,7 +3,7 @@ import {kstDate,addDays,tvWorkoutDate} from './core.js';
 let data=null,pages={BT:[],WOD:[]},pageIndex=0,offset=0,pollTimer,rotationTimer,refreshing=false;
 const demo=!!globalThis.ONOFF_DEMO||location.hostname.endsWith('github.io')||location.hostname.includes('onoffgym-public-test')||new URLSearchParams(location.search).get('demo')==='1';
 const $=s=>document.querySelector(s),escapeTv=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const logo=`<span class="brand-mark tv-logo" role="img" aria-label="ONOFF CROSSFIT"><img src="./assets/onoff-logo.png?v=2" alt=""></span>`;
+const logo=`<span class="brand-mark tv-logo" role="img" aria-label="ONOFF CROSSFIT"><img src="./assets/onoff-logo-v3.svg?v=3" alt=""></span>`;
 document.documentElement.dataset.theme='tv';
 let localColors={};try{const saved=JSON.parse(localStorage.getItem('onoff-tv-colors')||'{}');for(const key of ['btColor','wodColor'])if(TV_COLORS.some(c=>c.id===saved[key]))localColors[key]=saved[key]}catch{}
 function courseColors(){return normalizeTvPreferences({...data?.preferences,...localColors});}

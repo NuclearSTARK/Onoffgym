@@ -3,7 +3,7 @@
 .login-final .login-art{padding:65px 65px 85px;min-height:0;display:flex;flex-direction:column;justify-content:flex-start;gap:0;position:relative;background:linear-gradient(135deg,var(--hero),var(--sidebar));overflow:hidden}
 [data-theme=navy] .login-final .login-art{background:linear-gradient(135deg,#183b6a,#112949)}
 .login-final .login-stripes{position:absolute;inset:auto -50px 0 auto;width:350px;height:650px;background:repeating-linear-gradient(0deg,transparent 0,transparent 11px,#89b6f718 12px,#89b6f718 14px);transform:skewX(-18deg);pointer-events:none;opacity:1}
-.login-final .login-logo.brand-mark{position:relative;width:260px;max-width:100%;height:auto;aspect-ratio:5412/1716;margin:0;-webkit-mask-position:center;mask-position:center;flex-shrink:0}
+.login-final .login-logo.brand-mark{position:relative;width:260px;max-width:100%;height:auto;aspect-ratio:620/236;margin:0;-webkit-mask-position:center;mask-position:center;flex-shrink:0}
 .login-final .login-location{display:none}.login-final .login-brand-copy{margin-top:100px;position:relative}
 .login-final .login-statement{font:italic 800 clamp(56px,5.3vw,92px)/1.03 Arial,sans-serif;letter-spacing:-4px;margin:0;color:var(--ink)}
 .login-final .login-statement span{color:var(--blue)}.login-final .login-caption{position:static;font-size:14px;color:var(--ink);opacity:.8;margin:25px 0 0;letter-spacing:0;line-height:1.9}

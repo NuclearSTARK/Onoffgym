@@ -106,7 +106,15 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
    }
    return commit(m.id,'records',{records:clean});
   }
-  if(path==='/api/rms'){const cat=await setting('rmCatalogue',DEFAULT_RM_CATALOGUE),mov=findRmMovement(cat,b.movementId||b.movement);if(!mov?.active||!Number.isFinite(b.lbs)||b.lbs<=0||b.lbs>6614||!normalizeDate(b.date)||b.date>kstDate(now()))bad('1RM 종목·중량·날짜를 확인해주세요.');return commit(m.id,'rm',{id:crypto.randomUUID(),memberId:m.id,movementId:mov.id,movement:mov.name,lbs:b.lbs,date:b.date});}
+  if(path==='/api/rms'){
+   if(b.id&&!uuid(b.id))bad('1RM 기록을 확인해주세요.');const existing=b.id?await one('gym_rms','id',b.id):null;if(b.id&&(!existing||existing.user_id!==m.id))bad('본인의 1RM 기록만 수정할 수 있어요.',403);
+   const cat=await setting('rmCatalogue',DEFAULT_RM_CATALOGUE),mov=findRmMovement(cat,b.movementId||b.movement),oldMov=existing?findRmMovement(cat,existing.body.movementId||existing.body.movement):null;
+   if(!mov||(!mov.active&&mov.id!==oldMov?.id)||!Number.isFinite(b.lbs)||b.lbs<=0||b.lbs>6614||!normalizeDate(b.date)||b.date>kstDate(now()))bad('1RM 종목·중량·날짜를 확인해주세요.');
+   if(existing?.source&&(b.date!==existing.body.date||mov.id!==oldMov?.id))bad('수업에서 연결된 동작과 날짜는 유지해주세요.');
+   const body={id:existing?.id||crypto.randomUUID(),memberId:m.id,movementId:mov.id,movement:mov.name,lbs:b.lbs,date:b.date};if(existing?.source)body.source=existing.source;return commit(m.id,existing?'rm-update':'rm',body);
+  }
+  if(path==='/api/community/read'){if(!uuid(b.id)||!['post','notice'].includes(b.kind))bad('읽은 게시글을 확인해주세요.');const item=await one(b.kind==='notice'?'gym_notices':'gym_posts','id',b.id);if(!item)bad('게시글을 찾을 수 없어요.',404);return commit(m.id,'community-read',{id:b.id,kind:b.kind});}
+
   if(path==='/api/posts'){if(!['운동 번개','공동구매','자유글'].includes(b.category))bad('말머리를 확인해주세요.');return commit(m.id,'post',{category:b.category,title:text(b.title,1,80,'제목'),body:text(b.body,1,3000,'내용')});}
   if(['/api/posts/delete','/api/posts/join','/api/posts/comment'].includes(path)){if(!uuid(b.id))bad('게시글을 확인해주세요.');return commit(m.id,path.endsWith('delete')?'post-delete':path.endsWith('join')?'join':'comment',{id:b.id,...(path.endsWith('comment')?{text:text(b.text,1,300,'댓글')}:{})});}
   if(path.startsWith('/api/push/'))return push.memberRoute(m,path,b);

@@ -76,3 +76,19 @@ test('operators can publish free-text movements while automatic 1RM linkage stay
 test('unmatched 1RM class results remain weight records without inventing a personal movement ID',async()=>{
  const f=fixture();f.tables.gym_workouts[0].body.sections=[{title:'Custom lift',text:'5 reps',record:true,kind:'1RM',movement:'',movements:['Front Sqart']}];const r=await f.request('/api/records',{body:{records:[{date:'2026-11-02',program:'WOD',section:'S1',lbs:185}]}});assert.equal(r.status,200);const saved=f.writes[0].p.records[0];assert.equal(saved.kind,'1RM');assert.equal(saved.lbs,185);assert.equal(saved.movementId,undefined);
 });
+
+test('1RM edits preserve IDs, restrict ownership and keep linked class movement and date immutable',async()=>{
+ const f=fixture(),id=crypto.randomUUID(),source=crypto.randomUUID();f.tables.gym_rms=[{id,user_id:MEMBER,source,body:{id,date:'2026-11-01',movementId:'front-squat',movement:'Front Squat',lbs:185}}];
+ const body={id,date:'2026-11-01',movementId:'front-squat',lbs:195,memberId:ADMIN,source:ADMIN};
+ assert.equal((await f.request('/api/rms',{body})).status,200);assert.equal(f.writes[0].op,'rm-update');assert.equal(f.writes[0].actor,MEMBER);assert.deepEqual(f.writes[0].p,{id,memberId:MEMBER,movementId:'front-squat',movement:'Front Squat',lbs:195,date:'2026-11-01',source});
+ for(const patch of [{date:'2026-11-02'},{movementId:'back-squat'},{id:crypto.randomUUID()},{id:'invalid'},{lbs:0}])assert.notEqual((await f.request('/api/rms',{body:{...body,...patch}})).status,200);
+ f.tables.gym_rms[0].user_id=ADMIN;assert.equal((await f.request('/api/rms',{body})).status,403);assert.equal(f.writes.length,1);
+});
+test('community reads are scoped to the verified member and reject invalid targets and unapproved callers',async()=>{
+ const f=fixture(),id=crypto.randomUUID();f.tables.gym_posts=[{id}];f.tables.gym_notices=[{id}];
+ for(const kind of ['post','notice']){assert.equal((await f.request('/api/community/read',{body:{id,kind,actor:ADMIN}})).status,200);assert.equal(f.writes.at(-1).actor,MEMBER);assert.deepEqual(f.writes.at(-1).p,{id,kind});}
+ assert.equal((await f.request('/api/community/read',{body:{id:crypto.randomUUID(),kind:'post'}})).status,404);
+ assert.equal((await f.request('/api/community/read',{body:{id,kind:'anything'}})).status,400);
+ assert.equal((await fixture({status:'pending'}).request('/api/community/read',{body:{id,kind:'post'}})).status,403);
+ assert.equal(f.writes.length,2);
+});

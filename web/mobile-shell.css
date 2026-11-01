@@ -1,14 +1,5 @@
-/* Navigation is a sibling row of the scroll area, never a fixed viewport layer. */
-@media(max-width:760px){
- html.app-shell{height:100%;overflow:hidden;overscroll-behavior:none}
- html.app-shell body{height:var(--app-viewport-height,100dvh);min-height:0;max-height:var(--app-viewport-height,100dvh);display:flex;flex-direction:column;overflow:hidden;overscroll-behavior:none}
- html.app-shell .app{width:100%;margin:0;min-height:0!important;height:auto;flex:1 1 0;overflow:auto;overscroll-behavior-y:none;-webkit-overflow-scrolling:touch;padding-bottom:0}
- html.app-shell body:not(.login-mode) .mobile-nav{position:relative!important;inset:auto!important;top:auto!important;bottom:auto!important;transform:none!important;flex:0 0 auto;width:100%;height:calc(55.3px + var(--safe-bottom));min-height:calc(55.3px + var(--safe-bottom));z-index:70;padding:4px max(9px,var(--safe-right)) calc(5px + var(--safe-bottom)) max(9px,var(--safe-left))}
- html.app-shell .app>.site-footer{flex-shrink:0;padding-bottom:24px}
- html.app-shell .app-header{flex-shrink:0}
- html.app-shell .batch-save{bottom:0}
- html.has-modal.app-shell .app{overflow:hidden}
-}
+/* Mobile pages use ordinary document scrolling. */
+
 .editor-section-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}.editor-section-heading h3{margin:0}.section-remove{font-size:12px;min-height:40px;color:#f4a6af;border:1px solid var(--line)}
 .draft-toolbar{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}.draft-toolbar p{flex:1;min-width:170px}.draft-toolbar button{min-height:36px;white-space:nowrap;font-size:12px}
 .workout-copy-launch{margin-top:15px}.member-status-select{margin:0 0 20px}.member-search-label .search-input{margin:0}.member-role-tabs{margin-bottom:20px}.member-heading{align-items:flex-start}.member-heading .pending-pill{min-height:40px;white-space:nowrap}
@@ -27,5 +18,28 @@
 @keyframes startup-power-on{0%{opacity:0}45%{opacity:1}100%{opacity:0}}
 @keyframes startup-status{to{opacity:1}}
 @media(prefers-reduced-motion:reduce){.startup-brand,.startup-power,.startup-content p{animation:none}.startup-content p{opacity:1}.app-startup{transition:none}}
-@media(max-width:760px){html.app-shell body{position:relative}html.app-shell .app{scroll-padding-top:var(--app-header-height,0px)}html.app-shell .scroll-top{position:absolute}html.app-shell .toast{position:absolute}}
-@media(max-width:760px){html.app-shell dialog{max-height:calc(var(--app-viewport-height,100dvh) - var(--safe-top) - var(--safe-bottom) - 24px)}}
+
+
+/* The bottom menu scrolls with the page. No fixed-height app or keyboard split. */
+@media(max-width:760px){
+ html{height:auto;overflow:visible;overscroll-behavior:auto}
+ body:not(.login-mode){display:flex;flex-direction:column;height:auto;min-height:100svh;max-height:none;overflow:visible;position:static}
+ body:not(.login-mode) .app{flex:1 0 auto;min-height:0!important;height:auto;max-height:none;overflow:visible;overscroll-behavior:auto;padding-bottom:0}
+ body:not(.login-mode) .mobile-nav{position:static!important;inset:auto!important;top:auto!important;bottom:auto!important;left:auto;right:auto;transform:none!important;flex:0 0 auto;width:100%;height:calc(55.3px + var(--safe-bottom));min-height:calc(55.3px + var(--safe-bottom));z-index:auto;margin:0}
+ .app>.site-footer{padding-bottom:24px}.scroll-top{position:fixed}.toast{position:fixed}
+ dialog{max-height:calc(var(--dialog-viewport-height,100dvh) - var(--safe-top) - var(--safe-bottom) - 24px)}
+ .admin-folders{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px!important}
+ body[data-page=admin] .admin-folders .folder-card{grid-template-columns:minmax(0,1fr) 18px;gap:12px;align-content:start;min-height:175px;padding:16px}
+ .admin-folders .feature-icon{grid-column:1;grid-row:1;width:36px;height:36px}.admin-folders .folder-arrow{grid-column:2;grid-row:1;align-self:center}.admin-folders .folder-copy{grid-column:1/-1;grid-row:2;gap:6px}
+ body[data-page=admin] .admin-folders .folder-copy strong{font-size:14px;line-height:1.5;word-break:keep-all}.admin-folders .folder-copy>span{font-size:11px!important;line-height:1.6!important;word-break:keep-all}.admin-folders .folder-copy small{font-size:10px!important}
+}
+@media(min-width:761px){.admin-folders{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+.home-program-tabs.wod-only{grid-template-columns:minmax(0,1fr)}.home-program-tabs.wod-only>button{grid-column:1;width:100%}
+.rest-day-message{text-align:center;padding:26px 18px;color:var(--muted)}.rest-day-message strong{display:block;color:var(--ink);font-size:15px}.rest-day-message p{margin:8px 0 0;font-size:13px}
+.modal-head>button{background:transparent!important;border:0!important;box-shadow:none!important;border-radius:0;color:var(--muted);width:44px;height:44px;padding:0}
+.rm-history-value{display:flex;align-items:center;gap:16px}.rm-history-value button{min-height:44px}
+.community-count{display:inline-flex;align-items:center;justify-content:center;min-width:19px;height:19px;padding:0 5px;border-radius:12px;background:var(--accent);color:var(--on-accent);font-size:10px;font-weight:700;line-height:1;margin-left:auto}
+.mobile-nav .community-count{position:absolute;top:-7px;right:-13px;min-width:17px;height:17px;margin:0;padding:0 3px;border:2px solid var(--surface)}
+.movement-picker{position:relative;min-width:0}.movement-suggestions{display:grid;border:1px solid var(--line);border-radius:8px;background:var(--surface);max-height:176px;overflow:auto;margin-top:5px;box-shadow:0 6px 18px #0002}
+.movement-suggestions button{min-height:44px;text-align:left;padding:9px 12px;font-size:14px;overflow-wrap:anywhere}.movement-suggestions button[aria-selected=true]{background:var(--soft);color:var(--blue)}
+.movement-suggestions[hidden]{display:none}

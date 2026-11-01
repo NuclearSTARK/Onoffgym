@@ -29,7 +29,7 @@ function createAccountService(db2, { reauthenticate } = {}) {
 // web/core.js
 var MOVEMENTS = ["Front Squat", "Back Squat", "Deadlift", "Clean", "Clean & Jerk", "Snatch", "Power Snatch", "Squat Snatch", "Strict Press", "Push Press", "Split Jerk", "Row", "Box Step Over", "Pull-up", "Ring Dip", "Burpee"];
 var KINDS = ["\uC5C6\uC74C", "\uC911\uB7C9", "1RM", "\uC2DC\uAC04", "\uD69F\uC218", "\uB77C\uC6B4\uB4DC + \uD69F\uC218", "\uCE7C\uB85C\uB9AC", "\uC138\uD2B8\uBCC4 \uD69F\uC218\xB7\uCE7C\uB85C\uB9AC", "\uC644\uB8CC \uC5EC\uBD80"];
-var DEFAULT_BANNER = { enabled: true, text: "\uC628\uC624\uD504\uC640 \uD568\uAED8, \uC624\uB298\uC758 \uB098\uB97C \uCF1C\uBCF4\uC138\uC694! \xB7 \uC6B4\uB3D9 \uD6C4 \uB098\uC758 \uAE30\uB85D\uC744 \uB0A8\uACA8\uC8FC\uC138\uC694.", color: "blue" };
+var DEFAULT_BANNER = { enabled: true, text: "ONOFF\uC640 \uD568\uAED8, \uC624\uB298\uC758 \uB098\uB97C \uCF1C\uBCF4\uC138\uC694! \xB7 \uC6B4\uB3D9 \uD6C4 \uB098\uC758 \uAE30\uB85D\uC744 \uB0A8\uACA8\uC8FC\uC138\uC694.", color: "blue" };
 function validBanner(b) {
   return !!b && typeof b.enabled === "boolean" && typeof b.text === "string" && b.text.trim().length > 0 && b.text.length <= 500 && ["blue", "mint", "amber"].includes(b.color);
 }
@@ -753,9 +753,21 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return commit(m.id, "records", { records: clean });
     }
     if (path === "/api/rms") {
-      const cat = await setting("rmCatalogue", DEFAULT_RM_CATALOGUE), mov = findRmMovement(cat, b.movementId || b.movement);
-      if (!mov?.active || !Number.isFinite(b.lbs) || b.lbs <= 0 || b.lbs > 6614 || !normalizeDate(b.date) || b.date > kstDate(now())) bad("1RM \uC885\uBAA9\xB7\uC911\uB7C9\xB7\uB0A0\uC9DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      return commit(m.id, "rm", { id: crypto.randomUUID(), memberId: m.id, movementId: mov.id, movement: mov.name, lbs: b.lbs, date: b.date });
+      if (b.id && !uuid(b.id)) bad("1RM \uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      const existing = b.id ? await one("gym_rms", "id", b.id) : null;
+      if (b.id && (!existing || existing.user_id !== m.id)) bad("\uBCF8\uC778\uC758 1RM \uAE30\uB85D\uB9CC \uC218\uC815\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+      const cat = await setting("rmCatalogue", DEFAULT_RM_CATALOGUE), mov = findRmMovement(cat, b.movementId || b.movement), oldMov = existing ? findRmMovement(cat, existing.body.movementId || existing.body.movement) : null;
+      if (!mov || !mov.active && mov.id !== oldMov?.id || !Number.isFinite(b.lbs) || b.lbs <= 0 || b.lbs > 6614 || !normalizeDate(b.date) || b.date > kstDate(now())) bad("1RM \uC885\uBAA9\xB7\uC911\uB7C9\xB7\uB0A0\uC9DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (existing?.source && (b.date !== existing.body.date || mov.id !== oldMov?.id)) bad("\uC218\uC5C5\uC5D0\uC11C \uC5F0\uACB0\uB41C \uB3D9\uC791\uACFC \uB0A0\uC9DC\uB294 \uC720\uC9C0\uD574\uC8FC\uC138\uC694.");
+      const body = { id: existing?.id || crypto.randomUUID(), memberId: m.id, movementId: mov.id, movement: mov.name, lbs: b.lbs, date: b.date };
+      if (existing?.source) body.source = existing.source;
+      return commit(m.id, existing ? "rm-update" : "rm", body);
+    }
+    if (path === "/api/community/read") {
+      if (!uuid(b.id) || !["post", "notice"].includes(b.kind)) bad("\uC77D\uC740 \uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      const item = await one(b.kind === "notice" ? "gym_notices" : "gym_posts", "id", b.id);
+      if (!item) bad("\uAC8C\uC2DC\uAE00\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      return commit(m.id, "community-read", { id: b.id, kind: b.kind });
     }
     if (path === "/api/posts") {
       if (!["\uC6B4\uB3D9 \uBC88\uAC1C", "\uACF5\uB3D9\uAD6C\uB9E4", "\uC790\uC720\uAE00"].includes(b.category)) bad("\uB9D0\uBA38\uB9AC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");

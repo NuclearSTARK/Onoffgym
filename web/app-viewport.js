@@ -1,3 +1,4 @@
+import {installScrollBoundaryGuard} from './scroll-boundary.js';
 // Keep document scrolling native. Only the open dialog follows the visible
 // viewport, including iOS keyboard panning (offsetTop) and device safe areas.
 export function dialogFrame({width,height,top=0,left=0,safeTop=0,safeBottom=0,safeLeft=0,safeRight=0,contentHeight=height,editing=false}){
@@ -5,6 +6,7 @@ export function dialogFrame({width,height,top=0,left=0,safeTop=0,safeBottom=0,sa
  return {width:w,height:available,left:left+safeLeft+(width-safeLeft-safeRight-w)/2,top:top+safeTop+gap+(editing?0:Math.max(0,(available-Math.min(contentHeight,available))/2))};
 }
 export function installAppViewport(){
+ installScrollBoundaryGuard();
  const html=document.documentElement,dialog=()=>document.querySelector('#modal');let frame=0,ensure=false,locked=null,baseline=window.innerHeight,keyboardOpen=false;
  const probe=document.createElement('div');probe.style.cssText='position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)';document.body.append(probe);
  const editable=el=>el?.matches?.('textarea,input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]),select')&&!el.disabled&&!el.readOnly;
@@ -13,7 +15,7 @@ export function installAppViewport(){
   // Hide tabs only for a keyboard-sized shrink after an editable field received
   // focus. Keep them hidden during the keyboard's closing animation too.
   keyboardOpen=baseline-h>120&&(editable(document.activeElement)||keyboardOpen);html.classList.toggle('mobile-keyboard-open',keyboardOpen);
-  const nav=document.querySelector('#mobile-nav');if(nav)nav.style.setProperty('--mobile-nav-top',Math.max(0,(vv?.offsetTop||0)+h-nav.offsetHeight)+'px');
+  // The tab bar stays CSS-anchored; elastic viewport offsets must not move it.
   const d=dialog();if(!d?.open){baseline=Math.max(baseline,h);ensure=false;return;}
   const safe=getComputedStyle(probe),active=editable(document.activeElement)&&d.contains(document.activeElement),editing=active||h<baseline-120;
   d.classList.toggle('keyboard-open',h<baseline-120);d.classList.toggle('keyboard-compact',h<baseline-120&&h<250);

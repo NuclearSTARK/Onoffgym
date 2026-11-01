@@ -23,13 +23,10 @@ body[data-page=home] .topbar{border-bottom:0}
 .course-sections{padding:13px;display:grid;gap:11px;align-items:start}
 .course-section-card{--section-color:#8db9ff;--section-tint:#7ba6ff0e;background:var(--section-tint);border:1px solid var(--line);border-left:3px solid var(--section-color);border-radius:10px;min-width:0;padding:12px}
 .course-section-card:nth-of-type(even){--section-color:#ffc184;--section-tint:#ffb4770d}
-.course-section-detail>summary{list-style:none;cursor:pointer;display:block}.course-section-detail>summary::-webkit-details-marker{display:none}
 .course-section-heading{display:flex;align-items:flex-start;gap:10px;min-width:0}
 .course-section-badge{display:inline-flex;align-items:center;justify-content:center;border-radius:6px;padding:3px 7px;background:var(--section-color);color:#102039;font-size:14px;font-weight:800;flex-shrink:0;line-height:1.6}
 .course-section-title{font-size:15px;line-height:1.6;margin:2px 0 0;overflow-wrap:anywhere;min-width:0}
 .course-section-preview{display:block;white-space:pre-line;font-size:14px;line-height:1.7;color:var(--ink);margin:10px 0 0;overflow-wrap:anywhere}
-.course-section-more{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:10px;color:var(--muted);margin-top:10px}.course-section-more:after{content:'전체 보기 +';color:var(--section-color)}
-.course-section-detail[open] .course-section-more:after{content:'접기 −'}.course-section-detail[open] .course-section-preview{display:none}
 .course-section-full{padding-top:11px}.course-section-full .exercise{font-size:14px;line-height:1.8;white-space:pre-line;overflow-wrap:anywhere}
 .course-card .section-rm-reference{margin-top:12px;padding-top:9px;border-top:1px solid var(--line);font-size:10px}
 .course-card .section-percentages strong{font-size:13px}.course-card .section-movement-links{margin-top:10px;display:flex;gap:9px;flex-wrap:wrap}

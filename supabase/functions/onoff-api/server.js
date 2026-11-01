@@ -99,7 +99,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
     const key=r.date+'_'+r.program;if(!cache.has(key))cache.set(key,await one('gym_workouts','key',key));const w=cache.get(key),sec=w?.body.sections?.[+r.section.slice(1)-1];
     if(!sec?.record||Date.parse(w.release_at)>+now())bad('공개된 수업의 기록 구간을 선택해주세요.');
     if(r.session&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(r.session))bad('수업 시간을 확인해주세요.');
-    const movement=sec.movement||sec.movements?.[0]||'',rm=findRmMovement(cat,movement),item={id,memberId,date:r.date,program:r.program,section:r.section,session:r.session||'',kind:sec.kind,movement,movements:sec.movements||[],movementId:rm?.id,note:typeof r.note==='string'?text(r.note,0,150,'메모'):'',writer:m.role};
+    const movement=sec.kind==='1RM'&&(sec.movements?.length??(sec.movement?1:0))!==1?'':sec.movement||sec.movements?.[0]||'',rm=findRmMovement(cat,movement),item={id,memberId,date:r.date,program:r.program,section:r.section,session:r.session||'',kind:sec.kind,movement,movements:sec.movements||[],movementId:rm?.id,note:typeof r.note==='string'?text(r.note,0,150,'메모'):'',writer:m.role};
     if(['중량','1RM'].includes(sec.kind)){if(!Number.isFinite(r.lbs)||r.lbs<=0||r.lbs>6614)bad('중량을 확인해주세요.');item.lbs=r.lbs;}
     else {item.value=text(r.value,1,120,'운동 결과');if(sec.kind==='시간'&&!/^\d{1,3}:[0-5]\d$/.test(item.value)||['횟수','칼로리'].includes(sec.kind)&&!/^\d+$/.test(item.value))bad('운동 결과 형식을 확인해주세요.');}
     clean.push(item);

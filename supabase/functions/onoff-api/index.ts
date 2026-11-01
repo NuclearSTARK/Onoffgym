@@ -91,7 +91,7 @@ function youtubeId(value) {
   }
 }
 function normalizeRows(rows, library = MOVEMENTS, holidays = {}) {
-  const errors = [], groups = /* @__PURE__ */ new Map(), seen = /* @__PURE__ */ new Set();
+  const errors = [], warnings = [], groups = /* @__PURE__ */ new Map(), seen = /* @__PURE__ */ new Set();
   const canonical = new Map(library.map((n) => [n.toLowerCase(), n]));
   if (!Array.isArray(rows) || rows.length > 1e3) return { errors: ["\uCD5C\uB300 1,000\uD589\uAE4C\uC9C0 \uB4F1\uB85D\uD560 \uC218 \uC788\uC5B4\uC694."], workouts: [] };
   rows.forEach((r, i) => {
@@ -109,9 +109,9 @@ function normalizeRows(rows, library = MOVEMENTS, holidays = {}) {
     if (!text2 || text2.length > 5e3) issues.push("\uC6B4\uB3D9 \uB0B4\uC6A9\uC740 1~5,000\uC790\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
     if (!KINDS.includes(kind)) issues.push("\uAE30\uB85D \uC885\uB958\uB97C \uC591\uC2DD\uC758 \uBAA9\uB85D\uC5D0\uC11C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
     const ms = movementText ? movementText.split(/[;,\n]/).map((x) => x.trim()).filter(Boolean) : [];
-    const movements = ms.map((n) => canonical.get(n.toLowerCase()) || "");
-    if (movements.some((n) => !n)) issues.push("\uB4F1\uB85D\uB418\uC9C0 \uC54A\uC740 \uAD00\uB828 \uB3D9\uC791\uC774 \uC788\uC5B4\uC694. \uC6B4\uB3D9 \uC0AC\uC804\uC5D0 \uBA3C\uC800 \uB4F1\uB85D\uD574\uC8FC\uC138\uC694.");
-    if (kind === "1RM" && movements.length !== 1) issues.push("1RM \uAD6C\uAC04\uC740 \uAD00\uB828 \uB3D9\uC791\uC744 \uC815\uD655\uD788 \uD558\uB098 \uC9C0\uC815\uD574\uC8FC\uC138\uC694.");
+    const movements = ms.map((n) => canonical.get(n.toLowerCase()) || n), linkedMovements = ms.map((n) => canonical.get(n.toLowerCase())).filter(Boolean);
+    if (ms.some((n) => !canonical.has(n.toLowerCase()))) warnings.push(`${line}\uD589: \uC9C1\uC811 \uC785\uB825\uD55C \uB3D9\uC791\uC740 \uC218\uC5C5\uC5D0 \uC800\uC7A5\uB418\uBA70 \uC601\uC0C1\xB71RM \uC790\uB3D9 \uC5F0\uACB0\uC740 \uBCF4\uB958\uB429\uB2C8\uB2E4.`);
+    if (ms.length > 30 || ms.some((n) => n.length > 80)) issues.push("\uAD00\uB828 \uB3D9\uC791\uC740 80\uC790 \uC774\uB0B4\uB85C \uCD5C\uB300 30\uAC1C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
     const overviewId = overview ? youtubeId(overview) : "";
     if (overview && !overviewId) issues.push("\uC720\uD6A8\uD55C \uC720\uD29C\uBE0C \uC601\uC0C1 \uC8FC\uC18C\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
     const times = String(r["\uC218\uC5C5 \uC2DC\uAC04(\uACF5\uD734\uC77C)"] || "").split(/[,;\n]/).map((t) => t.trim()).filter(Boolean);
@@ -141,13 +141,13 @@ function normalizeRows(rows, library = MOVEMENTS, holidays = {}) {
       }
       w.overviewId = overviewId;
     }
-    w.sections.push({ number: +sm[1], title, text: text2, record: kind !== "\uC5C6\uC74C", kind, movements, movement: movements[0] || "" });
+    w.sections.push({ number: +sm[1], title, text: text2, record: kind !== "\uC5C6\uC74C", kind, movements, linkedMovements, movement: (kind === "1RM" && movements.length !== 1 ? "" : linkedMovements[0]) || "" });
   });
   for (const w of groups.values()) {
     w.sections.sort((a, b) => a.number - b.number);
     if (w.sections.some((s, i) => s.number !== i + 1)) errors.push(`${w.date} ${w.program}: \uAD6C\uAC04\uC744 S1\uBD80\uD130 \uBE60\uC9D0\uC5C6\uC774 \uC785\uB825\uD574\uC8FC\uC138\uC694.`);
   }
-  return { errors, workouts: [...groups.values()].sort((a, b) => a.date.localeCompare(b.date) || a.program.localeCompare(b.program)) };
+  return { errors, warnings, workouts: [...groups.values()].sort((a, b) => a.date.localeCompare(b.date) || a.program.localeCompare(b.program)) };
 }
 function validateWorkouts(workouts, library = MOVEMENTS, holidays = {}) {
   if (!Array.isArray(workouts) || !workouts.length || workouts.length > 250) return { errors: ["1~250\uAC1C \uC218\uC5C5\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694."], workouts: [] };
@@ -740,7 +740,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
         const w = cache.get(key), sec = w?.body.sections?.[+r.section.slice(1) - 1];
         if (!sec?.record || Date.parse(w.release_at) > +now()) bad("\uACF5\uAC1C\uB41C \uC218\uC5C5\uC758 \uAE30\uB85D \uAD6C\uAC04\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
         if (r.session && !/^([01]\d|2[0-3]):[0-5]\d$/.test(r.session)) bad("\uC218\uC5C5 \uC2DC\uAC04\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-        const movement = sec.movement || sec.movements?.[0] || "", rm = findRmMovement(cat, movement), item = { id, memberId, date: r.date, program: r.program, section: r.section, session: r.session || "", kind: sec.kind, movement, movements: sec.movements || [], movementId: rm?.id, note: typeof r.note === "string" ? text(r.note, 0, 150, "\uBA54\uBAA8") : "", writer: m.role };
+        const movement = sec.kind === "1RM" && (sec.movements?.length ?? (sec.movement ? 1 : 0)) !== 1 ? "" : sec.movement || sec.movements?.[0] || "", rm = findRmMovement(cat, movement), item = { id, memberId, date: r.date, program: r.program, section: r.section, session: r.session || "", kind: sec.kind, movement, movements: sec.movements || [], movementId: rm?.id, note: typeof r.note === "string" ? text(r.note, 0, 150, "\uBA54\uBAA8") : "", writer: m.role };
         if (["\uC911\uB7C9", "1RM"].includes(sec.kind)) {
           if (!Number.isFinite(r.lbs) || r.lbs <= 0 || r.lbs > 6614) bad("\uC911\uB7C9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
           item.lbs = r.lbs;

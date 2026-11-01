@@ -68,3 +68,11 @@ test('closed-day attendance rejects an API bypass until a scheduled class exists
  assert.equal((await f.request('/api/attendance',{body:{}})).status,403);assert.equal(f.writes.length,0);
  f.tables.gym_workouts[0].body.sessions=['10:00'];assert.equal((await f.request('/api/attendance',{body:{}})).status,200);assert.equal(f.writes[0].op,'attendance');
 });
+
+test('operators can publish free-text movements while automatic 1RM linkage stays unset',async()=>{
+ const f=fixture({role:'admin'}),w={date:'2026-11-02',program:'B/T',sections:[{title:'Custom movement',text:'5 reps',record:true,kind:'1RM',movements:['Front Sqart']}],sessions:[]};
+ const r=await f.request('/api/workouts',{body:{workouts:[w],overwrite:true}});assert.equal(r.status,200);const sec=f.writes[0].p.workouts[0].sections[0];assert.equal(sec.movement,'');assert.deepEqual(sec.movements,['Front Sqart']);
+});
+test('unmatched 1RM class results remain weight records without inventing a personal movement ID',async()=>{
+ const f=fixture();f.tables.gym_workouts[0].body.sections=[{title:'Custom lift',text:'5 reps',record:true,kind:'1RM',movement:'',movements:['Front Sqart']}];const r=await f.request('/api/records',{body:{records:[{date:'2026-11-02',program:'WOD',section:'S1',lbs:185}]}});assert.equal(r.status,200);const saved=f.writes[0].p.records[0];assert.equal(saved.kind,'1RM');assert.equal(saved.lbs,185);assert.equal(saved.movementId,undefined);
+});

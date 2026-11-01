@@ -1,6 +1,6 @@
 import {pushAdminRequest} from './push-admin-service.js';
 import {readRmCatalogue,writeRmCatalogue} from './rm-service.js';
-import {readMembership,memberPassAction,memberCheckIn,memberAttendanceCancel} from './member-service.js';
+import {readMembership,memberPassAction,memberPassDelete,memberCheckIn,memberAttendanceCancel} from './member-service.js';
 import {membershipState} from '../web/membership.js';
 import {tvPublicRoute,tvAdminSettings,tvConfiguration} from './tv-service.js';
 import {pushConfigured,validateSubscription,pushDigest,enqueuePush,drainPush} from './push.js';
@@ -39,6 +39,7 @@ export async function api(req,env,now=new Date()){
  if(url.pathname==='/api/push/unsubscribe'&&req.method==='POST'){const b=await req.json();if(typeof b.endpoint!=='string')problem('구독 정보를 확인해주세요.');await env.DB.prepare('DELETE FROM gym_push_subscriptions WHERE id=? AND user_id=?').bind(await pushDigest(b.endpoint),m.id).run();return json({ok:true});}
  if(url.pathname==='/api/push/test'&&req.method==='POST'){if(!pushConfigured(env))problem('알림 서버 연결을 확인해주세요.',503);const subscriptions=(await env.DB.prepare('SELECT id FROM gym_push_subscriptions WHERE user_id=?').bind(m.id).all()).results;if(!subscriptions.length)problem('이 기기에서 알림을 먼저 켜주세요.');const id='test:'+crypto.randomUUID();await enqueuePush(env,id,'test',{title:'ONOFF 알림 연결 완료',body:'이제 온오프의 중요한 소식을 알림으로 받아보세요.',url:'/#home',tag:'onoff-test'},now);const others=(await env.DB.prepare('SELECT id FROM gym_push_subscriptions WHERE user_id<>?').bind(m.id).all()).results;if(others.length)await env.DB.batch(others.map(sub=>env.DB.prepare('INSERT OR IGNORE INTO gym_push_deliveries (event_id,subscription_id,status,updated_at) VALUES (?,?,?,?)').bind(id,sub.id,'skipped',now.toISOString())));const result=await drainPush(env,now);return json({ok:true,sent:result.sent});}
  if(url.pathname==='/api/attendance'&&req.method==='POST'){const d=kstDate(now),cal=await holidayCalendar(env,now),ws=(await env.DB.prepare('SELECT body FROM gym_workouts WHERE date=?').bind(d).all()).results.map(w=>JSON.parse(w.body));if(!workoutSchedule(d,ws,cal.dates).length)problem('휴강일에는 출석할 수 없어요. 특별 수업을 먼저 등록해주세요.',403);return json(await memberCheckIn(env,m,now));}
+ if(url.pathname==='/api/membership/delete'&&req.method==='POST')return json(await memberPassDelete(env,m,await req.json(),now));
  if(url.pathname==='/api/membership'&&req.method==='POST')return json({ok:true,membership:await memberPassAction(env,m,await req.json(),now)});
  if(url.pathname==='/api/attendance/cancel'&&req.method==='POST')return json(await memberAttendanceCancel(env,m,await req.json(),now));
  if(url.pathname==='/api/tv/admin'&&req.method==='POST')return tvAdminSettings(req,env,m);

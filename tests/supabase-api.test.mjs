@@ -92,3 +92,14 @@ test('community reads are scoped to the verified member and reject invalid targe
  assert.equal((await fixture({status:'pending'}).request('/api/community/read',{body:{id,kind:'post'}})).status,403);
  assert.equal(f.writes.length,2);
 });
+
+test('membership removal is operator-only and targets the exact current pass and revision',async()=>{
+ const passId=crypto.randomUUID(),body={id:ADMIN,passId,revision:7};const member=fixture();assert.equal((await member.request('/api/membership/delete',{body})).status,403);assert.equal(member.writes.length,0);
+ const f=fixture({role:'admin'});f.tables.gym_memberships=[{user_id:ADMIN,id:passId,revision:7}];assert.equal((await f.request('/api/membership/delete',{body:{...body,passId:crypto.randomUUID()}})).status,409);assert.equal((await f.request('/api/membership/delete',{body})).status,200);assert.deepEqual(f.writes[0],{actor:MEMBER,op:'membership-delete',p:{id:ADMIN,passId,revision:7}});
+});
+test('1RM removal rejects another owner even for operators and never targets class records',async()=>{
+ const f=fixture({role:'admin'}),id=crypto.randomUUID();f.tables.gym_rms=[{id,user_id:ADMIN,source:crypto.randomUUID()}];assert.equal((await f.request('/api/rms/delete',{body:{id}})).status,403);f.tables.gym_rms[0].user_id=MEMBER;assert.equal((await f.request('/api/rms/delete',{body:{id}})).status,200);assert.deepEqual(f.writes[0],{actor:MEMBER,op:'rm-delete',p:{id}});
+});
+test('community mutation contracts carry an explicit participation intent and a stable comment retry ID',async()=>{
+ const f=fixture(),id=crypto.randomUUID(),requestId=crypto.randomUUID();assert.equal((await f.request('/api/posts/join',{body:{id,joined:true,actor:ADMIN}})).status,200);assert.deepEqual(f.writes[0],{actor:MEMBER,op:'join',p:{id,joined:true}});assert.equal((await f.request('/api/posts/comment',{body:{id,text:'hello',requestId,authorId:ADMIN}})).status,200);assert.deepEqual(f.writes[1],{actor:MEMBER,op:'comment',p:{id,text:'hello',commentId:requestId}});assert.equal((await f.request('/api/posts/comment',{body:{id,text:'hello',requestId:'bad'}})).status,400);assert.equal((await f.request('/api/posts/join',{body:{id,joined:'yes'}})).status,400);
+});

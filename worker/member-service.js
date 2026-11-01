@@ -11,6 +11,14 @@ export async function memberPassAction(env,actor,b,now){
   if(!await env.DB.prepare('SELECT id FROM gym_membership_events WHERE id=?').bind(eventId).first())throw Object.assign(Error('회원권이 변경됐어요. 새로 불러온 후 다시 시도해주세요.'),{status:409});
   return readMembership(env,b.id);
 }
+export async function memberPassDelete(env,actor,b,now){
+ if(actor.role!=='admin'||actor.status!=='approved')throw Object.assign(Error('운영자 권한이 필요해요.'),{status:403});
+ const old=await readMembership(env,b.id);if(!old||old.id!==b.passId||('revision' in b&&b.revision!==old.revision))throw Object.assign(Error('회원권이 변경됐어요.'),{status:409});
+ const eventId=crypto.randomUUID();await env.DB.batch([
+  env.DB.prepare("INSERT INTO gym_membership_events (id,user_id,action,body,created_at) SELECT ?,?,'delete',?,? WHERE EXISTS(SELECT 1 FROM gym_memberships WHERE user_id=? AND id=? AND revision=?)").bind(eventId,b.id,JSON.stringify({before:old,after:null,actor:actor.id}),now.toISOString(),b.id,old.id,old.revision),
+  env.DB.prepare('DELETE FROM gym_memberships WHERE user_id=? AND id=? AND revision=?').bind(b.id,old.id,old.revision)
+ ]);if(!await env.DB.prepare('SELECT id FROM gym_membership_events WHERE id=?').bind(eventId).first())throw Object.assign(Error('회원권이 변경됐어요.'),{status:409});return{ok:true};
+}
 export async function memberCheckIn(env,member,now){
   const day=kstDate(now),id=member.id;
   if(await env.DB.prepare('SELECT date FROM gym_attendance WHERE user_id=? AND date=?').bind(id,day).first())return{ok:true,date:day,already:true};

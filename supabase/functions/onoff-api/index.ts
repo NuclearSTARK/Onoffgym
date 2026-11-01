@@ -2,7 +2,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
 // web/avatars.js
-var AVATAR_EMOJIS = ["\u{1F3CB}\uFE0F", "\u{1F4AA}", "\u{1F525}", "\u26A1", "\u{1F3C3}", "\u{1F6B4}", "\u{1F938}", "\u{1F947}", "\u{1F3C6}", "\u{1F3AF}", "\u{1F680}", "\u{1F31F}", "\u{1F60E}", "\u{1F60A}", "\u{1F43B}", "\u{1F42F}", "\u{1F981}", "\u{1F43C}", "\u{1F430}", "\u{1F98A}", "\u{1F438}", "\u{1F435}", "\u{1F436}", "\u{1F431}", "\u{1F984}", "\u{1F427}", "\u{1F985}", "\u{1F42C}", "\u{1F30A}", "\u{1F340}", "\u{1F308}", "\u{1F351}"];
+var AVATAR_EMOJIS = ["\u{1F3CB}\uFE0F", "\u{1F4AA}", "\u{1F525}", "\u26A1", "\u{1F3C3}", "\u{1F6B4}", "\u{1F938}", "\u{1F947}", "\u{1F3C6}", "\u{1F3AF}", "\u{1F680}", "\u{1F31F}", "\u{1F60E}", "\u{1F60A}", "\u{1F43B}", "\u{1F42F}", "\u{1F981}", "\u{1F43C}", "\u{1F430}", "\u{1F98A}", "\u{1F438}", "\u{1F435}", "\u{1F436}", "\u{1F431}", "\u{1F984}", "\u{1F427}", "\u{1F985}", "\u{1F42C}", "\u{1F30A}", "\u{1F340}", "\u{1F308}", "\u{1F351}", "\u{1F43A}", "\u{1F439}", "\u{1F428}", "\u{1F42E}", "\u{1F437}", "\u{1F419}", "\u{1F996}", "\u{1F422}", "\u{1F98B}", "\u{1F41D}", "\u{1F41E}", "\u{1F989}", "\u{1F433}", "\u{1F988}", "\u{1F980}", "\u{1F40A}", "\u{1F601}", "\u{1F602}", "\u{1F973}", "\u{1F929}", "\u{1F913}", "\u{1F608}", "\u{1F47B}", "\u{1F47D}", "\u{1F916}", "\u{1F920}", "\u{1F917}", "\u{1FAE1}", "\u{1F34E}", "\u{1F34A}", "\u{1F34B}", "\u{1F349}", "\u{1F353}", "\u{1F352}", "\u{1F951}", "\u{1F966}", "\u{1F955}", "\u{1F33D}", "\u{1F354}", "\u{1F355}", "\u2615", "\u{1F369}", "\u{1F33B}", "\u{1F335}", "\u{1F334}", "\u{1F341}", "\u2744\uFE0F", "\u{1F319}"];
 var validAvatar = (value) => AVATAR_EMOJIS.includes(value);
 var avatarEmoji = (value) => validAvatar(value) ? value : "\u{1F3CB}\uFE0F";
 
@@ -752,6 +752,12 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       }
       return commit(m.id, "records", { records: clean });
     }
+    if (path === "/api/rms/delete") {
+      if (!uuid(b.id)) bad("1RM \uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      const r = await one("gym_rms", "id", b.id);
+      if (!r || r.user_id !== m.id) bad("\uBCF8\uC778\uC758 1RM \uAE30\uB85D\uB9CC \uC0AD\uC81C\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+      return commit(m.id, "rm-delete", { id: b.id });
+    }
     if (path === "/api/rms") {
       if (b.id && !uuid(b.id)) bad("1RM \uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const existing = b.id ? await one("gym_rms", "id", b.id) : null;
@@ -775,7 +781,10 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     }
     if (["/api/posts/delete", "/api/posts/join", "/api/posts/comment"].includes(path)) {
       if (!uuid(b.id)) bad("\uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      return commit(m.id, path.endsWith("delete") ? "post-delete" : path.endsWith("join") ? "join" : "comment", { id: b.id, ...path.endsWith("comment") ? { text: text(b.text, 1, 300, "\uB313\uAE00") } : {} });
+      const comment = path.endsWith("comment");
+      if (b.requestId && !uuid(b.requestId)) bad("\uB313\uAE00 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if ("joined" in b && typeof b.joined !== "boolean") bad("\uCC38\uC5EC \uC0C1\uD0DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      return commit(m.id, path.endsWith("delete") ? "post-delete" : path.endsWith("join") ? "join" : "comment", { id: b.id, ...comment ? { text: text(b.text, 1, 300, "\uB313\uAE00"), commentId: b.requestId || crypto.randomUUID() } : "joined" in b ? { joined: b.joined } : {} });
     }
     if (path.startsWith("/api/push/")) return push.memberRoute(m, path, b);
     admin(m);
@@ -802,6 +811,12 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       if (path.endsWith("member-note")) return commit(m.id, "member-note", { id: b.id, note: text(b.note, 0, 500, "\uAD6C\uBD84 \uBA54\uBAA8") });
       if (!["admin", "member"].includes(b.role) || !["approved", "pending", "suspended"].includes(b.status)) bad("\uD68C\uC6D0 \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return commit(m.id, "members", { id: b.id, role: b.role, status: b.status });
+    }
+    if (path === "/api/membership/delete") {
+      if (!uuid(b.id) || !uuid(b.passId)) bad("\uD68C\uC6D0\uAD8C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      const old = await one("gym_memberships", "user_id", b.id);
+      if (!old || old.id !== b.passId || !Number.isInteger(b.revision) || old.revision !== b.revision) bad("\uD68C\uC6D0\uAD8C\uC774 \uBCC0\uACBD\uB410\uC5B4\uC694. \uB2E4\uC2DC \uD655\uC778\uD574\uC8FC\uC138\uC694.", 409);
+      return commit(m.id, "membership-delete", { id: b.id, passId: old.id, revision: old.revision });
     }
     if (path === "/api/membership") {
       if (!uuid(b.id)) bad("\uD68C\uC6D0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");

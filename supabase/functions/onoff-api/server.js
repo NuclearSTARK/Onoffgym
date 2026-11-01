@@ -106,6 +106,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
    }
    return commit(m.id,'records',{records:clean});
   }
+  if(path==='/api/rms/delete'){if(!uuid(b.id))bad('1RM 기록을 확인해주세요.');const r=await one('gym_rms','id',b.id);if(!r||r.user_id!==m.id)bad('본인의 1RM 기록만 삭제할 수 있어요.',403);return commit(m.id,'rm-delete',{id:b.id});}
   if(path==='/api/rms'){
    if(b.id&&!uuid(b.id))bad('1RM 기록을 확인해주세요.');const existing=b.id?await one('gym_rms','id',b.id):null;if(b.id&&(!existing||existing.user_id!==m.id))bad('본인의 1RM 기록만 수정할 수 있어요.',403);
    const cat=await setting('rmCatalogue',DEFAULT_RM_CATALOGUE),mov=findRmMovement(cat,b.movementId||b.movement),oldMov=existing?findRmMovement(cat,existing.body.movementId||existing.body.movement):null;
@@ -116,12 +117,13 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   if(path==='/api/community/read'){if(!uuid(b.id)||!['post','notice'].includes(b.kind))bad('읽은 게시글을 확인해주세요.');const item=await one(b.kind==='notice'?'gym_notices':'gym_posts','id',b.id);if(!item)bad('게시글을 찾을 수 없어요.',404);return commit(m.id,'community-read',{id:b.id,kind:b.kind});}
 
   if(path==='/api/posts'){if(!['운동 번개','공동구매','자유글'].includes(b.category))bad('말머리를 확인해주세요.');return commit(m.id,'post',{category:b.category,title:text(b.title,1,80,'제목'),body:text(b.body,1,3000,'내용')});}
-  if(['/api/posts/delete','/api/posts/join','/api/posts/comment'].includes(path)){if(!uuid(b.id))bad('게시글을 확인해주세요.');return commit(m.id,path.endsWith('delete')?'post-delete':path.endsWith('join')?'join':'comment',{id:b.id,...(path.endsWith('comment')?{text:text(b.text,1,300,'댓글')}:{})});}
+  if(['/api/posts/delete','/api/posts/join','/api/posts/comment'].includes(path)){if(!uuid(b.id))bad('게시글을 확인해주세요.');const comment=path.endsWith('comment');if(b.requestId&&!uuid(b.requestId))bad('댓글 요청을 확인해주세요.');if('joined' in b&&typeof b.joined!=='boolean')bad('참여 상태를 확인해주세요.');return commit(m.id,path.endsWith('delete')?'post-delete':path.endsWith('join')?'join':'comment',{id:b.id,...(comment?{text:text(b.text,1,300,'댓글'),commentId:b.requestId||crypto.randomUUID()}:'joined' in b?{joined:b.joined}:{})});}
   if(path.startsWith('/api/push/'))return push.memberRoute(m,path,b);
   admin(m);
   if(path==='/api/tv/status')return tvSettings();
   if(path==='/api/tv/admin'){let preferences;try{preferences=normalizeTvPreferences(b);}catch(e){bad(e.message);}const p={preferences,revoke:b.revoke===true};if(b.password){if(!/^\d{4}$/.test(b.password))bad('TV 암호는 숫자 4자리예요.');const salt=crypto.randomUUID();p.password={salt,hash:await tvPassword(b.password,salt),format:'pin4'};}await commit(m.id,'tv-admin',p);return {ok:true,...await tvSettings()};}
   if(path==='/api/member-name'||path==='/api/member-note'||path==='/api/members'){if(!uuid(b.id)||!await one('gym_members','id',b.id))bad('회원을 찾을 수 없어요.',404);if(path.endsWith('member-name'))return commit(m.id,'member-name',{id:b.id,name:text(b.name,2,30,'실명')});if(path.endsWith('member-note'))return commit(m.id,'member-note',{id:b.id,note:text(b.note,0,500,'구분 메모')});if(!['admin','member'].includes(b.role)||!['approved','pending','suspended'].includes(b.status))bad('회원 권한을 확인해주세요.');return commit(m.id,'members',{id:b.id,role:b.role,status:b.status});}
+  if(path==='/api/membership/delete'){if(!uuid(b.id)||!uuid(b.passId))bad('회원권을 확인해주세요.');const old=await one('gym_memberships','user_id',b.id);if(!old||old.id!==b.passId||!Number.isInteger(b.revision)||old.revision!==b.revision)bad('회원권이 변경됐어요. 다시 확인해주세요.',409);return commit(m.id,'membership-delete',{id:b.id,passId:old.id,revision:old.revision});}
   if(path==='/api/membership'){if(!uuid(b.id))bad('회원을 확인해주세요.');const old=await one('gym_memberships','user_id',b.id);let pass;try{pass=changeMembership(old,b,kstDate(now()));}catch(e){bad(e.message);}return commit(m.id,'membership',{id:b.id,action:b.action,pass,revision:old?.revision??-1,reason:String(b.reason||'').slice(0,200)});}
   if(path==='/api/attendance/cancel'){if(!uuid(b.id)||!normalizeDate(b.date)||b.date>kstDate(now()))bad('회원과 출석 날짜를 확인해주세요.');return commit(m.id,'attendance-cancel',{id:b.id,date:b.date,reason:text(b.reason,1,200,'취소 사유')});}
   if(path==='/api/workouts/delete'){if(!normalizeDate(b.date)||!['B/T','WOD'].includes(b.program))bad('삭제할 수업을 확인해주세요.');return result(db.rpc('onoff_delete_workout',{actor:m.id,target_date:b.date,target_program:b.program}));}

@@ -20,12 +20,14 @@
 @media(prefers-reduced-motion:reduce){.startup-brand,.startup-power,.startup-content p{animation:none}.startup-content p{opacity:1}.app-startup{transition:none}}
 
 
-/* The bottom menu scrolls with the page. No fixed-height app or keyboard split. */
+/* Native document scrolling with a persistent bottom tab bar. */
 @media(max-width:760px){
  html{height:auto;overflow:visible;overscroll-behavior:auto}
  body:not(.login-mode){display:flex;flex-direction:column;height:auto;min-height:100svh;max-height:none;overflow:visible;position:static}
- body:not(.login-mode) .app{flex:1 0 auto;min-height:0!important;height:auto;max-height:none;overflow:visible;overscroll-behavior:auto;padding-bottom:0}
- body:not(.login-mode) .mobile-nav{position:static!important;inset:auto!important;top:auto!important;bottom:auto!important;left:auto;right:auto;transform:none!important;flex:0 0 auto;width:100%;height:calc(55.3px + var(--safe-bottom));min-height:calc(55.3px + var(--safe-bottom));z-index:auto;margin:0}
+ body:not(.login-mode) .app{flex:1 0 auto;min-height:0!important;height:auto;max-height:none;overflow:visible;overscroll-behavior:auto;padding-bottom:var(--mobile-nav-height)}
+ :root{--mobile-nav-height:calc(55.3px + var(--safe-bottom))}
+ body:not(.login-mode) .mobile-nav{position:fixed!important;inset:auto 0 auto;top:var(--mobile-nav-top,calc(100dvh - var(--mobile-nav-height)))!important;bottom:auto!important;left:0;right:0;transform:none!important;width:100%;height:var(--mobile-nav-height);min-height:var(--mobile-nav-height);z-index:70;margin:0}
+ html.mobile-keyboard-open .mobile-nav{visibility:hidden;pointer-events:none}
  .app>.site-footer{padding-bottom:24px}.scroll-top{position:fixed}.toast{position:fixed}
  dialog{max-height:calc(var(--dialog-viewport-height,100dvh) - var(--safe-top) - var(--safe-bottom) - 24px)}
  .admin-folders{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px!important}

@@ -51,3 +51,20 @@ test('an approved operator can save a four-digit TV PIN then authenticate a TV w
  const login=await f.request('/api/tv/login',{body:{password:'0123'},token:null});assert.equal(login.status,200);assert.match(login.value.token,/^[a-f0-9]{64}$/);const wrong=await f.request('/api/tv/login',{body:{password:'9999'},token:null});assert.equal(wrong.status,401);
  const invalid=await f.request('/api/tv/admin',{body:{password:'12345'}});assert.equal(invalid.status,400);
 });
+
+test('only approved admins may delete workouts and deletion never targets member results',async()=>{
+ const body={date:'2026-11-02',program:'WOD'};
+ const member=fixture();assert.equal((await member.request('/api/workouts/delete',{body})).status,403);assert.equal(member.writes.length,0);
+ const admin=fixture({role:'admin'});let called;admin.db.rpc=async(name,args)=>{called={name,args};return {data:{ok:true,recordsPreserved:true},error:null};};
+ assert.equal((await admin.request('/api/workouts/delete',{body:{...body,date:'garbage'}})).status,400);assert.equal(called,undefined);
+ const deleted=await admin.request('/api/workouts/delete',{body});assert.equal(deleted.status,200);assert.equal(called.name,'onoff_delete_workout');assert.deepEqual(called.args,{actor:MEMBER,target_date:body.date,target_program:'WOD'});assert.equal(deleted.value.recordsPreserved,true);
+});
+test('profile emoji accepts only the shared catalogue and ignores caller-selected user identity',async()=>{
+ const f=fixture();assert.equal((await f.request('/api/preferences',{body:{avatarEmoji:'<img src=x>'}})).status,400);assert.equal(f.writes.length,0);
+ assert.equal((await f.request('/api/preferences',{body:{avatarEmoji:'🐯',user_id:ADMIN,role:'admin'}})).status,200);assert.equal(f.writes[0].actor,MEMBER);assert.deepEqual(f.writes[0].p,{avatarEmoji:'🐯'});
+});
+test('closed-day attendance rejects an API bypass until a scheduled class exists',async()=>{
+ const f=fixture();f.tables.gym_holiday_cache[0].body.dates['2026-11-02']={name:'휴강일'};
+ assert.equal((await f.request('/api/attendance',{body:{}})).status,403);assert.equal(f.writes.length,0);
+ f.tables.gym_workouts[0].body.sessions=['10:00'];assert.equal((await f.request('/api/attendance',{body:{}})).status,200);assert.equal(f.writes[0].op,'attendance');
+});

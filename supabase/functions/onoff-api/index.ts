@@ -1,6 +1,11 @@
 // supabase/functions/onoff-api/entry.js
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
+// web/avatars.js
+var AVATAR_EMOJIS = ["\u{1F3CB}\uFE0F", "\u{1F4AA}", "\u{1F525}", "\u26A1", "\u{1F3C3}", "\u{1F6B4}", "\u{1F938}", "\u{1F947}", "\u{1F3C6}", "\u{1F3AF}", "\u{1F680}", "\u{1F31F}", "\u{1F60E}", "\u{1F60A}", "\u{1F43B}", "\u{1F42F}", "\u{1F981}", "\u{1F43C}", "\u{1F430}", "\u{1F98A}", "\u{1F438}", "\u{1F435}", "\u{1F436}", "\u{1F431}", "\u{1F984}", "\u{1F427}", "\u{1F985}", "\u{1F42C}", "\u{1F30A}", "\u{1F340}", "\u{1F308}", "\u{1F351}"];
+var validAvatar = (value) => AVATAR_EMOJIS.includes(value);
+var avatarEmoji = (value) => validAvatar(value) ? value : "\u{1F3CB}\uFE0F";
+
 // supabase/functions/onoff-api/account-service.js
 var fail = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
@@ -48,6 +53,20 @@ function workoutDayState(date, holidays = {}) {
   const day = (/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay();
   return holidays[date] ? "holiday" : day === 0 ? "rest" : day === 6 ? "open-gym" : "class";
 }
+function workoutSchedule(date, workouts = {}, holidays = {}) {
+  const day = (/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay();
+  const end = (time) => {
+    const [h, m] = time.split(":").map(Number);
+    return String(h + 1).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+  };
+  const special = Object.values(workouts).filter((w) => w.date === date && w.sections?.length).flatMap((w) => (w.sessions || []).map((time) => ({ time, end: end(time), type: w.program })));
+  if (holidays[date] || day === 0) return special.sort((a, b) => a.time.localeCompare(b.time));
+  if (day === 6) return [...special, { time: "10:00", end: "20:00", type: "OPEN GYM" }].sort((a, b) => a.time.localeCompare(b.time));
+  const alternate = day === 2 || day === 5;
+  let slots = [["09:30", alternate ? "WOD" : "B/T"], ["11:00", alternate ? "B/T" : "WOD"], ["12:00", "OPEN GYM"], ["17:00", alternate ? "WOD" : "B/T"], ["18:00", alternate ? "B/T" : "WOD"], ["19:10", alternate ? "WOD" : "B/T"], ["20:30", alternate ? "B/T" : "WOD"]];
+  if (day === 3) slots = slots.filter(([time]) => !["17:00", "20:30"].includes(time)).map(([t, p]) => [t, p === "OPEN GYM" ? p : "WOD"]);
+  return slots.map(([time, type]) => ({ time, type, end: type === "OPEN GYM" ? "16:30" : end(time) }));
+}
 function normalizeDate(v) {
   const m = String(v ?? "").trim().match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (!m) return null;
@@ -83,7 +102,6 @@ function normalizeRows(rows, library = MOVEMENTS, holidays = {}) {
     if (!["B/T", "WOD"].includes(program)) issues.push("\uC218\uC5C5\uC740 B/T \uB610\uB294 WOD\uB9CC \uC785\uB825\uD560 \uC218 \uC788\uC5B4\uC694.");
     if (date) {
       const day = (/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay();
-      if ([0, 6].includes(day) && !holidays[date]) issues.push("\uD1A0\xB7\uC77C\uC694\uC77C\uC740 \uC815\uADDC \uC218\uC5C5 \uB4F1\uB85D \uB300\uC0C1\uC774 \uC544\uB2C8\uC5D0\uC694.");
       if (day === 3 && program === "B/T" && !holidays[date]) issues.push("\uC218\uC694\uC77C\uC5D0\uB294 WOD\uB9CC \uB4F1\uB85D\uD560 \uC218 \uC788\uC5B4\uC694.");
     }
     if (!sm) issues.push("\uAD6C\uAC04\uC740 S1\uBD80\uD130 S99\uAE4C\uC9C0 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
@@ -97,7 +115,7 @@ function normalizeRows(rows, library = MOVEMENTS, holidays = {}) {
     const overviewId = overview ? youtubeId(overview) : "";
     if (overview && !overviewId) issues.push("\uC720\uD6A8\uD55C \uC720\uD29C\uBE0C \uC601\uC0C1 \uC8FC\uC18C\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
     const times = String(r["\uC218\uC5C5 \uC2DC\uAC04(\uACF5\uD734\uC77C)"] || "").split(/[,;\n]/).map((t) => t.trim()).filter(Boolean);
-    if (holidays[date] && !times.length) issues.push("\uACF5\uD734\uC77C \uD2B9\uBCC4 \uC218\uC5C5\uC758 \uC2DC\uC791 \uC2DC\uAC01\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    if (date && (holidays[date] || [0, 6].includes((/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay())) && !times.length) issues.push("\uD734\uAC15\uC77C\xB7\uC8FC\uB9D0 \uD2B9\uBCC4 \uC218\uC5C5\uC758 \uC2DC\uC791 \uC2DC\uAC01\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
     if (times.some((t) => !/^([01]\d|2[0-3]):[0-5]\d$/.test(t) || t > "23:00") || new Set(times).size !== times.length) issues.push("\uC218\uC5C5 \uC2DC\uAC04\uC740 00:00~23:00 \uC0AC\uC774 HH:mm\uC73C\uB85C \uC911\uBCF5 \uC5C6\uC774 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
     const duplicateKey = `${date}_${program}_${sm?.[1]}`;
     if (seen.has(duplicateKey)) issues.push("\uAC19\uC740 \uB0A0\uC9DC\xB7\uC218\uC5C5\xB7\uAD6C\uAC04\uC774 \uD30C\uC77C\uC5D0 \uC911\uBCF5\uB418\uC5B4 \uC788\uC5B4\uC694.");
@@ -639,9 +657,12 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       staff ? rows("gym_membership_events", (q) => q.order("created_at", { ascending: false }).limit(500)) : [],
       staff ? rows("gym_attendance", (q) => q.order("date", { ascending: false }).limit(2e3)) : []
     ]);
-    const records = [...new Map([...ownRecords, ...selectedRecords].map((r) => [r.id, r])).values()], names = new Map(memberRows.map((x) => [x.id, x.name])), rank = /* @__PURE__ */ new Map();
+    const records = [...new Map([...ownRecords, ...selectedRecords].map((r) => [r.id, r])).values()], names = new Map(memberRows.map((x) => [x.id, x.name])), rank = /* @__PURE__ */ new Map(), avatars = /* @__PURE__ */ new Map();
     if (canRead) {
-      for (const p of await rows("gym_preferences", (q) => q.limit(1e3))) rank.set(p.user_id, p.body.rank !== false);
+      for (const p of await rows("gym_preferences", (q) => q.limit(1e3))) {
+        rank.set(p.user_id, p.body.rank !== false);
+        avatars.set(p.user_id, avatarEmoji(p.body.avatarEmoji));
+      }
     }
     return {
       viewer: m,
@@ -659,11 +680,11 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       membershipEvents: events.map((e) => ({ ...e, body: JSON.stringify(e.body) })),
       memberAttendance: attAll,
       attendance: att.map((a) => a.date),
-      members: staff ? memberRows.map((x) => ({ ...x, note: notes.find((n) => n.user_id === x.id)?.note || "" })) : [],
+      members: staff ? memberRows.map((x) => ({ ...x, avatarEmoji: avatars.get(x.id) || avatarEmoji(), note: notes.find((n) => n.user_id === x.id)?.note || "" })) : [],
       workouts: Object.fromEntries(ws.map((w) => [w.key, w.body])),
       publishedDates: [...new Set(ws.filter((w) => Date.parse(w.release_at) <= +now()).map((w) => w.date))],
       notices: canRead ? noticeRows.map((n) => ({ ...n, category: "\uACF5\uC9C0\uC0AC\uD56D", author: names.get(n.author_id) || "\uC6B4\uC601\uC790", serverNotice: true, date: kstDate(new Date(n.created_at)), comments: [], joined: [] })) : [],
-      records: records.map((r) => ({ ...r.body, id: r.id, memberId: r.user_id, name: names.get(r.user_id) || "\uD68C\uC6D0", rank: rank.get(r.user_id) !== false })),
+      records: records.map((r) => ({ ...r.body, id: r.id, memberId: r.user_id, name: names.get(r.user_id) || "\uD68C\uC6D0", avatarEmoji: avatars.get(r.user_id) || avatarEmoji(), rank: rank.get(r.user_id) !== false })),
       rms: rms.map((r) => ({ ...r.body, id: r.id, memberId: r.user_id })),
       preferences: prefs?.body || {},
       posts: posts.map((p) => ({ ...p, authorId: p.author_id, author: names.get(p.author_id) || "\uD68C\uC6D0", date: kstDate(new Date(p.created_at)), joined: [], joinedIds: joins.filter((j) => j.post_id === p.id).map((j) => j.user_id), joinedNames: Object.fromEntries(joins.filter((j) => j.post_id === p.id).map((j) => [j.user_id, names.get(j.user_id) || "\uD68C\uC6D0"])), comments: comments.filter((c) => c.post_id === p.id).map((c) => ({ ...c, authorId: c.author_id, author: names.get(c.author_id) || "\uD68C\uC6D0" })) })),
@@ -682,9 +703,17 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     if (path === "/api/bootstrap") return bootstrap(m, url);
     if (path === "/api/profile") return commit(m.id, "profile", { name: text(b.name, 2, 30, "\uC2E4\uBA85") });
     approved(m);
-    if (path === "/api/attendance") return commit(m.id, "attendance");
+    if (path === "/api/attendance") {
+      const day = kstDate(now()), cal = await calendar(), ws = await rows("gym_workouts", (q) => q.eq("date", day));
+      if (!workoutSchedule(day, ws.map((w) => w.body), cal.dates).length) bad("\uD734\uAC15\uC77C\uC5D0\uB294 \uCD9C\uC11D\uD560 \uC218 \uC5C6\uC5B4\uC694. \uD2B9\uBCC4 \uC218\uC5C5\uC774 \uB4F1\uB85D\uB418\uBA74 \uCD9C\uC11D\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.", 403);
+      return commit(m.id, "attendance");
+    }
     if (path === "/api/preferences") {
       const p = {};
+      if ("avatarEmoji" in b) {
+        if (!validAvatar(b.avatarEmoji)) bad("\uD504\uB85C\uD544 \uC774\uBAA8\uC9C0\uB97C \uBAA9\uB85D\uC5D0\uC11C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+        p.avatarEmoji = b.avatarEmoji;
+      }
       if ("rank" in b) {
         if (typeof b.rank !== "boolean") bad("\uC21C\uC704 \uC124\uC815\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p.rank = b.rank;
@@ -776,6 +805,10 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     if (path === "/api/attendance/cancel") {
       if (!uuid(b.id) || !normalizeDate(b.date) || b.date > kstDate(now())) bad("\uD68C\uC6D0\uACFC \uCD9C\uC11D \uB0A0\uC9DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return commit(m.id, "attendance-cancel", { id: b.id, date: b.date, reason: text(b.reason, 1, 200, "\uCDE8\uC18C \uC0AC\uC720") });
+    }
+    if (path === "/api/workouts/delete") {
+      if (!normalizeDate(b.date) || !["B/T", "WOD"].includes(b.program)) bad("\uC0AD\uC81C\uD560 \uC218\uC5C5\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      return result(db2.rpc("onoff_delete_workout", { actor: m.id, target_date: b.date, target_program: b.program }));
     }
     if (path === "/api/workouts") {
       const [lib, cal] = await Promise.all([library(), calendar()]), v = validateWorkouts(b.workouts, lib.map((m2) => m2.name), cal.dates);

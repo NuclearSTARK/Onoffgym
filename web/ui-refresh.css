@@ -72,3 +72,42 @@ body:not(.login-mode) .topbar{border-bottom:0}.app-header .public-test-notice{ba
  body[data-page=admin] .history-row{gap:12px;align-items:flex-start}body[data-page=admin] .history-row>div{min-width:0;overflow-wrap:anywhere}body[data-page=admin] .history-row button{flex-shrink:0;min-height:44px}.banner-editor fieldset{min-width:0}.banner-colors{display:flex;flex-wrap:wrap;gap:10px}#banner-preview{width:100%;min-width:0;overflow:hidden}.banner-enabled-label{align-items:flex-start}.date-picker{min-width:0;max-width:100%}
 }
 @media(max-width:420px){body[data-page=admin] .field-row{grid-template-columns:minmax(0,1fr)}.excel-actions>a{flex-basis:100%}.batch-save .btn{width:100%}}
+/* Shared page sizing: flex children must fill the same content width on every tab. */
+.app>#main{width:100%;min-width:0;flex:1 0 auto;margin:0 auto}
+body:not(.login-mode) .app-header,body:not(.login-mode) .topbar{background:var(--bg)}
+html{background:var(--bg)}
+.session-restoring,.session-restoring .app,.session-restoring .app-header,.session-restoring .topbar{background:var(--bg)!important}
+.session-restoring .public-test-notice{background:var(--bg)!important}
+body[data-page=admin] .narrow-panel,body[data-page=records] .narrow-panel{max-width:none;width:100%}
+.home-program-tabs.wod-only{grid-template-columns:repeat(2,minmax(0,1fr))}
+.home-program-tabs.wod-only>button{grid-column:2}
+.home-attendance:disabled{opacity:.5;cursor:default}
+.workout-row-actions{display:flex;align-items:center;gap:14px;flex-shrink:0}
+.danger-link{color:#f7a3ad}
+.member-role-tabs{margin:0 0 16px}.member-role-tabs button{display:flex;align-items:center;gap:8px}
+.member-role-badge{display:inline-flex;font-size:11px;font-weight:500;padding:2px 7px;margin-left:8px;border:1px solid var(--line);border-radius:6px;color:var(--muted);vertical-align:middle;white-space:nowrap}
+.member-role-badge.is-admin{background:var(--soft);color:var(--blue);border-color:var(--blue)}
+.profile-avatar-editor{display:flex;gap:14px;align-items:center;margin-top:20px}.profile-avatar-editor p{margin:5px 0 0}.profile-avatar{width:54px;height:54px;font-size:30px;flex-shrink:0}
+.avatar-options{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:9px;margin:18px 0 24px;max-width:520px}
+.avatar-options button{height:46px;min-width:44px;font-size:25px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.avatar-options button[aria-pressed=true]{border-color:var(--blue);background:var(--soft);box-shadow:0 0 0 1px var(--blue)}
+.scroll-top{background:color-mix(in srgb,var(--surface) 40%,transparent);border-color:color-mix(in srgb,var(--line) 45%,transparent);opacity:.48;box-shadow:none;transition:opacity .15s}
+.scroll-top:hover,.scroll-top:focus-visible{opacity:.95}
+*{scrollbar-width:thin;scrollbar-color:#98abc833 transparent}*::-webkit-scrollbar{width:5px;height:5px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:#98abc833;border-radius:8px}
+@media(max-width:760px){
+ body:not(.login-mode) .mobile-nav{top:auto!important;bottom:0!important;left:0;right:0;min-height:calc(55.3px + var(--safe-bottom));height:calc(55.3px + var(--safe-bottom));margin:0;transform:none!important}
+ body:not(.login-mode) #main{width:100%;padding:24px max(18px,var(--safe-right)) 18px max(18px,var(--safe-left))}
+ body[data-page=admin] .folder-grid,body[data-page=records] .folder-grid{width:100%;gap:13px}
+ body[data-page=admin] .folder-card,body[data-page=records] .folder-card{width:100%;min-height:126px;padding:20px;grid-template-columns:44px minmax(0,1fr) 18px;gap:14px}
+ body[data-page=admin] .folder-copy strong,body[data-page=records] .folder-copy strong{font-size:16px;line-height:1.6}
+ body[data-page=admin] .folder-copy>span,body[data-page=records] .folder-copy>span{font-size:12px;line-height:1.7}
+ body[data-page=admin] .folder-copy small,body[data-page=records] .folder-copy small{font-size:11px}
+ body[data-page=admin] #main .settings-section,body[data-page=records] #main .settings-section{padding:20px}
+ body[data-page=records] #main .field-hint,body[data-page=admin] #main .field-hint{font-size:12px;line-height:1.8}
+ body[data-page=records] .intro h1,body[data-page=admin] .intro h1{font-size:25px}
+ body[data-page=records] .intro p,body[data-page=admin] .intro p{font-size:12px}
+ body[data-page=records] .history-row,body[data-page=admin] .history-row{font-size:13px}
+ body[data-page=records] .stats-strip .stat-box{padding:16px 12px}.stats-strip .small-label{font-size:11px}
+ .workout-row-actions{gap:12px}.workout-row-actions button{min-height:44px;font-size:12px}
+ .member-role-tabs{display:flex;flex-wrap:wrap}.member-role-tabs button{font-size:13px;min-height:44px;flex:1;justify-content:center}
+}

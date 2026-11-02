@@ -27,7 +27,7 @@ export async function backendRequest(path,body){
   if(cache&&cacheKey===key){const check=await send(config.url+'/functions/v1/onoff-api/api/revision');if(check.revision===revision)return {...cache,serverNow:check.serverNow};}
   const value=await send(url);cache=value;cacheKey=key;revision=value.revision;return value;
  }
- const value=await send(url,body);if(body)resetBackendCache();return value;
+ const value=await send(url,body);if(body&&path!=='/api/photos/url')resetBackendCache();return value;
 }
 export async function backendTvRequest(path,body){
  const key='onoff-tv-session-'+config.projectId,token=localStorage.getItem(key),headers={apikey:config.publishableKey};

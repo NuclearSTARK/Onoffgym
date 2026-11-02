@@ -1,3 +1,4 @@
+import {installClearInputs} from './clear-inputs.js';
 import {shared,backendTvRequest} from './backend.js';
 import {TV_COLORS,normalizeTvPreferences} from './tv-colors.js';
 import {kstDate,addDays,tvWorkoutDate} from './core.js';
@@ -16,7 +17,7 @@ function gate(message=''){
   clearTimeout(rotationTimer);$('#tv-controls').hidden=true;
   $('#tv-root').innerHTML=`<div class="tv-gate"><div class="tv-login-layout"><section class="tv-login-art">${logo}<p>ILGWANG, BUSAN · MEMBERS CLUB</p></section><section class="tv-login-card"><span class="tv-login-eyebrow">ONOFF · TV DISPLAY</span><h1>오늘의 운동 · TV 모드</h1><p>숫자 4자리 TV 암호로 접속해주세요.<br>회원 로그인 없이 오늘의 B/T와 WOD를 표시합니다.</p>${demo?'<p class="tv-message">공개 테스트 · 예시 운동만 표시됩니다.<br>처음 사용하는 브라우저의 테스트 암호는 <strong>0000</strong>입니다. 운영 메뉴에서 변경한 경우 해당 암호를 사용해주세요.</p>':''}<form id="tv-login"><label for="tv-password">TV 암호</label><input id="tv-password" name="password" type="password" minlength="4" maxlength="4" pattern="[0-9]{4}" inputmode="numeric" required autocomplete="current-password"><button type="submit">TV 화면 열기</button></form><p class="tv-error" id="tv-error" role="alert">${escapeTv(message)}</p><a class="tv-link" href="./#login">앱으로 이동</a></section></div></div>`;
 }
-function workoutHtml(sec){let text=sec.text||'';if(data.preferences.unit==='kg')text=text.replace(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?) lbs/g,(_,a,b)=>(+a/2.2046226218).toFixed(1)+' / '+(+b/2.2046226218).toFixed(1)+' kg');return `<section class="tv-section"><h2><span class="tv-section-number">S${sec.number}</span><strong>${escapeTv(sec.title)}</strong></h2><div class="tv-exercise">${escapeTv(text)}</div></section>`;}
+function workoutHtml(sec){let text=sec.text||'';if(data.preferences.unit==='kg')text=text.replace(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?) lbs/g,(_,a,b)=>(+a/2.2046226218).toFixed(1)+' / '+(+b/2.2046226218).toFixed(1)+' kg');return `<section class="tv-section"><h2><span class="tv-section-number">S${sec.number}</span></h2><div class="tv-exercise">${escapeTv(text)}</div></section>`;}
 function splitSections(sections){return sections.flatMap((s,i)=>{const lines=String(s.text||'').split('\n').flatMap(line=>{const result=[];let current='';for(const word of line.split(' ')){if(current.length+word.length>46&&current){result.push(current);current=''}current+=(current?' ':'')+word}result.push(current);return result}),chunks=[];for(let n=0;n<lines.length;n+=5)chunks.push({...s,number:i+1,title:s.title+(n?' · 계속':''),text:lines.slice(n,n+5).join('\n')});return chunks.length?chunks:[{...s,number:i+1}];});}
 function render(){
   document.documentElement.dataset.orientation=courseColors().orientation;
@@ -51,3 +52,5 @@ function fitCanvas(){const canvas=$('.tv-shell');if(!canvas)return;const portrai
 window.addEventListener('resize',()=>{if(data){fitCanvas();buildPages()}});setInterval(tickTv,1000);refresh();
 
 async function reportDisplay(){if(!data)return;try{await tvRequest('/api/tv/heartbeat',{displayDate:data.date,preferences:{...data.preferences,...courseColors()}})}catch{/* Keep the workout visible; the next refresh retries and stale status is shown to admins. */}}
+
+installClearInputs(document);

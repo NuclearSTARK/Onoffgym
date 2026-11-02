@@ -1,3 +1,5 @@
+import {createMediaService} from './media-service.js';
+import {hasPermission,COACH_PERMISSIONS} from '../../../web/permissions.js';
 import {validAvatar,avatarEmoji} from '../../../web/avatars.js';
 import {createAccountService} from './account-service.js';
 import {MOVEMENTS,DEFAULT_BANNER,KINDS,kstDate,normalizeDate,validateWorkouts,workoutSchedule,youtubeId,validBanner,tvWorkoutDate,workoutDayState,addDays} from '../../../web/core.js';
@@ -13,6 +15,7 @@ const bad=(message,status=400)=>{throw Object.assign(Error(message),{status});};
 const uuid=v=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const text=(v,min,max,label)=>{if(typeof v!=='string'||v.trim().length<min||v.length>max)bad(label+'을 확인해주세요.');return v.trim();};
 export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,now=()=>new Date()}={}){
+ const media=createMediaService(db,{now});
  const push=createPushService(db,{now}),account=createAccountService(db,{reauthenticate});
  async function result(q){const {data,error}=await q;if(error){const code=error.code;bad(code==='42501'?'이 요청을 처리할 권한이 없어요.':code==='23505'?'이미 등록된 항목이 있어요. 새로 불러온 뒤 확인해주세요.':code==='40001'?'다른 기기에서 변경됐어요. 다시 불러와 주세요.':'저장 요청을 처리하지 못했어요.',code==='42501'?403:['23505','40001'].includes(code)?409:503);}return data;}
  const rows=(table,configure=q=>q)=>result(configure(db.from(table).select('*')));
@@ -21,6 +24,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
  const commit=(actor,op,p={})=>result(db.rpc('onoff_commit',{actor,op,p}));
  async function member(req){const token=req.headers.get('Authorization')?.match(/^Bearer (.+)$/)?.[1];if(!token)bad('이메일로 로그인해주세요.',401);const user=await verifyUser(token);if(!user?.id||user.is_anonymous)bad('다시 로그인해주세요.',401);let m=await one('gym_members','id',user.id);if(!m)m=await commit(user.id,'ensure-member');return {...m,email:user.email||''};}
  const approved=m=>{if(m.status!=='approved')bad('관리자 승인 후 이용할 수 있어요.',403);};
+ const permit=(m,key)=>{approved(m);if(!hasPermission(m,key))bad('이 기능의 권한이 필요해요.',403);};
  const admin=m=>{approved(m);if(m.role!=='admin')bad('운영자 권한이 필요해요.',403);};
  async function library(){const [custom,catalogue]=await Promise.all([rows('gym_movements'),setting('rmCatalogue',DEFAULT_RM_CATALOGUE)]);const map=new Map(MOVEMENTS.map(name=>[name,{name,videoId:'',notes:''}]));for(const m of custom)map.set(m.name,m.body);for(const m of catalogue)for(const name of [m.name,...(m.aliases||[])])if(!map.has(name))map.set(name,{name,videoId:'',notes:''});return [...map.values()];}
  async function calendar(force=false){const cached=await one('gym_holiday_cache','key','KR');if(!force&&cached&&+now()-Date.parse(cached.updated_at)<86400000)return cached.body;try{const res=await fetchCalendar(HOLIDAY_SOURCE,{signal:AbortSignal.timeout(5000)});if(!res.ok)throw Error('calendar');const value={dates:parseHolidayCalendar(await res.text()),source:'Google 대한민국 공휴일 캘린더',updatedAt:now().toISOString(),fallback:false};await result(db.from('gym_holiday_cache').upsert({key:'KR',body:value,updated_at:now().toISOString()}));return value;}catch{return cached?{...cached.body,stale:true}:{dates:HOLIDAY_FALLBACK,source:'Google 대한민국 공휴일 캘린더',updatedAt:'2026-10-30T00:00:00Z',fallback:true};}}
@@ -47,12 +51,12 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
  }
  async function bootstrap(m,url){
   const rev=await revision(m);if(m.status!=='approved')return {viewer:m,workouts:{},library:[],members:[],...rev};
-  const staff=m.role==='admin',all=staff&&url.searchParams.get('view')!=='member',day=kstDate(now()),viewDate=normalizeDate(url.searchParams.get('date'))||day;
+  const staff=m.role==='admin',all=hasPermission(m,'workouts.read')&&url.searchParams.get('view')!=='member',day=kstDate(now()),viewDate=normalizeDate(url.searchParams.get('date'))||day;
   const [pass,att,memberRows,prefs,cal,noticeRows,cat,lib]=await Promise.all([
    one('gym_memberships','user_id',m.id),rows('gym_attendance',q=>q.eq('user_id',m.id).order('date',{ascending:false}).limit(1000)),
    rows('gym_members',q=>staff?q:q.eq('status','approved')),one('gym_preferences','user_id',m.id),calendar(),rows('gym_notices',q=>q.order('pinned',{ascending:false}).order('created_at',{ascending:false}).limit(200)),setting('rmCatalogue',DEFAULT_RM_CATALOGUE),library()
   ]);
-  const access=membershipState(pass,day,att.some(a=>a.date===day&&a.membership_id===pass?.id)),canRead=staff||access.active;
+  const access=membershipState(pass,day,att.some(a=>a.date===day&&a.membership_id===pass?.id)),canRead=staff||m.role==='coach'||access.active;
   const ws=canRead?await rows('gym_workouts',q=>{q=q.or(`date.gte.${addDays(day,-30)},date.eq.${viewDate}`);return (all?q:q.lte('release_at',now().toISOString())).order('date',{ascending:false}).limit(1000);}):[];
   if(canRead&&!ws.some(w=>w.date===viewDate)){const selected=await rows('gym_workouts',q=>{q=q.eq('date',viewDate);return all?q:q.lte('release_at',now().toISOString());});ws.push(...selected);}
   const [ownRecords,selectedRecords,rms,posts,comments,joins,notes,passes,events,attAll]=await Promise.all([
@@ -67,13 +71,15 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   if(canRead){for(const p of await rows('gym_preferences',q=>q.limit(1000))){rank.set(p.user_id,p.body.rank!==false);avatars.set(p.user_id,avatarEmoji(p.body.avatarEmoji));}}
   return {viewer:m,...rev,memberView:!all,shared:true,releaseTime:await setting('releaseTime','22:00'),banner:await setting('banner',DEFAULT_BANNER),rmCatalogue:cat,library:lib,
    calendar:cal,membership:pass,membershipState:access,memberships:passes,membershipEvents:events.map(e=>({...e,body:JSON.stringify(e.body)})),memberAttendance:attAll,attendance:att.map(a=>a.date),
+   recordMembers:hasPermission(m,'records.create')||hasPermission(m,'records.update')?memberRows.filter(x=>x.status==='approved').map(x=>({id:x.id,name:x.name,status:x.status})):[],
    members:staff?memberRows.map(x=>({...x,avatarEmoji:avatars.get(x.id)||avatarEmoji(),note:notes.find(n=>n.user_id===x.id)?.note||''})):[],
    workouts:Object.fromEntries(ws.map(w=>[w.key,w.body])),publishedDates:[...new Set(ws.filter(w=>Date.parse(w.release_at)<=+now()).map(w=>w.date))],
    notices:canRead?noticeRows.map(n=>({...n,category:'공지사항',author:names.get(n.author_id)||'운영자',serverNotice:true,date:kstDate(new Date(n.created_at)),comments:[],joined:[]})):[],
    records:records.map(r=>({...r.body,id:r.id,memberId:r.user_id,name:names.get(r.user_id)||'회원',avatarEmoji:avatars.get(r.user_id)||avatarEmoji(),rank:rank.get(r.user_id)!==false})),
+   photos:canRead?await media.list(viewDate,posts.map(p=>p.id)):[],
    rms:rms.map(r=>({...r.body,id:r.id,memberId:r.user_id})),preferences:prefs?.body||{},
    posts:posts.map(p=>({...p,authorId:p.author_id,author:names.get(p.author_id)||'회원',date:kstDate(new Date(p.created_at)),joined:[],joinedIds:joins.filter(j=>j.post_id===p.id).map(j=>j.user_id),joinedNames:Object.fromEntries(joins.filter(j=>j.post_id===p.id).map(j=>[j.user_id,names.get(j.user_id)||'회원'])),comments:comments.filter(c=>c.post_id===p.id).map(c=>({...c,authorId:c.author_id,author:names.get(c.author_id)||'회원'}))})),
-   tv:staff?await tvSettings():undefined,push:await push.status(m),historyLimit:1000
+   tv:hasPermission(m,'tv')?await tvSettings():undefined,push:await push.status(m),historyLimit:1000
   };
  }
  async function route(req,path,url,b){
@@ -81,20 +87,23 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   if(path==='/api/push/dispatch'||path.startsWith('/api/push/test-access/'))return push.publicRoute(req,path,b);
   if(['/api/tv/login','/api/tv/logout','/api/tv/bootstrap','/api/tv/heartbeat'].includes(path))return tv(req,path,b);
   const m=await member(req);
+  if(path==='/api/bootstrap'&&m.status==='approved')await media.cleanup();
   if(path==='/api/account/delete')return account.withdraw(m,b);
   if(path==='/api/revision')return revision(m);
   if(path==='/api/bootstrap')return bootstrap(m,url);
   if(path==='/api/profile')return commit(m.id,'profile',{name:text(b.name,2,30,'실명')});
   approved(m);
+  if(path.startsWith('/api/photos/')){if(path==='/api/photos/attach'&&(!normalizeDate(b.date)||b.date>kstDate(now())||!['B/T','WOD'].includes(b.program)||b.session&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.session)))bad('사진 날짜·수업을 확인해주세요.');return media.route(m,path,b);}
   if(path==='/api/attendance'){const day=kstDate(now()),cal=await calendar(),ws=await rows('gym_workouts',q=>q.eq('date',day));if(!workoutSchedule(day,ws.map(w=>w.body),cal.dates).length)bad('휴강일에는 출석할 수 없어요. 특별 수업이 등록되면 출석할 수 있습니다.',403);return commit(m.id,'attendance');}
   if(path==='/api/preferences'){
    const p={};if('avatarEmoji' in b){if(!validAvatar(b.avatarEmoji))bad('프로필 이모지를 목록에서 선택해주세요.');p.avatarEmoji=b.avatarEmoji;}if('rank' in b){if(typeof b.rank!=='boolean')bad('순위 설정을 확인해주세요.');p.rank=b.rank;}if('rmSelection' in b){const cat=await setting('rmCatalogue',DEFAULT_RM_CATALOGUE);if(!Array.isArray(b.rmSelection)||b.rmSelection.length>200||b.rmSelection.some(id=>!cat.some(m=>m.id===id)))bad('1RM 종목을 확인해주세요.');p.rmSelection=[...new Set(b.rmSelection)];}return commit(m.id,'preferences',p);
   }
+  if(path==='/api/records/delete'){if(!uuid(b.id))bad('기록을 확인해주세요.');return result(db.rpc('onoff_delete_record',{actor:m.id,record_id:b.id}));}
   if(path==='/api/records'){
-   const list=b.records;if(!Array.isArray(list)||list.length<1||list.length>200)bad('기록 목록을 확인해주세요.');if(list.length>1)admin(m);
+   const list=b.records;if(!Array.isArray(list)||list.length<1||list.length>200)bad('기록 목록을 확인해주세요.');if(list.length>1&&!hasPermission(m,'records.create')&&!hasPermission(m,'records.update'))admin(m);
    const cat=await setting('rmCatalogue',DEFAULT_RM_CATALOGUE),cache=new Map(),clean=[];
    for(const r of list){
-    const id=r.id||crypto.randomUUID(),memberId=r.memberId||m.id;if(!uuid(id)||!uuid(memberId))bad('회원과 기록 ID를 확인해주세요.');if(memberId!==m.id)admin(m);
+    const id=r.id||crypto.randomUUID(),memberId=r.memberId||m.id;if(!uuid(id)||!uuid(memberId))bad('회원과 기록 ID를 확인해주세요.');if(memberId!==m.id){const existing=await one('gym_records','id',id);permit(m,existing?'records.update':'records.create');}
     if(!normalizeDate(r.date)||r.date>kstDate(now())||!['B/T','WOD'].includes(r.program)||!/^S[1-9]\d?$/.test(r.section))bad('기록 날짜와 수업을 확인해주세요.');
     const key=r.date+'_'+r.program;if(!cache.has(key))cache.set(key,await one('gym_workouts','key',key));const w=cache.get(key),sec=w?.body.sections?.[+r.section.slice(1)-1];
     if(!sec?.record||Date.parse(w.release_at)>+now())bad('공개된 수업의 기록 구간을 선택해주세요.');
@@ -116,23 +125,24 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   }
   if(path==='/api/community/read'){if(!uuid(b.id)||!['post','notice'].includes(b.kind))bad('읽은 게시글을 확인해주세요.');const item=await one(b.kind==='notice'?'gym_notices':'gym_posts','id',b.id);if(!item)bad('게시글을 찾을 수 없어요.',404);return commit(m.id,'community-read',{id:b.id,kind:b.kind});}
 
-  if(path==='/api/posts'){if(!['운동 번개','공동구매','자유글'].includes(b.category))bad('말머리를 확인해주세요.');return commit(m.id,'post',{category:b.category,title:text(b.title,1,80,'제목'),body:text(b.body,1,3000,'내용')});}
-  if(['/api/posts/delete','/api/posts/join','/api/posts/comment'].includes(path)){if(!uuid(b.id))bad('게시글을 확인해주세요.');const comment=path.endsWith('comment');if(b.requestId&&!uuid(b.requestId))bad('댓글 요청을 확인해주세요.');if('joined' in b&&typeof b.joined!=='boolean')bad('참여 상태를 확인해주세요.');return commit(m.id,path.endsWith('delete')?'post-delete':path.endsWith('join')?'join':'comment',{id:b.id,...(comment?{text:text(b.text,1,300,'댓글'),commentId:b.requestId||crypto.randomUUID()}:'joined' in b?{joined:b.joined}:{})});}
+  if(path==='/api/posts'){if(b.photoIds?.length){if(!uuid(b.id))bad('게시글 ID를 확인해주세요.');return result(db.rpc('onoff_attach_photos',{actor:m.id,p:{...b,kind:'community',title:text(b.title,1,80,'제목'),body:text(b.body,1,3000,'내용')}}));}if(!['운동 번개','공동구매','자유글'].includes(b.category))bad('말머리를 확인해주세요.');return commit(m.id,'post',{category:b.category,title:text(b.title,1,80,'제목'),body:text(b.body,1,3000,'내용')});}
+  if(['/api/posts/delete','/api/posts/join','/api/posts/comment'].includes(path)){if(!uuid(b.id))bad('게시글을 확인해주세요.');const comment=path.endsWith('comment');if(b.requestId&&!uuid(b.requestId))bad('댓글 요청을 확인해주세요.');if('joined' in b&&typeof b.joined!=='boolean')bad('참여 상태를 확인해주세요.');const value=await commit(m.id,path.endsWith('delete')?'post-delete':path.endsWith('join')?'join':'comment',{id:b.id,...(comment?{text:text(b.text,1,300,'댓글'),commentId:b.requestId||crypto.randomUUID()}:'joined' in b?{joined:b.joined}:{})});if(path.endsWith('delete'))await media.cleanup();return value;}
   if(path.startsWith('/api/push/'))return push.memberRoute(m,path,b);
-  admin(m);
+  const permission={'/api/tv/status':'tv','/api/tv/admin':'tv','/api/workouts/delete':'workouts.delete','/api/settings':'release','/api/banner':'banner','/api/rm-catalogue':'rm','/api/movements':'videos','/api/notices':'notices'}[path];if(permission)permit(m,permission);else if(path!=='/api/workouts')admin(m);
+  if(path==='/api/storage-usage')return result(db.rpc('onoff_storage_usage',{actor:m.id}));
   if(path==='/api/tv/status')return tvSettings();
-  if(path==='/api/tv/admin'){let preferences;try{preferences=normalizeTvPreferences(b);}catch(e){bad(e.message);}const p={preferences,revoke:b.revoke===true};if(b.password){if(!/^\d{4}$/.test(b.password))bad('TV 암호는 숫자 4자리예요.');const salt=crypto.randomUUID();p.password={salt,hash:await tvPassword(b.password,salt),format:'pin4'};}await commit(m.id,'tv-admin',p);return {ok:true,...await tvSettings()};}
-  if(path==='/api/member-name'||path==='/api/member-note'||path==='/api/members'){if(!uuid(b.id)||!await one('gym_members','id',b.id))bad('회원을 찾을 수 없어요.',404);if(path.endsWith('member-name'))return commit(m.id,'member-name',{id:b.id,name:text(b.name,2,30,'실명')});if(path.endsWith('member-note'))return commit(m.id,'member-note',{id:b.id,note:text(b.note,0,500,'구분 메모')});if(!['admin','member'].includes(b.role)||!['approved','pending','suspended'].includes(b.status))bad('회원 권한을 확인해주세요.');return commit(m.id,'members',{id:b.id,role:b.role,status:b.status});}
+  if(path==='/api/tv/admin'){if(m.role!=='admin'&&(b.password||b.revoke))bad('TV 인증 관리는 운영자만 할 수 있어요.',403);let preferences;try{preferences=normalizeTvPreferences(b);}catch(e){bad(e.message);}const p={preferences,revoke:b.revoke===true};if(b.password){if(!/^\d{4}$/.test(b.password))bad('TV 암호는 숫자 4자리예요.');const salt=crypto.randomUUID();p.password={salt,hash:await tvPassword(b.password,salt),format:'pin4'};}await commit(m.id,'tv-admin',p);return {ok:true,...await tvSettings()};}
+  if(path==='/api/member-name'||path==='/api/member-note'||path==='/api/members'){if(!uuid(b.id)||!await one('gym_members','id',b.id))bad('회원을 찾을 수 없어요.',404);if(path.endsWith('member-name'))return commit(m.id,'member-name',{id:b.id,name:text(b.name,2,30,'실명')});if(path.endsWith('member-note'))return commit(m.id,'member-note',{id:b.id,note:text(b.note,0,500,'구분 메모')});if(!['admin','coach','member'].includes(b.role)||!['approved','pending','suspended'].includes(b.status))bad('회원 권한을 확인해주세요.');const permissions=b.coach_permissions||[];if(!Array.isArray(permissions)||permissions.some(k=>!COACH_PERMISSIONS.some(([key])=>key===k)))bad('코치 권한을 확인해주세요.');return commit(m.id,'members',{id:b.id,role:b.role,status:b.status,coach_permissions:b.role==='coach'?[...new Set(permissions)]:[]});}
   if(path==='/api/membership/delete'){if(!uuid(b.id)||!uuid(b.passId))bad('회원권을 확인해주세요.');const old=await one('gym_memberships','user_id',b.id);if(!old||old.id!==b.passId||!Number.isInteger(b.revision)||old.revision!==b.revision)bad('회원권이 변경됐어요. 다시 확인해주세요.',409);return commit(m.id,'membership-delete',{id:b.id,passId:old.id,revision:old.revision});}
   if(path==='/api/membership'){if(!uuid(b.id))bad('회원을 확인해주세요.');const old=await one('gym_memberships','user_id',b.id);let pass;try{pass=changeMembership(old,b,kstDate(now()));}catch(e){bad(e.message);}return commit(m.id,'membership',{id:b.id,action:b.action,pass,revision:old?.revision??-1,reason:String(b.reason||'').slice(0,200)});}
   if(path==='/api/attendance/cancel'){if(!uuid(b.id)||!normalizeDate(b.date)||b.date>kstDate(now()))bad('회원과 출석 날짜를 확인해주세요.');return commit(m.id,'attendance-cancel',{id:b.id,date:b.date,reason:text(b.reason,1,200,'취소 사유')});}
   if(path==='/api/workouts/delete'){if(!normalizeDate(b.date)||!['B/T','WOD'].includes(b.program))bad('삭제할 수업을 확인해주세요.');return result(db.rpc('onoff_delete_workout',{actor:m.id,target_date:b.date,target_program:b.program}));}
-  if(path==='/api/workouts'){const [lib,cal]=await Promise.all([library(),calendar()]),v=validateWorkouts(b.workouts,lib.map(m=>m.name),cal.dates);if(v.errors.length)bad(v.errors.join('\n'));await commit(m.id,'workouts',{workouts:v.workouts,overwrite:b.overwrite===true});return {ok:true,count:v.workouts.length};}
+  if(path==='/api/workouts'){if(!Array.isArray(b.workouts))bad('수업 목록을 확인해주세요.');for(const w of b.workouts){const old=await one('gym_workouts','key',w.date+'_'+w.program);permit(m,old?'workouts.update':'workouts.create');}const [lib,cal]=await Promise.all([library(),calendar()]),v=validateWorkouts(b.workouts,lib.map(m=>m.name),cal.dates);if(v.errors.length)bad(v.errors.join('\n'));await commit(m.id,'workouts',{workouts:v.workouts,overwrite:b.overwrite===true});return {ok:true,count:v.workouts.length};}
   if(path==='/api/settings'){if(typeof b.releaseTime!=='string'||!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.releaseTime))bad('공개 시간을 확인해주세요.');await commit(m.id,'settings',{releaseTime:b.releaseTime});return {ok:true,releaseTime:b.releaseTime};}
   if(path==='/api/banner'){if(!validBanner(b))bad('공지 문구·색상·노출 여부를 확인해주세요.');const banner={text:b.text.trim(),color:b.color,enabled:b.enabled};await commit(m.id,'setting',{key:'banner',value:banner});return {ok:true,banner};}
   if(path==='/api/rm-catalogue'){let value;try{value=updateRmCatalogue(await setting('rmCatalogue',DEFAULT_RM_CATALOGUE),b);}catch(e){bad(e.message);}await commit(m.id,'setting',{key:'rmCatalogue',value:value.catalogue});return {ok:true,...value};}
   if(path==='/api/movements'){const name=text(b.name,2,80,'동작 이름'),videoId=b.url?youtubeId(b.url):'';if(videoId===null)bad('유튜브 주소를 확인해주세요.');return commit(m.id,'movements',{name,videoId,notes:text(b.notes,0,1000,'설명')});}
-  if(path==='/api/notices'){if(b.id&&!uuid(b.id))bad('공지를 확인해주세요.');if(b.action==='delete')return commit(m.id,'notices',{action:'delete',id:b.id});if(typeof b.pinned!=='boolean')bad('상단 고정 여부를 확인해주세요.');const notice={id:b.id||crypto.randomUUID(),title:text(b.title,1,100,'제목'),body:text(b.body,1,5000,'내용'),pinned:b.pinned};await commit(m.id,'notices',notice);if(b.sendPush===true)await push.enqueue({id:'notice:'+notice.id+':'+crypto.randomUUID(),kind:'notices',payload:{title:notice.title,body:notice.body.slice(0,140),url:'/Onoffgym/#community',tag:'notice:'+notice.id}});return {ok:true};}
+  if(path==='/api/notices'){if(b.id&&!uuid(b.id))bad('공지를 확인해주세요.');if(b.action==='delete')return commit(m.id,'notices',{action:'delete',id:b.id});if(typeof b.pinned!=='boolean')bad('상단 고정 여부를 확인해주세요.');if(b.sendPush===true)permit(m,'push');const notice={id:b.id||crypto.randomUUID(),title:text(b.title,1,100,'제목'),body:text(b.body,1,5000,'내용'),pinned:b.pinned};await commit(m.id,'notices',notice);if(b.sendPush===true){permit(m,'push');await push.enqueue({id:'notice:'+notice.id+':'+crypto.randomUUID(),kind:'notices',payload:{title:notice.title,body:notice.body.slice(0,140),url:'/Onoffgym/#community',tag:'notice:'+notice.id}});}return {ok:true};}
   if(path==='/api/holidays/sync')return {ok:true,calendar:await calendar(true)};
   bad('요청을 찾을 수 없어요.',404);
  }
@@ -142,7 +152,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   try{
    if(!allowed)bad('허용된 앱에서 접속해주세요.',403);if(req.method==='OPTIONS')return new Response(null,{status:204,headers:cors});
    const url=new URL(req.url),match=url.pathname.match(/\/api\/[^?]+$/),path=match?.[0];if(!path)bad('요청을 찾을 수 없어요.',404);
-   const get=new Set(['/api/health','/api/bootstrap','/api/revision','/api/tv/bootstrap','/api/tv/status','/api/push/test-access/config','/api/push/test-access/status','/api/push/history']);if(req.method!==(get.has(path)?'GET':'POST'))bad('지원하지 않는 요청 방식이에요.',405);
+   const get=new Set(['/api/health','/api/bootstrap','/api/revision','/api/tv/bootstrap','/api/tv/status','/api/storage-usage','/api/push/test-access/config','/api/push/test-access/status','/api/push/history']);if(req.method!==(get.has(path)?'GET':'POST'))bad('지원하지 않는 요청 방식이에요.',405);
    let b={};if(req.method==='POST'){if(!req.headers.get('Content-Type')?.startsWith('application/json'))bad('JSON 요청만 사용할 수 있어요.',415);const raw=await req.text();if(raw.length>2_000_000)bad('요청이 너무 커요.',413);try{b=JSON.parse(raw);}catch{bad('요청 형식을 확인해주세요.');}if(!b||typeof b!=='object'||Array.isArray(b))bad('요청 형식을 확인해주세요.');}
    return response(await route(req,path,url,b));
   }catch(e){if(!e.status)console.error('ONOFF request failed',e.name);return response({error:e.status?e.message:'서버 연결을 확인해주세요.'},e.status||503);}

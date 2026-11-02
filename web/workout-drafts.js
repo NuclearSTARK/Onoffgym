@@ -7,4 +7,4 @@ export function createWorkoutDrafts(storage,{now=()=>Date.now()}={}){
   remove(owner,date,program){try{storage.removeItem(key(owner,date,program));return true;}catch{return false;}}
  };
 }
-export function readWorkoutEditor(form){const b=Object.fromEntries(new FormData(form));return {sections:Array.from({length:Number(form.dataset.count)},(_,i)=>({title:String(b['title'+i]||''),text:String(b['text'+i]||''),record:b['record'+i]==='on',kind:String(b['kind'+i]||'중량'),movements:String(b['movements'+i]||'').split(';').map(s=>s.trim()).filter(Boolean)})),overview:String(b.overview||''),sessions:String(b.sessions||'')};}
+export function readWorkoutEditor(form){const b=Object.fromEntries(new FormData(form));return {sections:Array.from({length:Number(form.dataset.count)},(_,i)=>({title:String(b['title'+i]||''),text:String(b['text'+i]||''),record:b['record'+i]==='on',kind:String(b['kind'+i]||'중량'),movements:String(b['movements'+i]||'').split(/[;,\n]/).map(s=>s.trim()).filter(Boolean)})),overview:String(b.overview||''),sessions:String(b.sessions||'')};}

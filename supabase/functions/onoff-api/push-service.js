@@ -1,3 +1,4 @@
+import {hasPermission} from '../../../web/permissions.js';
 import {base64,encryptPush,pushDigest,validateSubscription,vapidAuthorization} from '../../../worker/push.js';
 const fail=(message,status=400)=>{throw Object.assign(Error(message),{status});};
 const same=(a,b)=>{a=String(a||'');b=String(b||'');let diff=a.length^b.length;for(let i=0;i<a.length;i++)diff|=a.charCodeAt(i)^(b.charCodeAt(i)||0);return diff===0;};
@@ -11,7 +12,7 @@ export function createPushService(db,{now=()=>new Date(),pushFetch=fetch}={}){
  async function enqueue({id,kind,payload,targetId=null,testHash=null,dueAt}){await result(db.from('gym_push_jobs').upsert({id,kind,payload,target_id:targetId,test_hash:testHash,...(dueAt?{due_at:dueAt}:{})},{onConflict:'id',ignoreDuplicates:true}));}
  async function dispatch(){
   const config=await keys(),jobs=await result(db.rpc('onoff_push_claim',{max_count:100}));let cursor=0,sent=0,failed=0;
-  await Promise.all(Array.from({length:Math.min(8,jobs.length)},async()=>{for(;;){const job=jobs[cursor++];if(!job)return;let state='failed';try{
+  await Promise.all(Array.from({length:Math.min(8,jobs.length)},async()=>{for(;;){const job=jobs[cursor++];if(!job)return;let state='failed',reason=null;try{
    const current=await one('gym_push_subscriptions','id',job.subscriptionId);if(!current)continue;
    let allowed=false;if(current.user_id){const member=await one('gym_members','id',current.user_id);allowed=member?.status==='approved'&&(job.kind==='test'||current.preferences?.[job.kind]!==false);if(job.kind==='approvals'){const pending=await one('gym_members','id',job.subjectId);allowed=allowed&&member?.role==='admin'&&pending?.status==='pending';}}else if(current.test_hash){const test=await one('gym_push_tests','hash',current.test_hash);allowed=job.kind==='test'&&current.test_hash===job.testHash&&Date.parse(test?.expires)>+now();}
    if(!allowed)state='skipped';else {
@@ -19,9 +20,10 @@ export function createPushService(db,{now=()=>new Date(),pushFetch=fetch}={}){
     const payload=job.kind==='approvals'?{...job.payload,url:'/Onoffgym/?approval='+encodeURIComponent(job.subjectId)+'#admin/members'}:job.payload;
     const body=await encryptPush(subscription,payload),authorization=await vapidAuthorization(subscription.endpoint,{VAPID_PUBLIC_KEY:config.publicKey,VAPID_PRIVATE_JWK:JSON.stringify(config.privateJwk),VAPID_SUBJECT:config.subject},now());
     const response=await pushFetch(subscription.endpoint,{method:'POST',headers:{Authorization:authorization,'Content-Encoding':'aes128gcm','Content-Type':'application/octet-stream',TTL:'3600',Urgency:job.kind==='test'?'high':'normal'},body,redirect:'error',signal:AbortSignal.timeout(8000)});
+    if(!response.ok)reason='푸시 서비스 HTTP '+response.status;
     if(response.ok){state='sent';sent++;}else if([404,410].includes(response.status)){await result(db.from('gym_push_subscriptions').delete().eq('id',job.subscriptionId));continue;}
    }
-  }catch{failed++;}await result(db.from('gym_push_deliveries').update({status:state,updated_at:now().toISOString()}).eq('job_id',job.jobId).eq('subscription_id',job.subscriptionId));}}));
+  }catch{failed++;reason='네트워크·암호화 처리 실패 또는 시간 초과';}await result(db.from('gym_push_deliveries').update({status:state,last_error:reason,updated_at:now().toISOString()}).eq('job_id',job.jobId).eq('subscription_id',job.subscriptionId));}}));
   return {ok:true,processed:jobs.length,sent,failed};
  }
  async function status(member){const config=await setting('pushVapid'),sub=await result(db.from('gym_push_subscriptions').select('id').eq('user_id',member.id).limit(1));return {configured:!!config,publicKey:config?.publicKey||'',schedulerConfigured:await setting('pushCronEnabled',false),subscribed:sub.length>0};}
@@ -38,7 +40,7 @@ export function createPushService(db,{now=()=>new Date(),pushFetch=fetch}={}){
   fail('알림 요청을 찾을 수 없어요.',404);
  }
  async function memberRoute(member,path,b){
-  if(['/api/push/compose','/api/push/history'].includes(path)){if(member.status!=='approved'||member.role!=='admin')fail('운영자 권한이 필요해요.',403);if(path.endsWith('/history'))return {jobs:await result(db.rpc('onoff_push_history',{actor:member.id}))};if(!['test','all'].includes(b.mode))fail('발송 대상을 확인해주세요.');if(b.mode==='test'&&!b.endpoint)fail('이 기기에서 알림을 먼저 켜주세요.');const job=await result(db.rpc('onoff_push_compose',{actor:member.id,test_code:null,p:{mode:b.mode,title:'ONOFF',body:b.body,subscriptionId:await pushDigest(b.endpoint||''),delayed:b.mode==='test'}}));return {ok:true,queued:true,job};}
+  if(['/api/push/compose','/api/push/history'].includes(path)){if(!hasPermission(member,'push'))fail('운영자 권한이 필요해요.',403);if(path.endsWith('/history'))return {jobs:await result(db.rpc('onoff_push_history',{actor:member.id}))};if(!['test','all'].includes(b.mode))fail('발송 대상을 확인해주세요.');if(b.mode==='test'&&!b.endpoint)fail('이 기기에서 알림을 먼저 켜주세요.');const job=await result(db.rpc('onoff_push_compose',{actor:member.id,test_code:null,p:{mode:b.mode,title:'ONOFF',body:b.body,subscriptionId:await pushDigest(b.endpoint||''),delayed:b.mode==='test'}}));return {ok:true,queued:true,job};}
 
   if(path==='/api/push/subscribe'){await keys();return subscribe(member.id,null,b);}
   const id=await pushDigest(typeof b.endpoint==='string'?b.endpoint:'');

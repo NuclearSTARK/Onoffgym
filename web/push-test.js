@@ -1,3 +1,4 @@
+import {installClearInputs} from './clear-inputs.js';
 import {pushSupport,enablePush,disablePush,deviceSubscription} from './push-client.js';
 const config=globalThis.ONOFF_BACKEND,$=s=>document.querySelector(s),storage='onoff-push-test-'+config?.projectId;
 let code=location.hash.slice(1).toLowerCase(),publicKey='',ready=false,checking=false;
@@ -15,3 +16,5 @@ $('#disable-test').addEventListener('click',async()=>{try{await disablePush((pat
 setInterval(status,10000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)status();});check();
 
 function previewMessage(){$('#test-preview-title').textContent=$('#test-title').value||'알림 제목';$('#test-preview-body').textContent=$('#test-body').value||'알림 내용';}for(const id of ['#test-title','#test-body'])$(id).addEventListener('input',previewMessage);previewMessage();
+
+installClearInputs(document);

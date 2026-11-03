@@ -1,6 +1,68 @@
 // supabase/functions/onoff-api/entry.js
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
+// supabase/functions/onoff-api/points-service.js
+var fail = (message, status = 400) => {
+  throw Object.assign(Error(message), { status });
+};
+var uuid = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+var integer = (n, min, max) => Number.isSafeInteger(n) && n >= min && n <= max;
+function createPointsService(db2) {
+  const read = async (q) => {
+    const { data, error } = await q;
+    if (error) fail("\uD3EC\uC778\uD2B8 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+    return data;
+  };
+  async function snapshot(m) {
+    if (m?.status !== "approved") fail("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    const [cfg, account, coupons, products, ledger] = await Promise.all([
+      read(db2.from("gym_point_config").select("enabled,attendance_points,record_points").eq("singleton", true).maybeSingle()),
+      read(db2.from("gym_point_accounts").select("balance").eq("user_id", m.id).maybeSingle()),
+      read(db2.from("gym_point_coupons").select("id,name,price,total,remaining,created_at,last_used_at").eq("user_id", m.id).order("created_at", { ascending: false }).limit(200)),
+      read(db2.from("gym_point_products").select("id,name,description,price,uses").eq("deleted", false).order("name").limit(100)),
+      read(db2.from("gym_point_ledger").select("id,amount,reason,created_at").eq("user_id", m.id).order("created_at", { ascending: false }).limit(30))
+    ]);
+    return { enabled: !!cfg?.enabled, attendancePoints: cfg?.attendance_points || 0, recordPoints: cfg?.record_points || 0, balance: Number(account?.balance || 0), coupons: coupons || [], products: products || [], ledger: ledger || [] };
+  }
+  async function route(m, path, b) {
+    if (m?.status !== "approved") fail("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (path === "/api/points") return snapshot(m);
+    const isAdmin = m.role === "admin";
+    if (["/api/points/admin", "/api/points/settings", "/api/points/product", "/api/points/product/delete"].includes(path) && !isAdmin) fail("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+    if (path === "/api/points/admin") {
+      const cfg = await read(db2.from("gym_point_config").select("pin_hash").eq("singleton", true).maybeSingle());
+      const [base, coupons, members] = await Promise.all([snapshot(m), read(db2.from("gym_point_coupons").select("id,user_id,name,price,total,remaining,created_at,last_used_at").order("created_at", { ascending: false }).limit(100)), read(db2.from("gym_members").select("id,name"))]);
+      return { ...base, pinConfigured: !!cfg?.pin_hash, issued: (coupons || []).map((c) => ({ ...c, memberName: members.find((m2) => m2.id === c.user_id)?.name || "\uD68C\uC6D0" })) };
+    }
+    let p;
+    if (path === "/api/points/settings") {
+      if (typeof b.enabled !== "boolean" || !integer(b.attendancePoints, 0, 1e6) || !integer(b.recordPoints, 0, 1e6) || b.pin && !/^\d{4}$/.test(b.pin)) fail("\uC801\uB9BD \uD3EC\uC778\uD2B8\uC640 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "settings", enabled: b.enabled, attendancePoints: b.attendancePoints, recordPoints: b.recordPoints, pin: b.pin || "" };
+    } else if (path === "/api/points/product") {
+      if (b.id && !uuid(b.id) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || typeof b.description !== "string" || b.description.length > 300 || !integer(b.price, 1, 1e9) || !integer(b.uses, 1, 1e3)) fail("\uC0C1\uD488 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "product-save", id: b.id || "", name: b.name.trim(), description: b.description, price: b.price, uses: b.uses };
+    } else if (path === "/api/points/product/delete") {
+      if (!uuid(b.id)) fail("\uC0C1\uD488\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "product-delete", id: b.id };
+    } else if (path === "/api/points/exchange") {
+      if (!uuid(b.productId) || !uuid(b.requestId) || !integer(b.expectedPrice, 1, 1e9) || !integer(b.expectedUses, 1, 1e3)) fail("\uAD50\uD658 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "exchange", productId: b.productId, requestId: b.requestId, expectedPrice: b.expectedPrice, expectedUses: b.expectedUses };
+    } else if (path === "/api/points/use") {
+      if (!uuid(b.couponId) || !uuid(b.requestId) || typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin)) fail("\uCFE0\uD3F0\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "use", couponId: b.couponId, requestId: b.requestId, pin: b.pin };
+    } else fail("\uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    const { data, error } = await db2.rpc("onoff_points", { actor: m.id, p });
+    if (error) fail(error.code === "42501" ? "\uC774 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD560 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : error.code === "P0001" ? error.message : "\uD3EC\uC778\uD2B8 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : error.code === "P0001" ? 400 : 503);
+    if (data?.ok === false) fail(data.error, data.status || 400);
+    return data;
+  }
+  return { snapshot, route };
+}
+
+// web/name-order.js
+var english = new Intl.Collator("en", { sensitivity: "base", numeric: true });
+var korean = new Intl.Collator("ko", { sensitivity: "base", numeric: true });
+
 // web/rm-catalogue.js
 var RM_CATEGORIES = [["squat", "\uC2A4\uCFFC\uD2B8"], ["press", "\uD504\uB808\uC2A4\xB7\uC800\uD06C"], ["deadlift", "\uB370\uB4DC\uB9AC\uD504\uD2B8"], ["clean", "\uD074\uB9B0"], ["snatch", "\uC2A4\uB0B4\uCE58"], ["complex", "\uBCF5\uD569 \uB3D9\uC791"]];
 var rmSeeds = [
@@ -79,15 +141,15 @@ function hasPermission(member, key) {
 }
 
 // supabase/functions/onoff-api/media-service.js
-var fail = (message, status = 400) => {
+var fail2 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 function cleanJpeg(bytes) {
-  if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216) fail("JPEG \uC0AC\uC9C4\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+  if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216) fail2("JPEG \uC0AC\uC9C4\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
   const parts = [bytes.subarray(0, 2)];
   let i = 2;
   while (i < bytes.length) {
-    if (bytes[i] !== 255) fail("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (bytes[i] !== 255) fail2("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
     const marker = bytes[i + 1];
     if (marker === 218) {
       parts.push(bytes.subarray(i));
@@ -100,17 +162,17 @@ function cleanJpeg(bytes) {
       return output.slice(0, length);
     }
     const size = bytes[i + 2] << 8 | bytes[i + 3];
-    if (size < 2 || i + 2 + size > bytes.length) fail("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC190\uC0C1\uB410\uC5B4\uC694.");
+    if (size < 2 || i + 2 + size > bytes.length) fail2("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC190\uC0C1\uB410\uC5B4\uC694.");
     if (!(marker >= 224 && marker <= 239) && marker !== 254) parts.push(bytes.subarray(i, i + 2 + size));
     i += 2 + size;
   }
-  fail("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  fail2("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
 }
 function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}) {
   const bucket = db2.storage?.from("onoff-private-photos");
   async function result(q) {
     const { data, error } = await q;
-    if (error) fail(error.code === "42501" ? "\uC0AC\uC9C4 \uC811\uADFC \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : "\uC0AC\uC9C4\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : 503);
+    if (error) fail2(error.code === "42501" ? "\uC0AC\uC9C4 \uC811\uADFC \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : "\uC0AC\uC9C4\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : 503);
     return data;
   }
   async function cleanup() {
@@ -128,67 +190,67 @@ function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}
     }
   }
   async function route(m, path, b) {
-    if (m.status !== "approved") fail("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (m.status !== "approved") fail2("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     if (path === "/api/photos/upload") {
-      if (!["community", "daily", "notice"].includes(b.kind) || b.kind === "daily" && !hasPermission(m, "photos") || b.kind === "notice" && !hasPermission(m, "notices")) fail("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
-      if (typeof b.data !== "string" || b.data.length > 82e4) fail("\uC555\uCD95\uB41C \uC0AC\uC9C4\uC740 600KB \uC774\uD558\uC5EC\uC57C \uD574\uC694.");
+      if (!["community", "daily", "notice"].includes(b.kind) || b.kind === "daily" && !hasPermission(m, "photos") || b.kind === "notice" && !hasPermission(m, "notices")) fail2("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (typeof b.data !== "string" || b.data.length > 82e4) fail2("\uC555\uCD95\uB41C \uC0AC\uC9C4\uC740 600KB \uC774\uD558\uC5EC\uC57C \uD574\uC694.");
       let bytes;
       try {
         bytes = Uint8Array.from(atob(b.data), (c) => c.charCodeAt(0));
       } catch {
-        fail("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        fail2("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       }
       bytes = cleanJpeg(bytes);
-      if (bytes.length > 614400) fail("\uC0AC\uC9C4 \uD06C\uAE30\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
+      if (bytes.length > 614400) fail2("\uC0AC\uC9C4 \uD06C\uAE30\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
       await cleanup();
       const pending = await result(db2.from("gym_photos").select("id").eq("owner_id", m.id).eq("active", false).limit(10));
-      if (pending.length >= 10) fail("\uBBF8\uC0AC\uC6A9 \uC0AC\uC9C4\uC774 \uB9CE\uC544\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 429);
+      if (pending.length >= 10) fail2("\uBBF8\uC0AC\uC6A9 \uC0AC\uC9C4\uC774 \uB9CE\uC544\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 429);
       const id = crypto.randomUUID(), storagePath = m.id + "/" + id + ".jpg";
       await result(db2.from("gym_photos").insert({ id, owner_id: m.id, kind: b.kind, path: storagePath }));
       const { error } = await bucket.upload(storagePath, bytes, { contentType: "image/jpeg", cacheControl: "60", upsert: false });
       if (error) {
         await result(db2.from("gym_photos").delete().eq("id", id).eq("owner_id", m.id));
-        fail("\uC0AC\uC9C4 \uC5C5\uB85C\uB4DC \uC2E4\uD328 \xB7 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uBA74 \uC7AC\uC5C5\uB85C\uB4DC\uD569\uB2C8\uB2E4.", 503);
+        fail2("\uC0AC\uC9C4 \uC5C5\uB85C\uB4DC \uC2E4\uD328 \xB7 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uBA74 \uC7AC\uC5C5\uB85C\uB4DC\uD569\uB2C8\uB2E4.", 503);
       }
       await result(db2.from("gym_photos").update({ uploaded: true }).eq("id", id).eq("owner_id", m.id));
       return { id };
     }
     if (path === "/api/photos/urls") {
-      if (!Array.isArray(b.ids) || b.ids.length < 1 || b.ids.length > 12 || b.ids.some((id) => typeof id !== "string" || !/^[-a-f0-9]{36}$/i.test(id))) fail("\uC0AC\uC9C4 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!Array.isArray(b.ids) || b.ids.length < 1 || b.ids.length > 12 || b.ids.some((id) => typeof id !== "string" || !/^[-a-f0-9]{36}$/i.test(id))) fail2("\uC0AC\uC9C4 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const photos = await result(db2.from("gym_photos").select("id,path").eq("active", true).in("id", [...new Set(b.ids)]));
       if (!photos.length) return { urls: [] };
       const { data, error } = await bucket.createSignedUrls(photos.map((p) => p.path), 60);
-      if (error) fail("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+      if (error) fail2("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
       return { urls: photos.flatMap((p) => {
         const signed = data.find((x) => x.path === p.path);
         return signed?.signedUrl ? [{ id: p.id, url: signed.signedUrl }] : [];
       }), expiresIn: 60 };
     }
     if (path === "/api/photos/program") {
-      if (!hasPermission(m, "photos")) fail("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (!hasPermission(m, "photos")) fail2("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       return result(db2.rpc("onoff_photo_program", { actor: m.id, photo_id: b.id, target_program: b.program }));
     }
     if (path === "/api/photos/url") {
       const photo = await result(db2.from("gym_photos").select("*").eq("id", b.id).eq("active", true).maybeSingle());
-      if (!photo) fail("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      if (!photo) fail2("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
       const { data, error } = await bucket.createSignedUrl(photo.path, 60);
-      if (error) fail("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+      if (error) fail2("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
       return { url: data.signedUrl, expiresIn: 60 };
     }
     if (path === "/api/photos/attach") {
-      if (b.kind !== "daily") fail("\uC0AC\uC9C4 \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      if (!hasPermission(m, "photos")) fail("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (b.kind !== "daily") fail2("\uC0AC\uC9C4 \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!hasPermission(m, "photos")) fail2("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       return result(db2.rpc("onoff_attach_photos", { actor: m.id, p: b }));
     }
     if (path === "/api/photos/delete") {
       const photo = await result(db2.from("gym_photos").select("*").eq("id", b.id).maybeSingle());
-      if (!photo) fail("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
-      if (photo.active ? photo.kind === "daily" ? !hasPermission(m, "photos") : photo.kind === "notice" ? !hasPermission(m, "notices") : m.role !== "admin" : photo.owner_id !== m.id) fail("\uC0AC\uC9C4 \uC0AD\uC81C \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 403);
+      if (!photo) fail2("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      if (photo.active ? photo.kind === "daily" ? !hasPermission(m, "photos") : photo.kind === "notice" ? !hasPermission(m, "notices") : m.role !== "admin" : photo.owner_id !== m.id) fail2("\uC0AC\uC9C4 \uC0AD\uC81C \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 403);
       await result(db2.from("gym_photos").delete().eq("id", photo.id));
       await cleanup();
       return { ok: true };
     }
-    fail("\uC0AC\uC9C4 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 404);
+    fail2("\uC0AC\uC9C4 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 404);
   }
   async function list(date, postIds, noticeIds = []) {
     if (!bucket) return [];
@@ -205,21 +267,21 @@ var validAvatar = (value) => AVATAR_EMOJIS.includes(value);
 var avatarEmoji = (value) => validAvatar(value) ? value : "\u{1F3CB}\uFE0F";
 
 // supabase/functions/onoff-api/account-service.js
-var fail2 = (message, status = 400) => {
+var fail3 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 function createAccountService(db2, { reauthenticate } = {}) {
   return { async withdraw(member, b) {
-    if (b.confirmed !== true || typeof b.password !== "string" || !b.password || b.password.length > 128) fail2("\uD0C8\uD1F4 \uB3D9\uC758\uC640 \uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    if (!member.email || !reauthenticate) fail2("\uC774\uBA54\uC77C \uB85C\uADF8\uC778\uC744 \uB2E4\uC2DC \uD655\uC778\uD574\uC8FC\uC138\uC694.", 401);
+    if (b.confirmed !== true || typeof b.password !== "string" || !b.password || b.password.length > 128) fail3("\uD0C8\uD1F4 \uB3D9\uC758\uC640 \uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (!member.email || !reauthenticate) fail3("\uC774\uBA54\uC77C \uB85C\uADF8\uC778\uC744 \uB2E4\uC2DC \uD655\uC778\uD574\uC8FC\uC138\uC694.", 401);
     const session = await reauthenticate(member.email, b.password);
-    if (!session || session.user?.id !== member.id || !session.accessToken) fail2("\uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.", 403);
+    if (!session || session.user?.id !== member.id || !session.accessToken) fail3("\uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.", 403);
     const prepared = await db2.rpc("onoff_withdraw_prepare", { actor: member.id });
-    if (prepared.error) fail2(prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uB2E4\uB978 \uC2B9\uC778\uB41C \uC6B4\uC601\uC790\uC5D0\uAC8C \uAD8C\uD55C\uC744 \uB118\uAE34 \uB4A4 \uD0C8\uD1F4\uD560 \uC218 \uC788\uC5B4\uC694." : "\uD0C8\uD1F4 \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", prepared.error.code === "23514" ? 409 : 503);
+    if (prepared.error) fail3(prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uB2E4\uB978 \uC2B9\uC778\uB41C \uC6B4\uC601\uC790\uC5D0\uAC8C \uAD8C\uD55C\uC744 \uB118\uAE34 \uB4A4 \uD0C8\uD1F4\uD560 \uC218 \uC788\uC5B4\uC694." : "\uD0C8\uD1F4 \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", prepared.error.code === "23514" ? 409 : 503);
     const revoked = await db2.auth.admin.signOut(session.accessToken, "global");
-    if (revoked.error) fail2("\uB85C\uADF8\uC778 \uC5F0\uACB0 \uD574\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    if (revoked.error) fail3("\uB85C\uADF8\uC778 \uC5F0\uACB0 \uD574\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
     const removed = await db2.auth.admin.deleteUser(member.id, false);
-    if (removed.error) fail2("\uACC4\uC815 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    if (removed.error) fail3("\uACC4\uC815 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
     return { ok: true, deleted: true };
   } };
 }
@@ -518,7 +580,7 @@ async function pushDigest(value) {
 }
 
 // supabase/functions/onoff-api/push-service.js
-var fail3 = (message, status = 400) => {
+var fail4 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 var same = (a, b) => {
@@ -531,7 +593,7 @@ var same = (a, b) => {
 function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFetch = fetch } = {}) {
   async function result(q) {
     const { data, error } = await q;
-    if (error) fail3(error.code === "42501" ? "\uC54C\uB9BC \uC694\uCCAD \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : "\uC54C\uB9BC \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : 400);
+    if (error) fail4(error.code === "42501" ? "\uC54C\uB9BC \uC694\uCCAD \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : "\uC54C\uB9BC \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : 400);
     return data;
   }
   const one = (table, key, value) => result(db2.from(table).select("*").eq(key, value).maybeSingle());
@@ -544,14 +606,14 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
   }
   async function access(req) {
     const code = req.headers.get("X-OnOff-Push-Test") || "";
-    if (!/^[a-f0-9]{32}$/.test(code)) fail3("\uC720\uD6A8\uD55C \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C \uB610\uB294 \uCF54\uB4DC\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.", 401);
+    if (!/^[a-f0-9]{32}$/.test(code)) fail4("\uC720\uD6A8\uD55C \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C \uB610\uB294 \uCF54\uB4DC\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.", 401);
     const hash = await pushDigest(code), test = await one("gym_push_tests", "hash", hash);
-    if (!test || Date.parse(test.expires) <= +now()) fail3("\uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB410\uC5B4\uC694.", 401);
+    if (!test || Date.parse(test.expires) <= +now()) fail4("\uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB410\uC5B4\uC694.", 401);
     return { hash, test };
   }
   async function subscribe(actor, testHash, b) {
     const sub = validateSubscription(b.subscription);
-    if (!sub) fail3("\uC54C\uB9BC \uAD6C\uB3C5 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (!sub) fail4("\uC54C\uB9BC \uAD6C\uB3C5 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
     const id = await pushDigest(sub.endpoint), preferences = { notices: b.preferences?.notices !== false, workouts: b.preferences?.workouts !== false, approvals: b.preferences?.approvals !== false };
     await result(db2.rpc("onoff_push_subscribe", { actor, test_code: testHash, sub_id: id, sub_body: sub, prefs: preferences }));
     return { ok: true, id };
@@ -619,7 +681,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
   async function publicRoute(req, path, b) {
     if (path === "/api/push/dispatch") {
       const secret = await setting("pushCronSecret");
-      if (!secret || !same(req.headers.get("X-OnOff-Worker"), secret)) fail3("\uC54C\uB9BC \uBC1C\uC1A1 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 401);
+      if (!secret || !same(req.headers.get("X-OnOff-Worker"), secret)) fail4("\uC54C\uB9BC \uBC1C\uC1A1 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 401);
       return dispatch();
     }
     const { hash, test } = await access(req);
@@ -635,14 +697,14 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
       const job = await result(db2.rpc("onoff_push_compose", { actor: null, test_code: hash, p: { mode: "test", title: b.title || "ONOFF \uD478\uC2DC \uD14C\uC2A4\uD2B8", body: b.body || "\uC571\uC744 \uB2EB\uC740 \uC0C1\uD0DC\uC758 \uC54C\uB9BC \uC218\uC2E0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", subscriptionId: id, delayed: b.delayed === true } }));
       return { ok: true, job, queued: true };
     }
-    fail3("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    fail4("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
   }
   async function memberRoute(member, path, b) {
     if (["/api/push/compose", "/api/push/history"].includes(path)) {
-      if (!hasPermission(member, "push")) fail3("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (!hasPermission(member, "push")) fail4("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       if (path.endsWith("/history")) return { jobs: await result(db2.rpc("onoff_push_history", { actor: member.id })) };
-      if (!["test", "all"].includes(b.mode)) fail3("\uBC1C\uC1A1 \uB300\uC0C1\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      if (b.mode === "test" && !b.endpoint) fail3("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
+      if (!["test", "all"].includes(b.mode)) fail4("\uBC1C\uC1A1 \uB300\uC0C1\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.mode === "test" && !b.endpoint) fail4("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
       const job = await result(db2.rpc("onoff_push_compose", { actor: member.id, test_code: null, p: { mode: b.mode, title: "ONOFF", body: b.body, subscriptionId: await pushDigest(b.endpoint || ""), delayed: b.mode === "test" } }));
       return { ok: true, queued: true, job };
     }
@@ -655,8 +717,8 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
       await result(db2.from("gym_push_subscriptions").delete().eq("id", id).eq("user_id", member.id));
       return { ok: true };
     }
-    if (path === "/api/push/test") fail3("\uAC1C\uC778\uC124\uC815\uC758 \uC2DC\uD5D8 \uBC1C\uC1A1\uC740 \uC885\uB8CC\uB410\uC5B4\uC694. \uBCC4\uB3C4 \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uD654\uBA74\uC744 \uC0AC\uC6A9\uD574\uC8FC\uC138\uC694.", 410);
-    fail3("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    if (path === "/api/push/test") fail4("\uAC1C\uC778\uC124\uC815\uC758 \uC2DC\uD5D8 \uBC1C\uC1A1\uC740 \uC885\uB8CC\uB410\uC5B4\uC694. \uBCC4\uB3C4 \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uD654\uBA74\uC744 \uC0AC\uC6A9\uD574\uC8FC\uC138\uC694.", 410);
+    fail4("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
   }
   return { status, dispatch, enqueue, publicRoute, memberRoute };
 }
@@ -666,13 +728,13 @@ var ORIGINS = /* @__PURE__ */ new Set(["https://nuclearstark.github.io", "https:
 var bad = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
-var uuid = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+var uuid2 = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 var text = (v, min, max, label) => {
   if (typeof v !== "string" || v.trim().length < min || v.length > max) bad(label + "\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
   return v.trim();
 };
 function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch, now = () => /* @__PURE__ */ new Date() } = {}) {
-  const media = createMediaService(db2, { now });
+  const media = createMediaService(db2, { now }), points = createPointsService(db2);
   const push = createPushService(db2, { now }), account = createAccountService(db2, { reauthenticate });
   async function result(q) {
     const { data, error } = await q;
@@ -777,7 +839,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     const rev = await revision(m);
     if (m.status !== "approved") return { viewer: m, workouts: {}, library: [], members: [], ...rev };
     const staff = m.role === "admin", all = hasPermission(m, "workouts.read") && url.searchParams.get("view") !== "member", day = kstDate(now()), viewDate = normalizeDate(url.searchParams.get("date")) || day;
-    const [pass, att, memberRows, prefs, cal, noticeRows, cat, lib] = await Promise.all([
+    const [pass, att, memberRows, prefs, cal, noticeRows, cat, lib, pointData] = await Promise.all([
       one("gym_memberships", "user_id", m.id),
       rows("gym_attendance", (q) => q.eq("user_id", m.id).order("date", { ascending: false }).limit(1e3)),
       rows("gym_members", (q) => staff ? q : q.eq("status", "approved")),
@@ -785,7 +847,8 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       calendar(),
       rows("gym_notices", (q) => q.order("pinned", { ascending: false }).order("created_at", { ascending: false }).limit(200)),
       setting("rmCatalogue", DEFAULT_RM_CATALOGUE),
-      library()
+      library(),
+      points.snapshot(m)
     ]);
     const access = membershipState(pass, day, att.some((a) => a.date === day && a.membership_id === pass?.id)), canRead = staff || m.role === "coach" || access.active;
     const ws = canRead ? await rows("gym_workouts", (q) => {
@@ -823,6 +886,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return (hasPermission(m, "acc.read") && url.searchParams.get("view") !== "member" ? q : q.lte("release_at", now().toISOString())).order("date", { ascending: false }).limit(1e3);
     }) : [];
     return {
+      points: pointData,
       accWorkouts: Object.fromEntries(accRows.map((w) => [w.date, w.body])),
       videoCategories: await videoCategories(),
       viewer: m,
@@ -866,6 +930,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     if (path === "/api/bootstrap") return bootstrap(m, url);
     if (path === "/api/profile") return commit(m.id, "profile", { name: text(b.name, 2, 30, "\uC2E4\uBA85") });
     approved(m);
+    if (path === "/api/points" || path.startsWith("/api/points/")) return points.route(m, path, b);
     if (path.startsWith("/api/photos/")) {
       if (path === "/api/photos/attach" && (!normalizeDate(b.date) || b.date > kstDate(now()) || !["ALL", "B/T", "WOD"].includes(b.program) || b.session && !/^([01]\d|2[0-3]):[0-5]\d$/.test(b.session))) bad("\uC0AC\uC9C4 \uB0A0\uC9DC\xB7\uC218\uC5C5\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return media.route(m, path, b);
@@ -893,7 +958,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return commit(m.id, "preferences", p);
     }
     if (path === "/api/records/delete") {
-      if (!uuid(b.id)) bad("\uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.id)) bad("\uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return result(db2.rpc("onoff_delete_record", { actor: m.id, record_id: b.id }));
     }
     if (path === "/api/records") {
@@ -903,7 +968,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       const cat = await setting("rmCatalogue", DEFAULT_RM_CATALOGUE), cache = /* @__PURE__ */ new Map(), clean = [];
       for (const r of list) {
         const id = r.id || crypto.randomUUID(), memberId = r.memberId || m.id;
-        if (!uuid(id) || !uuid(memberId)) bad("\uD68C\uC6D0\uACFC \uAE30\uB85D ID\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (!uuid2(id) || !uuid2(memberId)) bad("\uD68C\uC6D0\uACFC \uAE30\uB85D ID\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         if (memberId !== m.id) {
           const existing = await one("gym_records", "id", id);
           permit(m, existing ? "records.update" : "records.create");
@@ -927,13 +992,13 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return commit(m.id, "records", { records: clean });
     }
     if (path === "/api/rms/delete") {
-      if (!uuid(b.id)) bad("1RM \uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.id)) bad("1RM \uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const r = await one("gym_rms", "id", b.id);
       if (!r || r.user_id !== m.id) bad("\uBCF8\uC778\uC758 1RM \uAE30\uB85D\uB9CC \uC0AD\uC81C\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
       return commit(m.id, "rm-delete", { id: b.id });
     }
     if (path === "/api/rms") {
-      if (b.id && !uuid(b.id)) bad("1RM \uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && !uuid2(b.id)) bad("1RM \uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const existing = b.id ? await one("gym_rms", "id", b.id) : null;
       if (b.id && (!existing || existing.user_id !== m.id)) bad("\uBCF8\uC778\uC758 1RM \uAE30\uB85D\uB9CC \uC218\uC815\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
       const cat = await setting("rmCatalogue", DEFAULT_RM_CATALOGUE), mov = findRmMovement(cat, b.movementId || b.movement), oldMov = existing ? findRmMovement(cat, existing.body.movementId || existing.body.movement) : null;
@@ -944,23 +1009,23 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return commit(m.id, existing ? "rm-update" : "rm", body);
     }
     if (path === "/api/community/read") {
-      if (!uuid(b.id) || !["post", "notice"].includes(b.kind)) bad("\uC77D\uC740 \uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.id) || !["post", "notice"].includes(b.kind)) bad("\uC77D\uC740 \uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const item = await one(b.kind === "notice" ? "gym_notices" : "gym_posts", "id", b.id);
       if (!item) bad("\uAC8C\uC2DC\uAE00\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
       return commit(m.id, "community-read", { id: b.id, kind: b.kind });
     }
     if (path === "/api/posts") {
       if (b.photoIds?.length) {
-        if (!uuid(b.id)) bad("\uAC8C\uC2DC\uAE00 ID\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (!uuid2(b.id)) bad("\uAC8C\uC2DC\uAE00 ID\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         return result(db2.rpc("onoff_attach_photos", { actor: m.id, p: { ...b, kind: "community", title: text(b.title, 1, 80, "\uC81C\uBAA9"), body: text(b.body, 1, 3e3, "\uB0B4\uC6A9") } }));
       }
       if (!["\uC6B4\uB3D9 \uBC88\uAC1C", "\uACF5\uB3D9\uAD6C\uB9E4", "\uC790\uC720\uAE00"].includes(b.category)) bad("\uB9D0\uBA38\uB9AC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return commit(m.id, "post", { category: b.category, title: text(b.title, 1, 80, "\uC81C\uBAA9"), body: text(b.body, 1, 3e3, "\uB0B4\uC6A9") });
     }
     if (["/api/posts/delete", "/api/posts/join", "/api/posts/comment"].includes(path)) {
-      if (!uuid(b.id)) bad("\uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.id)) bad("\uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const comment = path.endsWith("comment");
-      if (b.requestId && !uuid(b.requestId)) bad("\uB313\uAE00 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.requestId && !uuid2(b.requestId)) bad("\uB313\uAE00 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       if ("joined" in b && typeof b.joined !== "boolean") bad("\uCC38\uC5EC \uC0C1\uD0DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const value = await commit(m.id, path.endsWith("delete") ? "post-delete" : path.endsWith("join") ? "join" : "comment", { id: b.id, ...comment ? { text: text(b.text, 1, 300, "\uB313\uAE00"), commentId: b.requestId || crypto.randomUUID() } : "joined" in b ? { joined: b.joined } : {} });
       if (path.endsWith("delete")) await media.cleanup();
@@ -977,7 +1042,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       permit(m, existing ? "acc.update" : "acc.create");
       const movements = b.movements || [];
       if (!Array.isArray(movements) || movements.length > 30 || movements.some((x) => typeof x !== "string" || !x.trim() || x.length > 80)) bad("\uAD00\uB828 \uB3D9\uC791\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      const overviewId = b.overview ? youtubeId(b.overview) : "";
+      const overviewId = b.overview === void 0 ? existing?.body?.overviewId || "" : b.overview ? youtubeId(b.overview) : "";
       if (overviewId === null) bad("\uC720\uD29C\uBE0C \uC8FC\uC18C\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return result(db2.rpc("onoff_acc", { actor: m.id, target_date: b.date, p: { text: text(b.text, 1, 5e3, "\uC6B4\uB3D9 \uB0B4\uC6A9"), movements: movements.map((x) => x.trim()), overviewId } }));
     }
@@ -1014,7 +1079,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return { ok: true, ...await tvSettings() };
     }
     if (path === "/api/member-name" || path === "/api/member-note" || path === "/api/members") {
-      if (!uuid(b.id) || !await one("gym_members", "id", b.id)) bad("\uD68C\uC6D0\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      if (!uuid2(b.id) || !await one("gym_members", "id", b.id)) bad("\uD68C\uC6D0\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
       if (path.endsWith("member-name")) return commit(m.id, "member-name", { id: b.id, name: text(b.name, 2, 30, "\uC2E4\uBA85") });
       if (path.endsWith("member-note")) return commit(m.id, "member-note", { id: b.id, note: text(b.note, 0, 500, "\uAD6C\uBD84 \uBA54\uBAA8") });
       if (!["admin", "coach", "member"].includes(b.role) || !["approved", "pending", "suspended"].includes(b.status)) bad("\uD68C\uC6D0 \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
@@ -1023,13 +1088,13 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return commit(m.id, "members", { id: b.id, role: b.role, status: b.status, coach_permissions: b.role === "coach" ? [...new Set(permissions)] : [] });
     }
     if (path === "/api/membership/delete") {
-      if (!uuid(b.id) || !uuid(b.passId)) bad("\uD68C\uC6D0\uAD8C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.id) || !uuid2(b.passId)) bad("\uD68C\uC6D0\uAD8C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const old = await one("gym_memberships", "user_id", b.id);
       if (!old || old.id !== b.passId || !Number.isInteger(b.revision) || old.revision !== b.revision) bad("\uD68C\uC6D0\uAD8C\uC774 \uBCC0\uACBD\uB410\uC5B4\uC694. \uB2E4\uC2DC \uD655\uC778\uD574\uC8FC\uC138\uC694.", 409);
       return commit(m.id, "membership-delete", { id: b.id, passId: old.id, revision: old.revision });
     }
     if (path === "/api/membership") {
-      if (!uuid(b.id)) bad("\uD68C\uC6D0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.id)) bad("\uD68C\uC6D0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const old = await one("gym_memberships", "user_id", b.id);
       let pass;
       try {
@@ -1040,7 +1105,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return commit(m.id, "membership", { id: b.id, action: b.action, pass, revision: old?.revision ?? -1, reason: String(b.reason || "").slice(0, 200) });
     }
     if (path === "/api/attendance/cancel") {
-      if (!uuid(b.id) || !normalizeDate(b.date) || b.date > kstDate(now())) bad("\uD68C\uC6D0\uACFC \uCD9C\uC11D \uB0A0\uC9DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.id) || !normalizeDate(b.date) || b.date > kstDate(now())) bad("\uD68C\uC6D0\uACFC \uCD9C\uC11D \uB0A0\uC9DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return commit(m.id, "attendance-cancel", { id: b.id, date: b.date, reason: text(b.reason, 1, 200, "\uCDE8\uC18C \uC0AC\uC720") });
     }
     if (path === "/api/workouts/delete") {
@@ -1087,7 +1152,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return result(db2.rpc("onoff_video_manage", { actor: m.id, p: { action: "movement-save", name, videoId, categoryId, notes: text(b.notes, 0, 1e3, "\uC124\uBA85") } }));
     }
     if (path === "/api/notices") {
-      if (b.id && !uuid(b.id)) bad("\uACF5\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && !uuid2(b.id)) bad("\uACF5\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       if (b.action === "delete") {
         const value = await commit(m.id, "notices", { action: "delete", id: b.id });
         await media.cleanup();
@@ -1114,7 +1179,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
       const url = new URL(req.url), match = url.pathname.match(/\/api\/[^?]+$/), path = match?.[0];
       if (!path) bad("\uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
-      const get = /* @__PURE__ */ new Set(["/api/health", "/api/bootstrap", "/api/revision", "/api/tv/bootstrap", "/api/tv/status", "/api/storage-usage", "/api/push/test-access/config", "/api/push/test-access/status", "/api/push/history"]);
+      const get = /* @__PURE__ */ new Set(["/api/points", "/api/points/admin", "/api/health", "/api/bootstrap", "/api/revision", "/api/tv/bootstrap", "/api/tv/status", "/api/storage-usage", "/api/push/test-access/config", "/api/push/test-access/status", "/api/push/history"]);
       if (req.method !== (get.has(path) ? "GET" : "POST")) bad("\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uC694\uCCAD \uBC29\uC2DD\uC774\uC5D0\uC694.", 405);
       let b = {};
       if (req.method === "POST") {

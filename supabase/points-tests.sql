@@ -1,0 +1,54 @@
+-- Synthetic users only. This transaction never issues a real coupon or grant.
+begin;
+do $$
+declare a uuid:=gen_random_uuid();b uuid:=gen_random_uuid();c uuid:=gen_random_uuid();item uuid;coupon uuid;req uuid:=gen_random_uuid();use_req uuid:=gen_random_uuid();reply jsonb;pin text:=lpad((floor(random()*10000)::integer)::text,4,'0');wrong text;denied boolean;day date:=(now() at time zone 'Asia/Seoul')::date;i integer;
+begin
+ wrong:=case when pin='0000' then '9999' else '0000' end;
+ insert into auth.users(id,email) values(a,'points-admin-'||a||'@example.invalid'),(b,'points-member-'||b||'@example.invalid'),(c,'points-coach-'||c||'@example.invalid');
+ update public.gym_members set role='admin',status='approved' where id=a;
+ update public.gym_members set role='member',status='approved' where id=b;
+ update public.gym_members set role='coach',status='approved',coach_permissions='[]' where id=c;
+ -- Disabled grants neither points nor retroactive credit.
+ insert into public.gym_records(id,user_id,date,program,section,body,writer_id) values(gen_random_uuid(),b,'1903-01-01','WOD','S1','{}',b);
+ if exists(select 1 from public.gym_point_accounts where user_id=b) then raise exception 'disabled award';end if;
+ denied:=false;begin perform public.onoff_points(c,jsonb_build_object('action','settings','enabled',true,'attendancePoints',10,'recordPoints',20,'pin',pin));exception when insufficient_privilege then denied:=true;end;if not denied then raise exception 'coach configured points';end if;
+ perform public.onoff_points(a,jsonb_build_object('action','settings','enabled',true,'attendancePoints',10,'recordPoints',20,'pin',pin));
+ insert into public.gym_attendance(user_id,date) values(b,day) on conflict do nothing;
+ insert into public.gym_attendance(user_id,date) values(b,day) on conflict do nothing;
+ insert into public.gym_records(id,user_id,date,program,section,body,writer_id) values(gen_random_uuid(),b,'1903-01-01','WOD','S2','{}',b),(gen_random_uuid(),b,'1903-01-01','B/T','S1','{}',b),(gen_random_uuid(),c,'1903-01-01','WOD','S1','{}',a);
+ if (select balance from public.gym_point_accounts where user_id=b)<>30 then raise exception 'daily awards incorrect';end if;
+ if exists(select 1 from public.gym_point_accounts where user_id=c) then raise exception 'bulk writer awarded';end if;
+ insert into public.gym_rms(id,user_id,body) values(gen_random_uuid(),b,'{"movement":"Front Squat","lbs":100}');
+ if (select balance from public.gym_point_accounts where user_id=b)<>30 then raise exception '1RM awarded';end if;
+ perform public.onoff_points(a,jsonb_build_object('action','settings','enabled',true,'attendancePoints',100,'recordPoints',200));
+ delete from public.gym_records where user_id=b;
+ insert into public.gym_records(id,user_id,date,program,section,body,writer_id) values(gen_random_uuid(),b,'1903-01-01','WOD','S1','{}',b);
+ if (select balance from public.gym_point_accounts where user_id=b)<>30 then raise exception 'deletion/rate change double awarded';end if;
+ perform public.onoff_points(a,'{"action":"product-save","name":"Isolated points gift","description":"rollback only","price":25,"uses":3}');
+ select id into item from public.gym_point_products where name='Isolated points gift';
+ reply:=public.onoff_points(b,jsonb_build_object('action','exchange','expectedPrice',25,'expectedUses',3,'productId',item,'requestId',req));coupon:=(reply->>'couponId')::uuid;
+ perform public.onoff_points(b,jsonb_build_object('action','exchange','expectedPrice',25,'expectedUses',3,'productId',item,'requestId',req));
+ if (select balance from public.gym_point_accounts where user_id=b)<>5 or (select count(*) from public.gym_point_coupons where user_id=b)<>1 then raise exception 'exchange retry duplicated';end if;
+ denied:=false;begin perform public.onoff_points(b,jsonb_build_object('action','exchange','expectedPrice',25,'expectedUses',3,'productId',item,'requestId',gen_random_uuid()));exception when raise_exception then denied:=true;end;if not denied then raise exception 'overspend accepted';end if;
+ denied:=false;begin perform public.onoff_points(c,jsonb_build_object('action','use','couponId',coupon,'requestId',gen_random_uuid(),'pin',pin));exception when insufficient_privilege then denied:=true;end;if not denied then raise exception 'another owner used coupon';end if;
+ for i in 1..5 loop reply:=public.onoff_points(b,jsonb_build_object('action','use','couponId',coupon,'requestId',gen_random_uuid(),'pin',wrong));if (reply->>'ok')::boolean then raise exception 'wrong pin accepted';end if;end loop;
+ reply:=public.onoff_points(b,jsonb_build_object('action','use','couponId',coupon,'requestId',use_req,'pin',pin));if reply->>'status'<>'429' then raise exception 'attempt limit missing';end if;
+ update public.gym_coupon_attempts set window_start=now()-interval '11 minutes' where user_id=b;
+ reply:=public.onoff_points(b,jsonb_build_object('action','use','couponId',coupon,'requestId',use_req,'pin',pin));
+ perform public.onoff_points(b,jsonb_build_object('action','use','couponId',coupon,'requestId',use_req,'pin',pin));
+ if (select remaining from public.gym_point_coupons where id=coupon)<>2 then raise exception 'coupon retry used twice';end if;
+ perform public.onoff_points(a,jsonb_build_object('action','product-save','id',item,'name','Renamed gift','description','','price',100,'uses',5));
+ if (select name from public.gym_point_coupons where id=coupon)<>'Isolated points gift' then raise exception 'snapshot coupon renamed';end if;
+ denied:=false;begin perform public.onoff_points(b,jsonb_build_object('action','exchange','expectedPrice',25,'expectedUses',3,'productId',item,'requestId',gen_random_uuid()));exception when raise_exception then if sqlerrm<>'상품 조건이 변경됐어요. 상점을 새로 열어 확인해주세요.' then raise;end if;denied:=true;end;if not denied then raise exception 'stale offer accepted';end if;
+ perform public.onoff_points(a,jsonb_build_object('action','product-delete','id',item));
+ perform public.onoff_points(a,'{"action":"settings","enabled":false,"attendancePoints":0,"recordPoints":0}');
+ perform public.onoff_points(b,jsonb_build_object('action','use','couponId',coupon,'requestId',gen_random_uuid(),'pin',pin));
+ perform public.onoff_points(b,jsonb_build_object('action','use','couponId',coupon,'requestId',gen_random_uuid(),'pin',pin));
+ denied:=false;begin perform public.onoff_points(b,jsonb_build_object('action','use','couponId',coupon,'requestId',gen_random_uuid(),'pin',pin));exception when raise_exception then denied:=true;end;if not denied then raise exception 'exhausted coupon reused';end if;
+ if (select balance from public.gym_point_accounts where user_id=b)<>5 then raise exception 'coupon use debited points again';end if;
+ update public.gym_members set status='suspended' where id=b;
+ denied:=false;begin perform public.onoff_points(b,jsonb_build_object('action','exchange','expectedPrice',25,'expectedUses',3,'productId',item,'requestId',gen_random_uuid()));exception when insufficient_privilege then denied:=true;end;if not denied then raise exception 'suspended account accepted';end if;
+end $$;
+select count(*)=7 as tables_private from information_schema.tables t where t.table_schema='public' and t.table_name in ('gym_point_config','gym_point_accounts','gym_point_ledger','gym_point_products','gym_point_coupons','gym_coupon_uses','gym_coupon_attempts') and not has_table_privilege('authenticated','public.'||t.table_name,'select');
+select not has_function_privilege('authenticated','public.onoff_points(uuid,jsonb)','execute') as rpc_private;
+rollback;

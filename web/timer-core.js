@@ -4,3 +4,5 @@ export function timerPlan(config){const phases=[];const prep=seconds(config.prep
 export function timerPosition(phases,elapsed){let start=0;for(let i=0;i<phases.length;i++){const p=phases[i];if(elapsed<start+p.duration)return {...p,index:i,elapsed:Math.max(0,elapsed-start),remaining:Math.max(0,start+p.duration-elapsed),done:false};start+=p.duration;}return {index:phases.length,done:true,elapsed:start,remaining:0,label:'완료'};}
 export function timerElapsed(state,now=Date.now()){return Math.max(0,(Number(state.elapsed)||0)+(state.running?Math.max(0,now-state.anchor):0));}
 export function timerClock(ms,up=false){const total=up?Math.floor(ms/1000):Math.ceil(ms/1000),h=Math.floor(total/3600),m=Math.floor(total%3600/60),s=total%60;return (h?String(h).padStart(2,'0')+':':'')+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');}
+
+export function timerDisplay(position){const up=['AMRAP','EMOM','FOR TIME'].includes(position.mode);return timerClock(up?position.elapsed:position.remaining,up);}

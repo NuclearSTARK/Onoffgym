@@ -3,9 +3,9 @@ import {createClient} from './assets/supabase-js-2.118.0.js';
 // backend-config.js is generated only for the public Pages deployment.
 const config=globalThis.ONOFF_BACKEND;
 export const connected=!!config?.url;
-const preview=new URLSearchParams(location.search).get('preview')==='1';
-if(connected)globalThis.ONOFF_DEMO=preview;
-export const shared=connected&&!preview;
+const preview=false;
+if(connected)globalThis.ONOFF_DEMO=false;
+export const shared=connected;
 let notice=document.querySelector('#backend-notice');
 if(globalThis.ONOFF_DEMO&&!notice){notice=document.createElement('aside');notice.id='backend-notice';notice.className='public-test-notice';document.querySelector('.app-header')?.prepend(notice);}
 if(shared&&notice){notice.remove();notice=null;}

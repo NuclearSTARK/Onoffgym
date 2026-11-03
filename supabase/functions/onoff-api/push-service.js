@@ -45,7 +45,7 @@ export function createPushService(db,{now=()=>new Date(),pushFetch=fetch}={}){
   if(path==='/api/push/subscribe'){await keys();return subscribe(member.id,null,b);}
   const id=await pushDigest(typeof b.endpoint==='string'?b.endpoint:'');
   if(path==='/api/push/unsubscribe'){await result(db.from('gym_push_subscriptions').delete().eq('id',id).eq('user_id',member.id));return {ok:true};}
-  if(path==='/api/push/test'){const sub=await result(db.from('gym_push_subscriptions').select('id').eq('user_id',member.id).limit(1));if(!sub.length)fail('이 기기에서 알림을 먼저 켜주세요.');const target=b.endpoint?id:sub[0].id;await result(db.rpc('onoff_push_test_job',{actor:member.id,test_code:null,sub_id:target,delayed:false}));return {ok:true,queued:true,sent:0};}
+  if(path==='/api/push/test')fail('개인설정의 시험 발송은 종료됐어요. 별도 푸시 테스트 화면을 사용해주세요.',410);
   fail('알림 요청을 찾을 수 없어요.',404);
  }
  return {status,dispatch,enqueue,publicRoute,memberRoute};

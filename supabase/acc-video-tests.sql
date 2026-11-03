@@ -1,0 +1,28 @@
+begin;
+insert into auth.users(id,email) values('f0000000-0000-4000-8000-000000000091','onoff-next-rollback@example.invalid');
+update public.gym_members set role='coach',status='approved',coach_permissions='[]' where id='f0000000-0000-4000-8000-000000000091';
+do $$ declare a uuid:='f0000000-0000-4000-8000-000000000091'; item jsonb:='{"text":"격리 ACC","movements":["격리 동작"],"overviewId":""}';category text;begin
+ begin perform public.onoff_acc(a,'1902-01-01',item);raise exception 'ungranted ACC create accepted';exception when insufficient_privilege then null;end;
+ update public.gym_members set coach_permissions='["acc.create"]' where id=a;
+ perform public.onoff_acc(a,'1902-01-01',item);
+ begin perform public.onoff_acc(a,'1902-01-01',item);raise exception 'create granted update accepted';exception when insufficient_privilege then null;end;
+ begin perform public.onoff_acc(a,'1902-01-01','{"action":"delete"}');raise exception 'ungranted ACC delete accepted';exception when insufficient_privilege then null;end;
+ update public.gym_members set coach_permissions='["acc.update","acc.delete"]' where id=a;
+ perform public.onoff_acc(a,'1902-01-01',item||'{"text":"격리 수정"}');
+ if (select body->>'text' from public.gym_acc_workouts where date='1902-01-01')<>'격리 수정' then raise exception 'ACC not updated';end if;
+ perform public.onoff_acc(a,'1902-01-01','{"action":"delete"}');
+ if exists(select 1 from public.gym_acc_workouts where date='1902-01-01') then raise exception 'ACC not removed';end if;
+ begin perform public.onoff_video_manage(a,'{"action":"category-add","label":"격리 분류"}');raise exception 'ungranted videos accepted';exception when insufficient_privilege then null;end;
+ update public.gym_members set coach_permissions='["videos"]' where id=a;
+ category:=public.onoff_video_manage(a,'{"action":"category-add","label":"격리 분류"}')->>'id';
+ perform public.onoff_video_manage(a,jsonb_build_object('action','category-edit','id',category,'label','격리 수정 분류'));
+ perform public.onoff_video_manage(a,jsonb_build_object('action','movement-save','name','Isolated New Movement','categoryId',category,'notes','격리','videoId',''));
+ perform public.onoff_video_manage(a,jsonb_build_object('action','category-delete','id',category,'targetId','other'));
+ if (select category_id from public.gym_movements where name='Isolated New Movement')<>'other' then raise exception 'category move lost';end if;
+ perform public.onoff_video_manage(a,'{"action":"movement-delete","name":"Isolated New Movement"}');
+ if not (select deleted from public.gym_movements where name='Isolated New Movement') then raise exception 'movement not tombstoned';end if;
+ update public.gym_members set status='suspended' where id=a;
+ begin perform public.onoff_video_manage(a,'{"action":"movement-delete","name":"Isolated New Movement"}');raise exception 'suspended accepted';exception when insufficient_privilege then null;end;
+end $$;
+select not has_table_privilege('authenticated','public.gym_acc_workouts','select') acc_private,not has_table_privilege('anon','public.gym_video_categories','select') categories_private,not has_function_privilege('authenticated','public.onoff_acc(uuid,date,jsonb)','execute') acc_rpc_private,not has_function_privilege('authenticated','public.onoff_video_manage(uuid,jsonb)','execute') video_rpc_private;
+rollback;

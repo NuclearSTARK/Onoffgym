@@ -14,4 +14,4 @@ const fingerprint=createHash('sha256');for(const file of entries)fingerprint.upd
 const version=fingerprint.digest('hex').slice(0,12);
 for(const file of entries.filter(f=>f.endsWith('.js'))){let code=await readFile(out+'/'+file,'utf8');code=code.replace(/(from\s*|import\s*\(\s*)(['"])(\.{1,2}\/[^'"?]+\.js)\2/g,(_,prefix,quote,path)=>prefix+quote+path+'?v='+version+quote);await writeFile(out+'/'+file,code);}
 for(const file of ['index.html','tv.html','push-test.html','auth-callback.html']){let markup=await readFile(out+'/'+file,'utf8');markup=markup.replace(/((?:src|href)=["'])([^"':?]+\.(?:js|css))(?:\?[^"']*)?(["'])/g,(_,prefix,path,quote)=>prefix+path+'?v='+version+quote);await writeFile(out+'/'+file,markup);}
-console.log('Built GitHub Pages site in '+out+(demo?' (isolated demo)':' (authenticated Supabase backend; explicit preview stays isolated)'));
+console.log('Built GitHub Pages site in '+out+(demo?' (isolated demo)':' (authenticated Supabase backend)'));

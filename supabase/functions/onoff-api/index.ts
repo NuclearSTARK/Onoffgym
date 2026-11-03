@@ -1,8 +1,79 @@
 // supabase/functions/onoff-api/entry.js
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
+// web/rm-catalogue.js
+var RM_CATEGORIES = [["squat", "\uC2A4\uCFFC\uD2B8"], ["press", "\uD504\uB808\uC2A4\xB7\uC800\uD06C"], ["deadlift", "\uB370\uB4DC\uB9AC\uD504\uD2B8"], ["clean", "\uD074\uB9B0"], ["snatch", "\uC2A4\uB0B4\uCE58"], ["complex", "\uBCF5\uD569 \uB3D9\uC791"]];
+var rmSeeds = [
+  ["back-squat", "Back Squat", "squat", true],
+  ["front-squat", "Front Squat", "squat", true],
+  ["overhead-squat", "Overhead Squat", "squat"],
+  ["shoulder-press", "Shoulder Press", "press", true, ["Strict Press"]],
+  ["bench-press", "Bench Press", "press"],
+  ["push-press", "Push Press", "press"],
+  ["push-jerk", "Push Jerk", "press"],
+  ["split-jerk", "Split Jerk", "press"],
+  ["deadlift", "Deadlift", "deadlift", true],
+  ["sumo-deadlift", "Sumo Deadlift", "deadlift"],
+  ["power-clean", "Power Clean", "clean", true],
+  ["squat-clean", "Squat Clean", "clean"],
+  ["muscle-clean", "Muscle Clean", "clean"],
+  ["hang-power-clean", "Hang Power Clean", "clean"],
+  ["hang-squat-clean", "Hang Squat Clean", "clean", false, ["Hang Sqaut Clean"]],
+  ["power-snatch", "Power Snatch", "snatch"],
+  ["squat-snatch", "Squat Snatch", "snatch", true, ["Sqaut Snatch"]],
+  ["muscle-snatch", "Muscle Snatch", "snatch"],
+  ["hang-power-snatch", "Hang Power Snatch", "snatch"],
+  ["hang-squat-snatch", "Hang Squat Snatch", "snatch", false, ["Hang Sqaut Snatch"]],
+  ["snatch-balance", "Snatch Balance", "snatch", false, ["Snatch Blance"]],
+  ["clean-jerk", "Clean & Jerk", "complex"],
+  ["clean-split-jerk", "Clean & Split Jerk", "complex"],
+  ["power-clean-jerk", "Power Clean & Jerk", "complex"],
+  ["power-clean-split-jerk", "Power Clean & Split Jerk", "complex"],
+  ["thruster", "Thruster", "complex"],
+  ["cluster", "Cluster", "complex"]
+];
+var DEFAULT_RM_CATALOGUE = rmSeeds.map(([id, name, category, isDefault = false, aliases = []]) => ({ id, name, category, isDefault, active: true, aliases }));
+var rmKey = (value) => String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+function findRmMovement(catalogue, value) {
+  return catalogue.find((m) => m.id === value) || catalogue.find((m) => [m.name, ...m.aliases || []].some((n) => rmKey(n) === rmKey(value)));
+}
+function updateRmCatalogue(catalogue, body, idFactory = () => crypto.randomUUID()) {
+  if (!body || typeof body.name !== "string" || body.name.trim().length < 2 || body.name.trim().length > 80) throw Error("\uC885\uBAA9 \uC774\uB984\uC744 2~80\uC790\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+  if (!RM_CATEGORIES.some((c) => c[0] === body.category) || typeof body.active !== "boolean" || typeof body.isDefault !== "boolean") throw Error("\uBD84\uB958\xB7\uAE30\uBCF8 \uD45C\uC2DC\xB7\uC0AC\uC6A9 \uC5EC\uBD80\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  const old = body.id ? catalogue.find((m) => m.id === body.id) : null;
+  if (body.id && !old) throw Error("\uC218\uC815\uD560 \uC885\uBAA9\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.");
+  const name = body.name.trim().replace(/\s+/g, " ");
+  if (catalogue.some((m) => m.id !== old?.id && [m.name, ...m.aliases || []].some((n) => rmKey(n) === rmKey(name)))) throw Error("\uC774\uBBF8 \uB4F1\uB85D\uB41C \uC885\uBAA9 \uC774\uB984\uC774\uC5D0\uC694.");
+  if (!old && catalogue.length >= 250) throw Error("\uC885\uBAA9\uC740 \uCD5C\uB300 250\uAC1C\uAE4C\uC9C0 \uB4F1\uB85D\uD560 \uC218 \uC788\uC5B4\uC694.");
+  const aliases = [.../* @__PURE__ */ new Set([...old?.aliases || [], ...old && old.name !== name ? [old.name] : []])].filter((n) => rmKey(n) !== rmKey(name));
+  const movement = { id: old?.id || "custom-" + idFactory(), name, category: body.category, active: body.active, isDefault: body.active && body.isDefault, aliases };
+  return { movement, catalogue: old ? catalogue.map((m) => m.id === old.id ? movement : m) : [...catalogue, movement] };
+}
+
+// web/video-library.js
+var VIDEO_CATEGORIES = [...RM_CATEGORIES, ["cardio", "\uC720\uC0B0\uC18C"], ["gymnastics", "\uB9E8\uBAB8\xB7\uCCB4\uC870"], ["other", "\uAE30\uD0C0 \uB3D9\uC791"]];
+function videoCategory(name, catalogue) {
+  const known = findRmMovement(catalogue, name);
+  if (known && VIDEO_CATEGORIES.some(([id]) => id === known.category)) return known.category;
+  const n = String(name).toLowerCase();
+  if (/clean.*jerk|thruster|cluster/.test(n)) return "complex";
+  if (/snatch/.test(n)) return "snatch";
+  if (/clean/.test(n)) return "clean";
+  if (/squat/.test(n)) return "squat";
+  if (/deadlift/.test(n)) return "deadlift";
+  if (/press|jerk/.test(n)) return "press";
+  if (/\b(row|rowing|bike|ski|run|running|jump rope|double under|single under)\b/.test(n)) return "cardio";
+  if (/pull.up|push.up|muscle.up|handstand|toes.to.bar|sit.up|burpee|plank|box (jump|step)|air squat/.test(n)) return "gymnastics";
+  return "other";
+}
+function resolveVideoCategory(id, categories, redirects = {}) {
+  const active = new Set(categories.map((c) => c[0]));
+  for (let i = 0; i < 40 && !active.has(id) && redirects[id]; i++) id = redirects[id];
+  return active.has(id) ? id : categories.find((c) => c[0] === "other")?.[0] || categories[0]?.[0] || "other";
+}
+
 // web/permissions.js
-var COACH_PERMISSIONS = [["workouts.read", "\uBBF8\uACF5\uAC1C \uC218\uC5C5 \uC870\uD68C"], ["workouts.create", "\uC218\uC5C5 \uB4F1\uB85D"], ["workouts.update", "\uC218\uC5C5 \uC218\uC815"], ["workouts.delete", "\uC218\uC5C5 \uC0AD\uC81C"], ["records.create", "\uD68C\uC6D0 \uAE30\uB85D \uC785\uB825"], ["records.update", "\uD68C\uC6D0 \uAE30\uB85D \uC218\uC815"], ["records.delete", "\uD68C\uC6D0 \uAE30\uB85D \uC0AD\uC81C"], ["photos", "\uC624\uB298\uC758 \uAE30\uB85D \uC0AC\uC9C4 \uAD00\uB9AC"], ["videos", "\uC6B4\uB3D9\uC601\uC0C1 \uAD00\uB9AC"], ["rm", "1RM \uC885\uBAA9\uAD00\uB9AC"], ["notices", "\uACF5\uC9C0 \uAD00\uB9AC"], ["banner", "\uBC30\uB108 \uAD00\uB9AC"], ["push", "\uD478\uC2DC \uBC1C\uC1A1\xB7\uC774\uB825"], ["release", "\uACF5\uAC1C\uC2DC\uAC01"], ["tv", "TV \uD654\uBA74 \uC124\uC815"]];
+var COACH_PERMISSIONS = [["workouts.read", "\uBBF8\uACF5\uAC1C \uC218\uC5C5 \uC870\uD68C"], ["workouts.create", "\uC218\uC5C5 \uB4F1\uB85D"], ["workouts.update", "\uC218\uC5C5 \uC218\uC815"], ["workouts.delete", "\uC218\uC5C5 \uC0AD\uC81C"], ["records.create", "\uD68C\uC6D0 \uAE30\uB85D \uC785\uB825"], ["records.update", "\uD68C\uC6D0 \uAE30\uB85D \uC218\uC815"], ["records.delete", "\uD68C\uC6D0 \uAE30\uB85D \uC0AD\uC81C"], ["photos", "\uC624\uB298\uC758 \uAE30\uB85D \uC0AC\uC9C4 \uAD00\uB9AC"], ["videos", "\uC6B4\uB3D9\uC601\uC0C1 \uAD00\uB9AC"], ["rm", "1RM \uC885\uBAA9\uAD00\uB9AC"], ["notices", "\uACF5\uC9C0 \uAD00\uB9AC"], ["banner", "\uBC30\uB108 \uAD00\uB9AC"], ["push", "\uD478\uC2DC \uBC1C\uC1A1\xB7\uC774\uB825"], ["release", "\uACF5\uAC1C\uC2DC\uAC01"], ["tv", "TV \uD654\uBA74 \uC124\uC815"], ["acc.read", "\uBBF8\uACF5\uAC1C ACC \uC870\uD68C"], ["acc.create", "ACC \uB4F1\uB85D"], ["acc.update", "ACC \uC218\uC815"], ["acc.delete", "ACC \uC0AD\uC81C"]];
 function hasPermission(member, key) {
   return member?.status === "approved" && (member.role === "admin" || member.role === "coach" && Array.isArray(member.coach_permissions) && member.coach_permissions.includes(key));
 }
@@ -303,55 +374,6 @@ function parseHolidayCalendar(text2) {
   return dates;
 }
 
-// web/rm-catalogue.js
-var RM_CATEGORIES = [["squat", "\uC2A4\uCFFC\uD2B8"], ["press", "\uD504\uB808\uC2A4\xB7\uC800\uD06C"], ["deadlift", "\uB370\uB4DC\uB9AC\uD504\uD2B8"], ["clean", "\uD074\uB9B0"], ["snatch", "\uC2A4\uB0B4\uCE58"], ["complex", "\uBCF5\uD569 \uB3D9\uC791"]];
-var rmSeeds = [
-  ["back-squat", "Back Squat", "squat", true],
-  ["front-squat", "Front Squat", "squat", true],
-  ["overhead-squat", "Overhead Squat", "squat"],
-  ["shoulder-press", "Shoulder Press", "press", true, ["Strict Press"]],
-  ["bench-press", "Bench Press", "press"],
-  ["push-press", "Push Press", "press"],
-  ["push-jerk", "Push Jerk", "press"],
-  ["split-jerk", "Split Jerk", "press"],
-  ["deadlift", "Deadlift", "deadlift", true],
-  ["sumo-deadlift", "Sumo Deadlift", "deadlift"],
-  ["power-clean", "Power Clean", "clean", true],
-  ["squat-clean", "Squat Clean", "clean"],
-  ["muscle-clean", "Muscle Clean", "clean"],
-  ["hang-power-clean", "Hang Power Clean", "clean"],
-  ["hang-squat-clean", "Hang Squat Clean", "clean", false, ["Hang Sqaut Clean"]],
-  ["power-snatch", "Power Snatch", "snatch"],
-  ["squat-snatch", "Squat Snatch", "snatch", true, ["Sqaut Snatch"]],
-  ["muscle-snatch", "Muscle Snatch", "snatch"],
-  ["hang-power-snatch", "Hang Power Snatch", "snatch"],
-  ["hang-squat-snatch", "Hang Squat Snatch", "snatch", false, ["Hang Sqaut Snatch"]],
-  ["snatch-balance", "Snatch Balance", "snatch", false, ["Snatch Blance"]],
-  ["clean-jerk", "Clean & Jerk", "complex"],
-  ["clean-split-jerk", "Clean & Split Jerk", "complex"],
-  ["power-clean-jerk", "Power Clean & Jerk", "complex"],
-  ["power-clean-split-jerk", "Power Clean & Split Jerk", "complex"],
-  ["thruster", "Thruster", "complex"],
-  ["cluster", "Cluster", "complex"]
-];
-var DEFAULT_RM_CATALOGUE = rmSeeds.map(([id, name, category, isDefault = false, aliases = []]) => ({ id, name, category, isDefault, active: true, aliases }));
-var rmKey = (value) => String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
-function findRmMovement(catalogue, value) {
-  return catalogue.find((m) => m.id === value) || catalogue.find((m) => [m.name, ...m.aliases || []].some((n) => rmKey(n) === rmKey(value)));
-}
-function updateRmCatalogue(catalogue, body, idFactory = () => crypto.randomUUID()) {
-  if (!body || typeof body.name !== "string" || body.name.trim().length < 2 || body.name.trim().length > 80) throw Error("\uC885\uBAA9 \uC774\uB984\uC744 2~80\uC790\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-  if (!RM_CATEGORIES.some((c) => c[0] === body.category) || typeof body.active !== "boolean" || typeof body.isDefault !== "boolean") throw Error("\uBD84\uB958\xB7\uAE30\uBCF8 \uD45C\uC2DC\xB7\uC0AC\uC6A9 \uC5EC\uBD80\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-  const old = body.id ? catalogue.find((m) => m.id === body.id) : null;
-  if (body.id && !old) throw Error("\uC218\uC815\uD560 \uC885\uBAA9\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.");
-  const name = body.name.trim().replace(/\s+/g, " ");
-  if (catalogue.some((m) => m.id !== old?.id && [m.name, ...m.aliases || []].some((n) => rmKey(n) === rmKey(name)))) throw Error("\uC774\uBBF8 \uB4F1\uB85D\uB41C \uC885\uBAA9 \uC774\uB984\uC774\uC5D0\uC694.");
-  if (!old && catalogue.length >= 250) throw Error("\uC885\uBAA9\uC740 \uCD5C\uB300 250\uAC1C\uAE4C\uC9C0 \uB4F1\uB85D\uD560 \uC218 \uC788\uC5B4\uC694.");
-  const aliases = [.../* @__PURE__ */ new Set([...old?.aliases || [], ...old && old.name !== name ? [old.name] : []])].filter((n) => rmKey(n) !== rmKey(name));
-  const movement = { id: old?.id || "custom-" + idFactory(), name, category: body.category, active: body.active, isDefault: body.active && body.isDefault, aliases };
-  return { movement, catalogue: old ? catalogue.map((m) => m.id === old.id ? movement : m) : [...catalogue, movement] };
-}
-
 // web/membership.js
 function memberDays(a, b) {
   return Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 864e5);
@@ -633,13 +655,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
       await result(db2.from("gym_push_subscriptions").delete().eq("id", id).eq("user_id", member.id));
       return { ok: true };
     }
-    if (path === "/api/push/test") {
-      const sub = await result(db2.from("gym_push_subscriptions").select("id").eq("user_id", member.id).limit(1));
-      if (!sub.length) fail3("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
-      const target = b.endpoint ? id : sub[0].id;
-      await result(db2.rpc("onoff_push_test_job", { actor: member.id, test_code: null, sub_id: target, delayed: false }));
-      return { ok: true, queued: true, sent: 0 };
-    }
+    if (path === "/api/push/test") fail3("\uAC1C\uC778\uC124\uC815\uC758 \uC2DC\uD5D8 \uBC1C\uC1A1\uC740 \uC885\uB8CC\uB410\uC5B4\uC694. \uBCC4\uB3C4 \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uD654\uBA74\uC744 \uC0AC\uC6A9\uD574\uC8FC\uC138\uC694.", 410);
     fail3("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
   }
   return { status, dispatch, enqueue, publicRoute, memberRoute };
@@ -693,12 +709,16 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     approved(m);
     if (m.role !== "admin") bad("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
   };
+  async function videoCategories() {
+    const data = await rows("gym_video_categories", (q) => q.order("position").order("label"));
+    return data.length ? data.map((c) => [c.id, c.label]) : VIDEO_CATEGORIES;
+  }
   async function library() {
-    const [custom, catalogue] = await Promise.all([rows("gym_movements"), setting("rmCatalogue", DEFAULT_RM_CATALOGUE)]);
-    const map = new Map(MOVEMENTS.map((name) => [name, { name, videoId: "", notes: "" }]));
-    for (const m of custom) map.set(m.name, m.body);
+    const [custom, catalogue, categories, redirects] = await Promise.all([rows("gym_movements"), setting("rmCatalogue", DEFAULT_RM_CATALOGUE), videoCategories(), setting("videoCategoryRedirects", {})]);
+    const map = new Map(MOVEMENTS.map((name) => [name, { name, videoId: "", notes: "" }])), deleted = new Set(custom.filter((m) => m.deleted).map((m) => m.name));
+    for (const m of custom) if (!m.deleted) map.set(m.name, { ...m.body, name: m.name, categoryId: m.category_id || m.body.categoryId });
     for (const m of catalogue) for (const name of [m.name, ...m.aliases || []]) if (!map.has(name)) map.set(name, { name, videoId: "", notes: "" });
-    return [...map.values()];
+    return [...map.values()].filter((m) => !deleted.has(m.name)).map((m) => ({ ...m, categoryId: resolveVideoCategory(m.categoryId || videoCategory(m.name, catalogue), categories, redirects) }));
   }
   async function calendar(force = false) {
     const cached = await one("gym_holiday_cache", "key", "KR");
@@ -798,7 +818,13 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
         avatars.set(p.user_id, avatarEmoji(p.body.avatarEmoji));
       }
     }
+    const accRows = canRead ? await rows("gym_acc_workouts", (q) => {
+      q = q.or(`date.gte.${addDays(day, -30)},date.eq.${viewDate}`);
+      return (hasPermission(m, "acc.read") && url.searchParams.get("view") !== "member" ? q : q.lte("release_at", now().toISOString())).order("date", { ascending: false }).limit(1e3);
+    }) : [];
     return {
+      accWorkouts: Object.fromEntries(accRows.map((w) => [w.date, w.body])),
+      videoCategories: await videoCategories(),
       viewer: m,
       ...rev,
       memberView: !all,
@@ -941,6 +967,30 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return value;
     }
     if (path.startsWith("/api/push/")) return push.memberRoute(m, path, b);
+    if (path === "/api/acc") {
+      if (!normalizeDate(b.date)) bad("\uB0A0\uC9DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.action === "delete") {
+        permit(m, "acc.delete");
+        return result(db2.rpc("onoff_acc", { actor: m.id, target_date: b.date, p: { action: "delete" } }));
+      }
+      const existing = await one("gym_acc_workouts", "date", b.date);
+      permit(m, existing ? "acc.update" : "acc.create");
+      const movements = b.movements || [];
+      if (!Array.isArray(movements) || movements.length > 30 || movements.some((x) => typeof x !== "string" || !x.trim() || x.length > 80)) bad("\uAD00\uB828 \uB3D9\uC791\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      const overviewId = b.overview ? youtubeId(b.overview) : "";
+      if (overviewId === null) bad("\uC720\uD29C\uBE0C \uC8FC\uC18C\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      return result(db2.rpc("onoff_acc", { actor: m.id, target_date: b.date, p: { text: text(b.text, 1, 5e3, "\uC6B4\uB3D9 \uB0B4\uC6A9"), movements: movements.map((x) => x.trim()), overviewId } }));
+    }
+    if (path === "/api/video-categories") {
+      permit(m, "videos");
+      const actions = { add: "category-add", edit: "category-edit", delete: "category-delete" }, action = actions[b.action];
+      if (!action) bad("\uBD84\uB958 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      return result(db2.rpc("onoff_video_manage", { actor: m.id, p: { action, id: b.id, label: b.action === "delete" ? void 0 : text(b.label, 1, 40, "\uBD84\uB958 \uC774\uB984"), targetId: b.targetId } }));
+    }
+    if (path === "/api/movements/delete") {
+      permit(m, "videos");
+      return result(db2.rpc("onoff_video_manage", { actor: m.id, p: { action: "movement-delete", name: text(b.name, 2, 80, "\uB3D9\uC791 \uC774\uB984") } }));
+    }
     const permission = { "/api/tv/status": "tv", "/api/tv/admin": "tv", "/api/workouts/delete": "workouts.delete", "/api/settings": "release", "/api/banner": "banner", "/api/rm-catalogue": "rm", "/api/movements": "videos", "/api/notices": "notices" }[path];
     if (permission) permit(m, permission);
     else if (path !== "/api/workouts") admin(m);
@@ -1032,7 +1082,9 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     if (path === "/api/movements") {
       const name = text(b.name, 2, 80, "\uB3D9\uC791 \uC774\uB984"), videoId = b.url ? youtubeId(b.url) : "";
       if (videoId === null) bad("\uC720\uD29C\uBE0C \uC8FC\uC18C\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      return commit(m.id, "movements", { name, videoId, notes: text(b.notes, 0, 1e3, "\uC124\uBA85") });
+      const categories = await videoCategories(), categoryId = b.categoryId || resolveVideoCategory(videoCategory(name, await setting("rmCatalogue", DEFAULT_RM_CATALOGUE)), categories, await setting("videoCategoryRedirects", {}));
+      if (!categories.some(([id]) => id === categoryId)) bad("\uBD84\uB958\uB97C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+      return result(db2.rpc("onoff_video_manage", { actor: m.id, p: { action: "movement-save", name, videoId, categoryId, notes: text(b.notes, 0, 1e3, "\uC124\uBA85") } }));
     }
     if (path === "/api/notices") {
       if (b.id && !uuid(b.id)) bad("\uACF5\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");

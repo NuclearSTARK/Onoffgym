@@ -15,21 +15,22 @@ function createPointsService(db2, { now = () => /* @__PURE__ */ new Date() } = {
   };
   async function snapshot(m) {
     if (m?.status !== "approved") fail("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
-    const [cfg, account, coupons, products, ledger, rules] = await Promise.all([
+    const [cfg, account, coupons, products, ledger, rules, methods] = await Promise.all([
       read(db2.from("gym_point_config").select("enabled,attendance_points,record_points,max_balance").eq("singleton", true).maybeSingle()),
       read(db2.from("gym_point_accounts").select("balance").eq("user_id", m.id).maybeSingle()),
       read(db2.from("gym_point_coupons").select("id,name,price,total,remaining,created_at,last_used_at,expires_at").eq("user_id", m.id).order("created_at", { ascending: false }).limit(200)),
       read(db2.from("gym_point_products").select("id,name,description,price,uses").eq("deleted", false).order("name").limit(100)),
       read(db2.from("gym_point_ledger").select("id,amount,reason,created_at").eq("user_id", m.id).order("created_at", { ascending: false }).limit(30)),
-      read(db2.from("gym_point_rules").select("id,auto_key,name,amount").eq("deleted", false).order("created_at"))
+      read(db2.from("gym_point_rules").select("id,auto_key,method_id,name,amount").eq("deleted", false).order("created_at")),
+      read(db2.from("gym_point_methods").select("id,name,kind").eq("deleted", false).order("created_at"))
     ]);
-    return { enabled: !!cfg?.enabled, attendancePoints: cfg?.attendance_points || 0, recordPoints: cfg?.record_points || 0, balance: Number(account?.balance || 0), maxBalance: cfg?.max_balance == null ? null : Number(cfg.max_balance), rules: rules || [], coupons: (coupons || []).map((c) => ({ ...c, expired: !!c.expires_at && Date.parse(c.expires_at) <= +now() })), products: products || [], ledger: ledger || [] };
+    return { enabled: !!cfg?.enabled, attendancePoints: cfg?.attendance_points || 0, recordPoints: cfg?.record_points || 0, balance: Number(account?.balance || 0), maxBalance: cfg?.max_balance == null ? null : Number(cfg.max_balance), rules: rules || [], methods: methods || [], coupons: (coupons || []).map((c) => ({ ...c, expired: !!c.expires_at && Date.parse(c.expires_at) <= +now() })), products: products || [], ledger: ledger || [] };
   }
   async function route(m, path, b) {
     if (m?.status !== "approved") fail("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     if (path === "/api/points") return snapshot(m);
     const isAdmin = m.role === "admin";
-    if (["/api/points/admin", "/api/points/settings", "/api/points/product", "/api/points/product/delete", "/api/points/rule", "/api/points/rule/delete", "/api/points/grant"].includes(path) && !isAdmin) fail("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+    if (["/api/points/admin", "/api/points/settings", "/api/points/product", "/api/points/product/delete", "/api/points/rule", "/api/points/rule/delete", "/api/points/grant", "/api/points/deduct", "/api/points/method", "/api/points/method/delete"].includes(path) && !isAdmin) fail("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
     if (path === "/api/points/admin") {
       const cfg = await read(db2.from("gym_point_config").select("pin_hash").eq("singleton", true).maybeSingle());
       const [base, coupons, members, accounts] = await Promise.all([snapshot(m), read(db2.from("gym_point_coupons").select("id,user_id,name,price,total,remaining,created_at,last_used_at,expires_at").order("created_at", { ascending: false }).limit(100)), read(db2.from("gym_members").select("id,name,status")), read(db2.from("gym_point_accounts").select("user_id,balance"))]);
@@ -48,11 +49,20 @@ function createPointsService(db2, { now = () => /* @__PURE__ */ new Date() } = {
         p.maxBalance = b.maxBalance;
       }
     } else if (path === "/api/points/rule") {
-      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !["attendance", "record", "manual"].includes(b.kind) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || !integer(b.amount, 0, 1e6)) fail("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      p = { action: "rule-save", id: b.id || "", kind: b.kind, name: b.name.trim(), amount: b.amount };
+      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !b.methodId && !["attendance", "record", "manual"].includes(b.kind) || b.methodId && (typeof b.methodId !== "string" || b.methodId.length > 80) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || !integer(b.amount, 0, 1e6)) fail("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "rule-save", id: b.id || "", ...b.methodId ? { methodId: b.methodId } : { kind: b.kind }, name: b.name.trim(), amount: b.amount };
     } else if (path === "/api/points/rule/delete") {
       if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "rule-delete", id: b.id };
+    } else if (path === "/api/points/method") {
+      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !["manual", "attendance", "record"].includes(b.kind) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60) fail("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "method-save", id: b.id || "", name: b.name.trim(), kind: b.kind };
+    } else if (path === "/api/points/method/delete") {
+      if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "method-delete", id: b.id };
+    } else if (path === "/api/points/deduct") {
+      if (!uuid(b.memberId) || !uuid(b.requestId) || !integer(b.amount, 1, 1e6) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200) fail("\uCC28\uAC10 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "deduct", memberId: b.memberId, requestId: b.requestId, amount: b.amount, reason: b.reason.trim() };
     } else if (path === "/api/points/grant") {
       if (!uuid(b.memberId) || !uuid(b.requestId) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200 || b.ruleId && (typeof b.ruleId !== "string" || b.ruleId.length > 80) || !b.ruleId && !integer(b.amount, 1, 1e6)) fail("\uC9C0\uAE09 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "grant", memberId: b.memberId, requestId: b.requestId, ruleId: b.ruleId || null, reason: b.reason.trim(), ...!b.ruleId ? { amount: b.amount } : {} };
@@ -117,9 +127,9 @@ var rmKey = (value) => String(value || "").trim().replace(/\s+/g, " ").toLowerCa
 function findRmMovement(catalogue, value) {
   return catalogue.find((m) => m.id === value) || catalogue.find((m) => [m.name, ...m.aliases || []].some((n) => rmKey(n) === rmKey(value)));
 }
-function updateRmCatalogue(catalogue, body, idFactory = () => crypto.randomUUID()) {
+function updateRmCatalogue(catalogue, body, idFactory = () => crypto.randomUUID(), categories = RM_CATEGORIES) {
   if (!body || typeof body.name !== "string" || body.name.trim().length < 2 || body.name.trim().length > 80) throw Error("\uC885\uBAA9 \uC774\uB984\uC744 2~80\uC790\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-  if (!RM_CATEGORIES.some((c) => c[0] === body.category) || typeof body.active !== "boolean" || typeof body.isDefault !== "boolean") throw Error("\uBD84\uB958\xB7\uAE30\uBCF8 \uD45C\uC2DC\xB7\uC0AC\uC6A9 \uC5EC\uBD80\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  if (!categories.some((c) => c[0] === body.category) || typeof body.active !== "boolean" || typeof body.isDefault !== "boolean") throw Error("\uBD84\uB958\xB7\uAE30\uBCF8 \uD45C\uC2DC\xB7\uC0AC\uC6A9 \uC5EC\uBD80\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
   const old = body.id ? catalogue.find((m) => m.id === body.id) : null;
   if (body.id && !old) throw Error("\uC218\uC815\uD560 \uC885\uBAA9\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.");
   const name = body.name.trim().replace(/\s+/g, " ");
@@ -917,6 +927,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       releaseTime: await setting("releaseTime", "22:00"),
       banner: await setting("banner", DEFAULT_BANNER),
       rmCatalogue: cat,
+      rmCategories: await setting("rmCategories", RM_CATEGORIES),
       library: lib,
       calendar: cal,
       membership: pass,
@@ -1073,6 +1084,11 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       if (!action) bad("\uBD84\uB958 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return result(db2.rpc("onoff_video_manage", { actor: m.id, p: { action, id: b.id, label: b.action === "delete" ? void 0 : text(b.label, 1, 40, "\uBD84\uB958 \uC774\uB984"), targetId: b.targetId } }));
     }
+    if (path === "/api/rm-categories") {
+      permit(m, "rm");
+      if (!["add", "edit", "delete"].includes(b.action) || b.action !== "add" && (typeof b.id !== "string" || !b.id || b.id.length > 100) || b.action === "delete" && (typeof b.targetId !== "string" || !b.targetId || b.targetId.length > 100)) bad("\uBD84\uB958 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      return result(db2.rpc("onoff_rm_categories", { actor: m.id, p: { action: b.action, id: b.id, label: b.action === "delete" ? void 0 : text(b.label, 1, 40, "\uBD84\uB958 \uC774\uB984"), targetId: b.targetId } }));
+    }
     if (path === "/api/movements/delete") {
       permit(m, "videos");
       return result(db2.rpc("onoff_video_manage", { actor: m.id, p: { action: "movement-delete", name: text(b.name, 2, 80, "\uB3D9\uC791 \uC774\uB984") } }));
@@ -1162,7 +1178,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     if (path === "/api/rm-catalogue") {
       let value;
       try {
-        value = updateRmCatalogue(await setting("rmCatalogue", DEFAULT_RM_CATALOGUE), b);
+        value = updateRmCatalogue(await setting("rmCatalogue", DEFAULT_RM_CATALOGUE), b, () => crypto.randomUUID(), await setting("rmCategories", RM_CATEGORIES));
       } catch (e) {
         bad(e.message);
       }

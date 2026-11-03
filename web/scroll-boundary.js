@@ -17,6 +17,6 @@ export function installScrollBoundaryGuard(){
     if(['contain','none'].includes(style.overscrollBehaviorY)){e.preventDefault();return;}
    }
   }
-  const root=document.scrollingElement;if(root&&!canMove(root))e.preventDefault();
+  if(document.querySelector('dialog[open]')){e.preventDefault();return;}const root=document.scrollingElement;if(root&&!canMove(root))e.preventDefault();
  },{passive:false});
 }

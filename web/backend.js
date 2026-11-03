@@ -14,8 +14,8 @@ const client=shared?createClient(config.url,config.publishableKey,{auth:{persist
 export const emailAuth=createEmailAuth(client,{callbackUrl:new URL('auth-callback.html',import.meta.url).href,checkRegistration:async()=>{if(!config?.url)return false;const r=await fetch(config.url+'/auth/v1/settings',{headers:{apikey:config.publishableKey}});if(!r.ok)throw Error('가입 설정을 확인하지 못했어요. 잠시 후 다시 시도해주세요.');const value=await r.json();return value.external?.email===true&&value.disable_signup!==true&&value.mailer_autoconfirm===true;}});
 if(client)client.auth.onAuthStateChange(event=>{if(event==='SIGNED_OUT')setTimeout(()=>window.dispatchEvent(new Event('onoff-auth-signout')),0);});
 export const authReady=client?client.auth.getSession():Promise.resolve({data:{session:null}});
-let cache=null,cacheKey='',revision='';
-export const resetBackendCache=()=>{cache=null;cacheKey='';revision='';};
+let cache=null,cacheKey='',revision='',cacheGeneration=0;
+export const resetBackendCache=()=>{cacheGeneration++;cache=null;cacheKey='';revision='';};
 export async function backendRequest(path,body){
  const {data:{session}}=await client.auth.getSession();
  const headers={apikey:config.publishableKey};if(session?.access_token)headers.Authorization='Bearer '+session.access_token;
@@ -23,9 +23,9 @@ export async function backendRequest(path,body){
  const send=async (u,b)=>{const r=await fetch(u,{method:b?'POST':'GET',headers:{...headers,...(b?{'Content-Type':'application/json'}:{})},body:b?JSON.stringify(b):undefined});let value;try{value=await r.json();}catch{throw Error('서버 응답을 확인할 수 없어요.');}if(!r.ok)throw Object.assign(Error(value.error||'연결을 확인해주세요.'),{status:r.status});return value;};
  if(!body&&path.startsWith('/api/bootstrap')){
   if(!session){resetBackendCache();return {viewer:null,workouts:{},members:[],library:[],serverNow:new Date().toISOString(),shared:true};}
-  const key=session.user.id+path;
-  if(cache&&cacheKey===key){const check=await send(config.url+'/functions/v1/onoff-api/api/revision');if(check.revision===revision)return {...cache,serverNow:check.serverNow};}
-  const value=await send(url);cache=value;cacheKey=key;revision=value.revision;return value;
+  const key=session.user.id+path,generation=cacheGeneration,cached=cacheKey===key?cache:null,cachedRevision=revision;
+  if(cached){const check=await send(config.url+'/functions/v1/onoff-api/api/revision');if(generation===cacheGeneration&&check.revision===cachedRevision)return {...cached,serverNow:check.serverNow};}
+  const value=await send(url);if(generation===cacheGeneration){cache=value;cacheKey=key;revision=value.revision;}return value;
  }
  const value=await send(url,body);if(body&&!['/api/photos/url','/api/photos/urls'].includes(path))resetBackendCache();return value;
 }

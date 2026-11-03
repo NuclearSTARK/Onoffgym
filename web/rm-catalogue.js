@@ -10,9 +10,9 @@ const rmSeeds=[
 export const DEFAULT_RM_CATALOGUE=rmSeeds.map(([id,name,category,isDefault=false,aliases=[]])=>({id,name,category,isDefault,active:true,aliases}));
 const rmKey=value=>String(value||'').trim().replace(/\s+/g,' ').toLowerCase();
 export function findRmMovement(catalogue,value){return catalogue.find(m=>m.id===value)||catalogue.find(m=>[m.name,...(m.aliases||[])].some(n=>rmKey(n)===rmKey(value)));}
-export function updateRmCatalogue(catalogue,body,idFactory=()=>crypto.randomUUID()){
+export function updateRmCatalogue(catalogue,body,idFactory=()=>crypto.randomUUID(),categories=RM_CATEGORIES){
  if(!body||typeof body.name!=='string'||body.name.trim().length<2||body.name.trim().length>80)throw Error('종목 이름을 2~80자로 입력해주세요.');
- if(!RM_CATEGORIES.some(c=>c[0]===body.category)||typeof body.active!=='boolean'||typeof body.isDefault!=='boolean')throw Error('분류·기본 표시·사용 여부를 확인해주세요.');
+ if(!categories.some(c=>c[0]===body.category)||typeof body.active!=='boolean'||typeof body.isDefault!=='boolean')throw Error('분류·기본 표시·사용 여부를 확인해주세요.');
  const old=body.id?catalogue.find(m=>m.id===body.id):null;if(body.id&&!old)throw Error('수정할 종목을 찾을 수 없어요.');
  const name=body.name.trim().replace(/\s+/g,' ');
  if(catalogue.some(m=>m.id!==old?.id&&[m.name,...(m.aliases||[])].some(n=>rmKey(n)===rmKey(name))))throw Error('이미 등록된 종목 이름이에요.');

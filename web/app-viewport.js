@@ -25,8 +25,8 @@ export function installAppViewport(){
   if(ensure)keepVisible();ensure=false;
  }
  function refresh(reveal=false){ensure=ensure||reveal;if(!frame)frame=requestAnimationFrame(update);}
- function modalOpened(){if(!locked){locked={y:window.scrollY,x:window.scrollX,styles:document.body.getAttribute('style')};Object.assign(document.body.style,{position:'fixed',top:-locked.y+'px',left:'0',right:'0',width:'100%'});}refresh(true);}
- function modalClosed(){if(locked){const l=locked;locked=null;if(l.styles===null)document.body.removeAttribute('style');else document.body.setAttribute('style',l.styles);window.scrollTo({left:l.x,top:l.y,behavior:'instant'});}dialog()?.classList.remove('viewport-dialog','keyboard-open','keyboard-compact');refresh();}
+ function modalOpened(){if(!locked){locked={y:window.scrollY,x:window.scrollX};}refresh(true);}
+ function modalClosed(){if(locked){const l=locked;locked=null;window.scrollTo({left:l.x,top:l.y,behavior:'instant'});}dialog()?.classList.remove('viewport-dialog','keyboard-open','keyboard-compact');refresh();}
  window.addEventListener('resize',()=>refresh(true),{passive:true});window.addEventListener('pageshow',()=>refresh());window.addEventListener('orientationchange',()=>{baseline=window.innerHeight;keyboardOpen=false;refresh(true);});window.visualViewport?.addEventListener('resize',()=>refresh(true),{passive:true});window.visualViewport?.addEventListener('scroll',()=>refresh(true),{passive:true});document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
  document.addEventListener('focusin',e=>{if(editable(e.target)){refresh(true);setTimeout(()=>refresh(true),320);}});document.addEventListener('focusout',()=>setTimeout(()=>refresh(),0));document.addEventListener('input',e=>{if(editable(e.target)&&dialog()?.open)refresh(true);});
  const observer=new MutationObserver(()=>refresh());const d=dialog();if(d)observer.observe(d,{childList:true,subtree:true,attributes:true,attributeFilter:['open']});refresh();

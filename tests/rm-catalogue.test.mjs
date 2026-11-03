@@ -35,3 +35,5 @@ test('catalogue administration is operator-only and custom names work in class u
  const renamed=await call('owner','/api/rm-catalogue',{...result.data.movement,name:'Zercher Squat Renamed'});assert.equal(renamed.data.movement.id,result.data.movement.id);
  assert.equal((await call('owner','/api/workouts',{workouts:[w],overwrite:true})).status,200);
 });
+
+test('custom RM categories validate against their registry while movement IDs and aliases survive',()=>{const categories=[['custom-category','사용자 대분류']],old={...DEFAULT_RM_CATALOGUE[0],category:'custom-category'};const changed=updateRmCatalogue([old],{...old,name:'Back Squat Corrected'},()=> 'unused',categories);assert.equal(changed.movement.id,old.id);assert.equal(changed.movement.category,'custom-category');assert.ok(changed.movement.aliases.includes(old.name));assert.throws(()=>updateRmCatalogue([old],{...old,category:'deleted-category'},()=> 'unused',categories));});

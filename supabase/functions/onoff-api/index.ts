@@ -59,7 +59,7 @@ function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}
   async function route(m, path, b) {
     if (m.status !== "approved") fail("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     if (path === "/api/photos/upload") {
-      if (!["community", "daily"].includes(b.kind) || b.kind === "daily" && !hasPermission(m, "photos")) fail("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (!["community", "daily", "notice"].includes(b.kind) || b.kind === "daily" && !hasPermission(m, "photos") || b.kind === "notice" && !hasPermission(m, "notices")) fail("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       if (typeof b.data !== "string" || b.data.length > 82e4) fail("\uC555\uCD95\uB41C \uC0AC\uC9C4\uC740 600KB \uC774\uD558\uC5EC\uC57C \uD574\uC694.");
       let bytes;
       try {
@@ -82,6 +82,21 @@ function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}
       await result(db2.from("gym_photos").update({ uploaded: true }).eq("id", id).eq("owner_id", m.id));
       return { id };
     }
+    if (path === "/api/photos/urls") {
+      if (!Array.isArray(b.ids) || b.ids.length < 1 || b.ids.length > 12 || b.ids.some((id) => typeof id !== "string" || !/^[-a-f0-9]{36}$/i.test(id))) fail("\uC0AC\uC9C4 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      const photos = await result(db2.from("gym_photos").select("id,path").eq("active", true).in("id", [...new Set(b.ids)]));
+      if (!photos.length) return { urls: [] };
+      const { data, error } = await bucket.createSignedUrls(photos.map((p) => p.path), 60);
+      if (error) fail("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+      return { urls: photos.flatMap((p) => {
+        const signed = data.find((x) => x.path === p.path);
+        return signed?.signedUrl ? [{ id: p.id, url: signed.signedUrl }] : [];
+      }), expiresIn: 60 };
+    }
+    if (path === "/api/photos/program") {
+      if (!hasPermission(m, "photos")) fail("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      return result(db2.rpc("onoff_photo_program", { actor: m.id, photo_id: b.id, target_program: b.program }));
+    }
     if (path === "/api/photos/url") {
       const photo = await result(db2.from("gym_photos").select("*").eq("id", b.id).eq("active", true).maybeSingle());
       if (!photo) fail("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
@@ -97,17 +112,18 @@ function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}
     if (path === "/api/photos/delete") {
       const photo = await result(db2.from("gym_photos").select("*").eq("id", b.id).maybeSingle());
       if (!photo) fail("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
-      if (photo.active ? photo.kind === "daily" ? !hasPermission(m, "photos") : m.role !== "admin" : photo.owner_id !== m.id) fail("\uC0AC\uC9C4 \uC0AD\uC81C \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 403);
+      if (photo.active ? photo.kind === "daily" ? !hasPermission(m, "photos") : photo.kind === "notice" ? !hasPermission(m, "notices") : m.role !== "admin" : photo.owner_id !== m.id) fail("\uC0AC\uC9C4 \uC0AD\uC81C \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 403);
       await result(db2.from("gym_photos").delete().eq("id", photo.id));
       await cleanup();
       return { ok: true };
     }
     fail("\uC0AC\uC9C4 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 404);
   }
-  async function list(date, postIds) {
+  async function list(date, postIds, noticeIds = []) {
     if (!bucket) return [];
-    const [daily, community] = await Promise.all([result(db2.from("gym_photos").select("id,kind,post_id,date,program,session").eq("active", true).eq("kind", "daily").eq("date", date)), postIds.length ? result(db2.from("gym_photos").select("id,kind,post_id,date,program,session").eq("active", true).in("post_id", postIds)) : []]);
-    return [...daily, ...community];
+    const fields = "id,kind,post_id,notice_id,date,program,session";
+    const [daily, community, notices] = await Promise.all([result(db2.from("gym_photos").select(fields).eq("active", true).eq("kind", "daily").eq("date", date)), postIds.length ? result(db2.from("gym_photos").select(fields).eq("active", true).in("post_id", postIds)) : [], noticeIds.length ? result(db2.from("gym_photos").select(fields).eq("active", true).in("notice_id", noticeIds)) : []]);
+    return [...daily, ...community, ...notices];
   }
   return { route, list, cleanup };
 }
@@ -213,7 +229,7 @@ function normalizeRows(rows, library = MOVEMENTS, holidays = {}) {
     if (!["B/T", "WOD"].includes(program)) issues.push("\uC218\uC5C5\uC740 B/T \uB610\uB294 WOD\uB9CC \uC785\uB825\uD560 \uC218 \uC788\uC5B4\uC694.");
     if (date) {
       const day = (/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay();
-      if (day === 3 && program === "B/T" && !holidays[date]) issues.push("\uC218\uC694\uC77C\uC5D0\uB294 WOD\uB9CC \uB4F1\uB85D\uD560 \uC218 \uC788\uC5B4\uC694.");
+      if (day === 3 && program === "B/T") issues.push("\uC218\uC694\uC77C\uC5D0\uB294 WOD\uB9CC \uB4F1\uB85D\uD560 \uC218 \uC788\uC5B4\uC694.");
     }
     if (!sm) issues.push("\uAD6C\uAC04\uC740 S1\uBD80\uD130 S99\uAE4C\uC9C0 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
     if (!title || title.length > 100) issues.push("\uC81C\uBAA9\uC740 1~100\uC790\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
@@ -804,7 +820,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       publishedDates: [...new Set(ws.filter((w) => Date.parse(w.release_at) <= +now()).map((w) => w.date))],
       notices: canRead ? noticeRows.map((n) => ({ ...n, category: "\uACF5\uC9C0\uC0AC\uD56D", author: names.get(n.author_id) || "\uC6B4\uC601\uC790", serverNotice: true, date: kstDate(new Date(n.created_at)), comments: [], joined: [] })) : [],
       records: records.map((r) => ({ ...r.body, id: r.id, memberId: r.user_id, name: names.get(r.user_id) || "\uD68C\uC6D0", avatarEmoji: avatars.get(r.user_id) || avatarEmoji(), rank: rank.get(r.user_id) !== false })),
-      photos: canRead ? await media.list(viewDate, posts.map((p) => p.id)) : [],
+      photos: canRead ? await media.list(viewDate, posts.map((p) => p.id), noticeRows.map((n) => n.id)) : [],
       rms: rms.map((r) => ({ ...r.body, id: r.id, memberId: r.user_id })),
       preferences: prefs?.body || {},
       posts: posts.map((p) => ({ ...p, authorId: p.author_id, author: names.get(p.author_id) || "\uD68C\uC6D0", date: kstDate(new Date(p.created_at)), joined: [], joinedIds: joins.filter((j) => j.post_id === p.id).map((j) => j.user_id), joinedNames: Object.fromEntries(joins.filter((j) => j.post_id === p.id).map((j) => [j.user_id, names.get(j.user_id) || "\uD68C\uC6D0"])), comments: comments.filter((c) => c.post_id === p.id).map((c) => ({ ...c, authorId: c.author_id, author: names.get(c.author_id) || "\uD68C\uC6D0" })) })),
@@ -825,7 +841,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     if (path === "/api/profile") return commit(m.id, "profile", { name: text(b.name, 2, 30, "\uC2E4\uBA85") });
     approved(m);
     if (path.startsWith("/api/photos/")) {
-      if (path === "/api/photos/attach" && (!normalizeDate(b.date) || b.date > kstDate(now()) || !["B/T", "WOD"].includes(b.program) || b.session && !/^([01]\d|2[0-3]):[0-5]\d$/.test(b.session))) bad("\uC0AC\uC9C4 \uB0A0\uC9DC\xB7\uC218\uC5C5\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (path === "/api/photos/attach" && (!normalizeDate(b.date) || b.date > kstDate(now()) || !["ALL", "B/T", "WOD"].includes(b.program) || b.session && !/^([01]\d|2[0-3]):[0-5]\d$/.test(b.session))) bad("\uC0AC\uC9C4 \uB0A0\uC9DC\xB7\uC218\uC5C5\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return media.route(m, path, b);
     }
     if (path === "/api/attendance") {
@@ -1020,11 +1036,15 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     }
     if (path === "/api/notices") {
       if (b.id && !uuid(b.id)) bad("\uACF5\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      if (b.action === "delete") return commit(m.id, "notices", { action: "delete", id: b.id });
+      if (b.action === "delete") {
+        const value = await commit(m.id, "notices", { action: "delete", id: b.id });
+        await media.cleanup();
+        return value;
+      }
       if (typeof b.pinned !== "boolean") bad("\uC0C1\uB2E8 \uACE0\uC815 \uC5EC\uBD80\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       if (b.sendPush === true) permit(m, "push");
       const notice = { id: b.id || crypto.randomUUID(), title: text(b.title, 1, 100, "\uC81C\uBAA9"), body: text(b.body, 1, 5e3, "\uB0B4\uC6A9"), pinned: b.pinned };
-      await commit(m.id, "notices", notice);
+      await result(db2.rpc("onoff_save_notice_photos", { actor: m.id, p: { ...notice, photoIds: b.photoIds || [] } }));
       if (b.sendPush === true) {
         permit(m, "push");
         await push.enqueue({ id: "notice:" + notice.id + ":" + crypto.randomUUID(), kind: "notices", payload: { title: notice.title, body: notice.body.slice(0, 140), url: "/Onoffgym/#community", tag: "notice:" + notice.id } });

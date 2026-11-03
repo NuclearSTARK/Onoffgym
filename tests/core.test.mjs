@@ -18,3 +18,4 @@ test('closed-day classes require explicit times and share the same attendance sc
  holiday.sessions=['09:30'];assert.equal(workoutSchedule(holiday.date,[holiday],holidays).length,1);
  assert.deepEqual(validateWorkouts([holiday],undefined,holidays).errors,[]);
 });
+test('Wednesday only accepts WOD even on a public holiday, including copied/imported workouts',()=>{const date='2026-11-04',holidays={[date]:{name:'격리 공휴일'}},bt=fixture(date,'B/T');bt.sessions=['09:00'];assert.match(validateWorkouts([bt],undefined,holidays).errors.join(),/수요일/);const wod={...bt,program:'WOD'};assert.deepEqual(validateWorkouts([wod],undefined,holidays).errors,[]);const row={'날짜':date,'수업':'B/T','구간':'S1','제목':'격리','운동 내용':'5 reps','기록 종류':'횟수','수업 시간(공휴일)':'09:00'};assert.match(normalizeRows([row],undefined,holidays).errors.join(),/수요일/);});

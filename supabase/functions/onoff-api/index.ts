@@ -7,7 +7,7 @@ var fail = (message, status = 400) => {
 };
 var uuid = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 var integer = (n, min, max) => Number.isSafeInteger(n) && n >= min && n <= max;
-function createPointsService(db2) {
+function createPointsService(db2, { now = () => /* @__PURE__ */ new Date() } = {}) {
   const read = async (q) => {
     const { data, error } = await q;
     if (error) fail("\uD3EC\uC778\uD2B8 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
@@ -15,29 +15,47 @@ function createPointsService(db2) {
   };
   async function snapshot(m) {
     if (m?.status !== "approved") fail("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
-    const [cfg, account, coupons, products, ledger] = await Promise.all([
-      read(db2.from("gym_point_config").select("enabled,attendance_points,record_points").eq("singleton", true).maybeSingle()),
+    const [cfg, account, coupons, products, ledger, rules] = await Promise.all([
+      read(db2.from("gym_point_config").select("enabled,attendance_points,record_points,max_balance").eq("singleton", true).maybeSingle()),
       read(db2.from("gym_point_accounts").select("balance").eq("user_id", m.id).maybeSingle()),
-      read(db2.from("gym_point_coupons").select("id,name,price,total,remaining,created_at,last_used_at").eq("user_id", m.id).order("created_at", { ascending: false }).limit(200)),
+      read(db2.from("gym_point_coupons").select("id,name,price,total,remaining,created_at,last_used_at,expires_at").eq("user_id", m.id).order("created_at", { ascending: false }).limit(200)),
       read(db2.from("gym_point_products").select("id,name,description,price,uses").eq("deleted", false).order("name").limit(100)),
-      read(db2.from("gym_point_ledger").select("id,amount,reason,created_at").eq("user_id", m.id).order("created_at", { ascending: false }).limit(30))
+      read(db2.from("gym_point_ledger").select("id,amount,reason,created_at").eq("user_id", m.id).order("created_at", { ascending: false }).limit(30)),
+      read(db2.from("gym_point_rules").select("id,auto_key,name,amount").eq("deleted", false).order("created_at"))
     ]);
-    return { enabled: !!cfg?.enabled, attendancePoints: cfg?.attendance_points || 0, recordPoints: cfg?.record_points || 0, balance: Number(account?.balance || 0), coupons: coupons || [], products: products || [], ledger: ledger || [] };
+    return { enabled: !!cfg?.enabled, attendancePoints: cfg?.attendance_points || 0, recordPoints: cfg?.record_points || 0, balance: Number(account?.balance || 0), maxBalance: cfg?.max_balance == null ? null : Number(cfg.max_balance), rules: rules || [], coupons: (coupons || []).map((c) => ({ ...c, expired: !!c.expires_at && Date.parse(c.expires_at) <= +now() })), products: products || [], ledger: ledger || [] };
   }
   async function route(m, path, b) {
     if (m?.status !== "approved") fail("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     if (path === "/api/points") return snapshot(m);
     const isAdmin = m.role === "admin";
-    if (["/api/points/admin", "/api/points/settings", "/api/points/product", "/api/points/product/delete"].includes(path) && !isAdmin) fail("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+    if (["/api/points/admin", "/api/points/settings", "/api/points/product", "/api/points/product/delete", "/api/points/rule", "/api/points/rule/delete", "/api/points/grant"].includes(path) && !isAdmin) fail("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
     if (path === "/api/points/admin") {
       const cfg = await read(db2.from("gym_point_config").select("pin_hash").eq("singleton", true).maybeSingle());
-      const [base, coupons, members] = await Promise.all([snapshot(m), read(db2.from("gym_point_coupons").select("id,user_id,name,price,total,remaining,created_at,last_used_at").order("created_at", { ascending: false }).limit(100)), read(db2.from("gym_members").select("id,name"))]);
-      return { ...base, pinConfigured: !!cfg?.pin_hash, issued: (coupons || []).map((c) => ({ ...c, memberName: members.find((m2) => m2.id === c.user_id)?.name || "\uD68C\uC6D0" })) };
+      const [base, coupons, members, accounts] = await Promise.all([snapshot(m), read(db2.from("gym_point_coupons").select("id,user_id,name,price,total,remaining,created_at,last_used_at,expires_at").order("created_at", { ascending: false }).limit(100)), read(db2.from("gym_members").select("id,name,status")), read(db2.from("gym_point_accounts").select("user_id,balance"))]);
+      return { ...base, pinConfigured: !!cfg?.pin_hash, members: members.filter((m2) => m2.status === "approved").map((m2) => ({ id: m2.id, name: m2.name, balance: Number(accounts.find((a) => a.user_id === m2.id)?.balance || 0) })), issued: (coupons || []).map((c) => ({ ...c, expired: !!c.expires_at && Date.parse(c.expires_at) <= +now(), memberName: members.find((m2) => m2.id === c.user_id)?.name || "\uD68C\uC6D0" })) };
     }
     let p;
     if (path === "/api/points/settings") {
-      if (typeof b.enabled !== "boolean" || !integer(b.attendancePoints, 0, 1e6) || !integer(b.recordPoints, 0, 1e6) || b.pin && !/^\d{4}$/.test(b.pin)) fail("\uC801\uB9BD \uD3EC\uC778\uD2B8\uC640 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      p = { action: "settings", enabled: b.enabled, attendancePoints: b.attendancePoints, recordPoints: b.recordPoints, pin: b.pin || "" };
+      if (typeof b.enabled !== "boolean" || b.pin && (typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin))) fail("\uC801\uB9BD \uC124\uC815\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "settings", enabled: b.enabled, pin: b.pin || "" };
+      for (const key of ["attendancePoints", "recordPoints"]) if (key in b) {
+        if (!integer(b[key], 0, 1e6)) fail("\uC801\uB9BD\uC561\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        p[key] = b[key];
+      }
+      if ("maxBalance" in b) {
+        if (b.maxBalance !== null && !integer(b.maxBalance, 1, 9e12)) fail("\uCD1D \uBCF4\uC720 \uD3EC\uC778\uD2B8 \uC0C1\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        p.maxBalance = b.maxBalance;
+      }
+    } else if (path === "/api/points/rule") {
+      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !["attendance", "record", "manual"].includes(b.kind) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || !integer(b.amount, 0, 1e6)) fail("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "rule-save", id: b.id || "", kind: b.kind, name: b.name.trim(), amount: b.amount };
+    } else if (path === "/api/points/rule/delete") {
+      if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "rule-delete", id: b.id };
+    } else if (path === "/api/points/grant") {
+      if (!uuid(b.memberId) || !uuid(b.requestId) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200 || b.ruleId && (typeof b.ruleId !== "string" || b.ruleId.length > 80) || !b.ruleId && !integer(b.amount, 1, 1e6)) fail("\uC9C0\uAE09 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "grant", memberId: b.memberId, requestId: b.requestId, ruleId: b.ruleId || null, reason: b.reason.trim(), ...!b.ruleId ? { amount: b.amount } : {} };
     } else if (path === "/api/points/product") {
       if (b.id && !uuid(b.id) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || typeof b.description !== "string" || b.description.length > 300 || !integer(b.price, 1, 1e9) || !integer(b.uses, 1, 1e3)) fail("\uC0C1\uD488 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "product-save", id: b.id || "", name: b.name.trim(), description: b.description, price: b.price, uses: b.uses };
@@ -638,14 +656,16 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
             allowed = member?.status === "approved" && (job.kind === "test" || current.preferences?.[job.kind] !== false);
             if (job.kind === "approvals") {
               const pending = await one("gym_members", "id", job.subjectId);
-              allowed = allowed && member?.role === "admin" && pending?.status === "pending";
+              allowed = allowed && member?.role === "admin" && (pending?.status === "pending" || pending?.status === "approved" && job.payload?.signupEvent === true);
             }
           } else if (current.test_hash) {
             const test = await one("gym_push_tests", "hash", current.test_hash);
             allowed = job.kind === "test" && current.test_hash === job.testHash && Date.parse(test?.expires) > +now();
           }
-          if (!allowed) state = "skipped";
-          else {
+          if (!allowed) {
+            state = "skipped";
+            reason = job.kind === "approvals" ? "\uAC00\uC785 \uC54C\uB9BC \uB300\uC0C1 \uC870\uAC74\uC774 \uBCC0\uACBD\uB418\uC5B4 \uBC1C\uC1A1 \uC81C\uC678" : "\uC54C\uB9BC \uC218\uC2E0 \uC870\uAC74\uC774 \uBCC0\uACBD\uB418\uC5B4 \uBC1C\uC1A1 \uC81C\uC678";
+          } else {
             const subscription = validateSubscription(current.body);
             if (!subscription) throw Error("Invalid subscription");
             const payload = job.kind === "approvals" ? { ...job.payload, url: "/Onoffgym/?approval=" + encodeURIComponent(job.subjectId) + "#admin/members" } : job.payload;
@@ -734,7 +754,7 @@ var text = (v, min, max, label) => {
   return v.trim();
 };
 function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch, now = () => /* @__PURE__ */ new Date() } = {}) {
-  const media = createMediaService(db2, { now }), points = createPointsService(db2);
+  const media = createMediaService(db2, { now }), points = createPointsService(db2, { now });
   const push = createPushService(db2, { now }), account = createAccountService(db2, { reauthenticate });
   async function result(q) {
     const { data, error } = await q;
@@ -874,6 +894,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       staff ? rows("gym_membership_events", (q) => q.order("created_at", { ascending: false }).limit(500)) : [],
       staff ? rows("gym_attendance", (q) => q.order("date", { ascending: false }).limit(2e3)) : []
     ]);
+    const pointBalances = staff ? await rows("gym_point_accounts") : [];
     const records = [...new Map([...ownRecords, ...selectedRecords].map((r) => [r.id, r])).values()], names = new Map(memberRows.map((x) => [x.id, x.name])), rank = /* @__PURE__ */ new Map(), avatars = /* @__PURE__ */ new Map();
     if (canRead) {
       for (const p of await rows("gym_preferences", (q) => q.limit(1e3))) {
@@ -905,7 +926,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       memberAttendance: attAll,
       attendance: att.map((a) => a.date),
       recordMembers: hasPermission(m, "records.create") || hasPermission(m, "records.update") ? memberRows.filter((x) => x.status === "approved").map((x) => ({ id: x.id, name: x.name, status: x.status })) : [],
-      members: staff ? memberRows.map((x) => ({ ...x, avatarEmoji: avatars.get(x.id) || avatarEmoji(), note: notes.find((n) => n.user_id === x.id)?.note || "" })) : [],
+      members: staff ? memberRows.map((x) => ({ ...x, pointBalance: Number(pointBalances.find((a) => a.user_id === x.id)?.balance || 0), avatarEmoji: avatars.get(x.id) || avatarEmoji(), note: notes.find((n) => n.user_id === x.id)?.note || "" })) : [],
       workouts: Object.fromEntries(ws.map((w) => [w.key, w.body])),
       publishedDates: [...new Set(ws.filter((w) => Date.parse(w.release_at) <= +now()).map((w) => w.date))],
       notices: canRead ? noticeRows.map((n) => ({ ...n, category: "\uACF5\uC9C0\uC0AC\uD56D", author: names.get(n.author_id) || "\uC6B4\uC601\uC790", serverNotice: true, date: kstDate(new Date(n.created_at)), comments: [], joined: [] })) : [],
@@ -1056,7 +1077,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       permit(m, "videos");
       return result(db2.rpc("onoff_video_manage", { actor: m.id, p: { action: "movement-delete", name: text(b.name, 2, 80, "\uB3D9\uC791 \uC774\uB984") } }));
     }
-    const permission = { "/api/tv/status": "tv", "/api/tv/admin": "tv", "/api/workouts/delete": "workouts.delete", "/api/settings": "release", "/api/banner": "banner", "/api/rm-catalogue": "rm", "/api/movements": "videos", "/api/notices": "notices" }[path];
+    const permission = { "/api/tv/status": "tv", "/api/tv/admin": "tv", "/api/workouts/delete": "workouts.delete", "/api/settings": "release", "/api/banner": "banner", "/api/rm-catalogue": "rm", "/api/rm-catalogue/delete": "rm", "/api/movements": "videos", "/api/notices": "notices" }[path];
     if (permission) permit(m, permission);
     else if (path !== "/api/workouts") admin(m);
     if (path === "/api/storage-usage") return result(db2.rpc("onoff_storage_usage", { actor: m.id }));
@@ -1133,6 +1154,10 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       const banner = { text: b.text.trim(), color: b.color, enabled: b.enabled };
       await commit(m.id, "setting", { key: "banner", value: banner });
       return { ok: true, banner };
+    }
+    if (path === "/api/rm-catalogue/delete") {
+      if (typeof b.id !== "string" || !b.id || b.id.length > 100) bad("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      return result(db2.rpc("onoff_rm_archive", { actor: m.id, item_id: b.id }));
     }
     if (path === "/api/rm-catalogue") {
       let value;

@@ -8,6 +8,7 @@ begin
  update public.gym_members set role='admin',status='approved' where id=a;
  update public.gym_members set role='member',status='approved' where id=b;
  update public.gym_members set role='coach',status='approved',coach_permissions='[]' where id=c;
+ perform public.onoff_points(a,'{"action":"settings","enabled":false,"attendancePoints":0,"recordPoints":0,"maxBalance":null}');
  -- Disabled grants neither points nor retroactive credit.
  insert into public.gym_records(id,user_id,date,program,section,body,writer_id) values(gen_random_uuid(),b,'1903-01-01','WOD','S1','{}',b);
  if exists(select 1 from public.gym_point_accounts where user_id=b) then raise exception 'disabled award';end if;

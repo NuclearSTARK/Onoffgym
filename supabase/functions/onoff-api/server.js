@@ -1,5 +1,5 @@
 import {createPointsService} from './points-service.js';
-import {VIDEO_CATEGORIES,videoCategory,resolveVideoCategory} from '../../../web/video-library.js';
+import {VIDEO_CATEGORIES,videoCategory,resolveVideoCategory,findVideoMovement} from '../../../web/video-library.js';
 import {createMediaService} from './media-service.js';
 import {hasPermission,COACH_PERMISSIONS} from '../../../web/permissions.js';
 import {validAvatar,avatarEmoji} from '../../../web/avatars.js';
@@ -70,6 +70,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
    canRead?rows('gym_comments',q=>q.order('created_at').limit(1000)):[],canRead?rows('gym_post_joins',q=>q.limit(1000)):[],
    staff?rows('gym_member_notes'):[],staff?rows('gym_memberships'):[],staff?rows('gym_membership_events',q=>q.order('created_at',{ascending:false}).limit(500)):[],staff?rows('gym_attendance',q=>q.order('date',{ascending:false}).limit(2000)):[]
   ]);
+  if(canRead){const extras=await rows('gym_posts',q=>q.eq('banner_pinned',true).eq('category','운동 번개').order('starts_at').limit(100));const linked=url.searchParams.get('post');if(uuid(linked)){const post=await one('gym_posts','id',linked);if(post)extras.push(post);}const merged=[...new Map([...posts,...extras].map(p=>[p.id,p])).values()];posts.splice(0,posts.length,...merged);}
   const pointBalances=staff?await rows('gym_point_accounts'):[];
   const records=[...new Map([...ownRecords,...selectedRecords].map(r=>[r.id,r])).values()],names=new Map(memberRows.map(x=>[x.id,x.name])),rank=new Map(),avatars=new Map();
   // Ranking preference is not derived from JWT or editable names.
@@ -103,7 +104,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   if(path.startsWith('/api/photos/')){if(path==='/api/photos/attach'&&(!normalizeDate(b.date)||b.date>kstDate(now())||!['ALL','B/T','WOD'].includes(b.program)||b.session&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.session)))bad('사진 날짜·수업을 확인해주세요.');return media.route(m,path,b);}
   if(path==='/api/attendance'){const day=kstDate(now()),cal=await calendar(),ws=await rows('gym_workouts',q=>q.eq('date',day));if(!workoutSchedule(day,ws.map(w=>w.body),cal.dates).length)bad('휴강일에는 출석할 수 없어요. 특별 수업이 등록되면 출석할 수 있습니다.',403);return commit(m.id,'attendance');}
   if(path==='/api/preferences'){
-   const p={};if('avatarEmoji' in b){if(!validAvatar(b.avatarEmoji))bad('프로필 이모지를 목록에서 선택해주세요.');p.avatarEmoji=b.avatarEmoji;}if('rank' in b){if(typeof b.rank!=='boolean')bad('순위 설정을 확인해주세요.');p.rank=b.rank;}if('rmSelection' in b){const cat=await setting('rmCatalogue',DEFAULT_RM_CATALOGUE);if(!Array.isArray(b.rmSelection)||b.rmSelection.length>200||b.rmSelection.some(id=>!cat.some(m=>m.id===id)))bad('1RM 종목을 확인해주세요.');p.rmSelection=[...new Set(b.rmSelection)];}return commit(m.id,'preferences',p);
+   const p={};if('pushOnboardingSeen' in b){if(b.pushOnboardingSeen!==true)bad('알림 안내 상태를 확인해주세요.');p.pushOnboardingSeen=true;}if('avatarEmoji' in b){if(!validAvatar(b.avatarEmoji))bad('프로필 이모지를 목록에서 선택해주세요.');p.avatarEmoji=b.avatarEmoji;}if('rank' in b){if(typeof b.rank!=='boolean')bad('순위 설정을 확인해주세요.');p.rank=b.rank;}if('rmSelection' in b){const cat=await setting('rmCatalogue',DEFAULT_RM_CATALOGUE);if(!Array.isArray(b.rmSelection)||b.rmSelection.length>200||b.rmSelection.some(id=>!cat.some(m=>m.id===id)))bad('1RM 종목을 확인해주세요.');p.rmSelection=[...new Set(b.rmSelection)];}return commit(m.id,'preferences',p);
   }
   if(path==='/api/records/delete'){if(!uuid(b.id))bad('기록을 확인해주세요.');return result(db.rpc('onoff_delete_record',{actor:m.id,record_id:b.id}));}
   if(path==='/api/records'){
@@ -132,6 +133,12 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   }
   if(path==='/api/community/read'){if(!uuid(b.id)||!['post','notice'].includes(b.kind))bad('읽은 게시글을 확인해주세요.');const item=await one(b.kind==='notice'?'gym_notices':'gym_posts','id',b.id);if(!item)bad('게시글을 찾을 수 없어요.',404);return commit(m.id,'community-read',{id:b.id,kind:b.kind});}
 
+  if(path==='/api/meetups'){
+   if(!uuid(b.id)||b.category&&b.category!=='운동 번개'||typeof b.startsAt!=='string'||b.startsAt.length>40||!Number.isFinite(Date.parse(b.startsAt))||new Date(b.startsAt).getUTCFullYear()<1900||'bannerPinned' in b&&typeof b.bannerPinned!=='boolean'||'sendPush' in b&&typeof b.sendPush!=='boolean')bad('운동 시작 날짜·시간을 확인해주세요.');
+   const ids=b.photoIds||[];if(!Array.isArray(ids)||ids.length>3||ids.some(id=>!uuid(id))||new Set(ids).size!==ids.length)bad('첨부 사진을 확인해주세요.');
+   return result(db.rpc('onoff_meetup_create',{actor:m.id,p:{id:b.id,title:text(b.title,1,80,'제목'),body:text(b.body,1,3000,'내용'),startsAt:new Date(b.startsAt).toISOString(),bannerPinned:b.bannerPinned===true,sendPush:b.sendPush===true,photoIds:ids}}));
+  }
+  if(path==='/api/meetups/pin'){if(!uuid(b.id)||typeof b.pinned!=='boolean')bad('운동 번개 고정 요청을 확인해주세요.');return result(db.rpc('onoff_meetup_pin',{actor:m.id,post_id:b.id,pinned:b.pinned}));}
   if(path==='/api/posts'){if(b.photoIds?.length){if(!uuid(b.id))bad('게시글 ID를 확인해주세요.');return result(db.rpc('onoff_attach_photos',{actor:m.id,p:{...b,kind:'community',title:text(b.title,1,80,'제목'),body:text(b.body,1,3000,'내용')}}));}if(!['운동 번개','공동구매','자유글'].includes(b.category))bad('말머리를 확인해주세요.');return commit(m.id,'post',{category:b.category,title:text(b.title,1,80,'제목'),body:text(b.body,1,3000,'내용')});}
   if(['/api/posts/delete','/api/posts/join','/api/posts/comment'].includes(path)){if(!uuid(b.id))bad('게시글을 확인해주세요.');const comment=path.endsWith('comment');if(b.requestId&&!uuid(b.requestId))bad('댓글 요청을 확인해주세요.');if('joined' in b&&typeof b.joined!=='boolean')bad('참여 상태를 확인해주세요.');const value=await commit(m.id,path.endsWith('delete')?'post-delete':path.endsWith('join')?'join':'comment',{id:b.id,...(comment?{text:text(b.text,1,300,'댓글'),commentId:b.requestId||crypto.randomUUID()}:'joined' in b?{joined:b.joined}:{})});if(path.endsWith('delete'))await media.cleanup();return value;}
   if(path.startsWith('/api/push/'))return push.memberRoute(m,path,b);
@@ -153,7 +160,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   if(path==='/api/banner'){if(!validBanner(b))bad('공지 문구·색상·노출 여부를 확인해주세요.');const banner={text:b.text.trim(),color:b.color,enabled:b.enabled};await commit(m.id,'setting',{key:'banner',value:banner});return {ok:true,banner};}
   if(path==='/api/rm-catalogue/delete'){if(typeof b.id!=='string'||!b.id||b.id.length>100)bad('종목을 확인해주세요.');return result(db.rpc('onoff_rm_archive',{actor:m.id,item_id:b.id}));}
   if(path==='/api/rm-catalogue'){let value;try{value=updateRmCatalogue(await setting('rmCatalogue',DEFAULT_RM_CATALOGUE),b,()=>crypto.randomUUID(),await setting('rmCategories',RM_CATEGORIES));}catch(e){bad(e.message);}await commit(m.id,'setting',{key:'rmCatalogue',value:value.catalogue});return {ok:true,...value};}
-  if(path==='/api/movements'){const name=text(b.name,2,80,'동작 이름'),videoId=b.url?youtubeId(b.url):'';if(videoId===null)bad('유튜브 주소를 확인해주세요.');const categories=await videoCategories(),categoryId=b.categoryId||resolveVideoCategory(videoCategory(name,await setting('rmCatalogue',DEFAULT_RM_CATALOGUE)),categories,await setting('videoCategoryRedirects',{}));if(!categories.some(([id])=>id===categoryId))bad('분류를 선택해주세요.');return result(db.rpc('onoff_video_manage',{actor:m.id,p:{action:'movement-save',name,videoId,categoryId,notes:text(b.notes,0,1000,'설명')}}));}
+  if(path==='/api/movements'){const name=text(b.name,2,80,'동작 이름'),videoId=b.url?youtubeId(b.url):'';if(videoId===null)bad('유튜브 주소를 확인해주세요.');const categories=await videoCategories(),categoryId=b.categoryId||resolveVideoCategory(videoCategory(name,await setting('rmCatalogue',DEFAULT_RM_CATALOGUE)),categories,await setting('videoCategoryRedirects',{}));if(!categories.some(([id])=>id===categoryId))bad('분류를 선택해주세요.');let originalName=name;if(b.originalName){originalName=text(b.originalName,2,80,'기존 동작 이름');const items=await library(),source=findVideoMovement(items,originalName),target=findVideoMovement(items,name);if(!source)bad('수정할 동작을 찾을 수 없어요.',404);originalName=source.name;if(target&&target.name!==originalName)bad('이미 등록된 동작 이름이에요.',409);}return result(db.rpc('onoff_video_save',{actor:m.id,p:{originalName,name,videoId,categoryId,notes:text(b.notes,0,1000,'설명')}}));}
   if(path==='/api/notices'){if(b.id&&!uuid(b.id))bad('공지를 확인해주세요.');if(b.action==='delete'){const value=await commit(m.id,'notices',{action:'delete',id:b.id});await media.cleanup();return value;}if(typeof b.pinned!=='boolean')bad('상단 고정 여부를 확인해주세요.');if(b.sendPush===true)permit(m,'push');const notice={id:b.id||crypto.randomUUID(),title:text(b.title,1,100,'제목'),body:text(b.body,1,5000,'내용'),pinned:b.pinned};await result(db.rpc('onoff_save_notice_photos',{actor:m.id,p:{...notice,photoIds:b.photoIds||[]}}));if(b.sendPush===true){permit(m,'push');await push.enqueue({id:'notice:'+notice.id+':'+crypto.randomUUID(),kind:'notices',payload:{title:notice.title,body:notice.body.slice(0,140),url:'/Onoffgym/#community',tag:'notice:'+notice.id}});}return {ok:true};}
   if(path==='/api/holidays/sync')return {ok:true,calendar:await calendar(true)};
   bad('요청을 찾을 수 없어요.',404);

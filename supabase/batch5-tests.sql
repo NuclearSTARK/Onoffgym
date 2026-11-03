@@ -1,0 +1,45 @@
+-- Synthetic accounts and temporary transactions only; no provider dispatch occurs.
+begin;
+do $$
+declare a uuid:=gen_random_uuid();b uuid:=gen_random_uuid();c uuid:=gen_random_uuid();post uuid:=gen_random_uuid();photo uuid:=gen_random_uuid();reset_req uuid:=gen_random_uuid();stamp timestamptz:=((now() at time zone 'Asia/Seoul')::date+1+time '19:30') at time zone 'Asia/Seoul';reply jsonb;payload jsonb;name1 text:='Original '||left(a::text,8);name2 text:='Renamed '||left(a::text,8);name3 text:='Final '||left(a::text,8);category text;pin text:=lpad((floor(random()*10000)::integer)::text,4,'0');denied boolean;coupon_count bigint;ledger_count bigint;
+begin
+ insert into auth.users(id,email) values(a,'batch5-admin-'||a||'@example.invalid'),(b,'batch5-member-'||b||'@example.invalid'),(c,'batch5-other-'||c||'@example.invalid');
+ update public.gym_members set role='admin',status='approved' where id=a;
+ update public.gym_members set role='member',status='approved' where id=b;
+ update public.gym_members set role='member',status='approved' where id=c;
+ if (select body->>'pushOnboardingSeen' from public.gym_preferences where user_id=b)<>'false' then raise exception 'approval welcome missing';end if;
+ perform public.onoff_commit(b,'preferences','{"pushOnboardingSeen":true}');
+ update public.gym_members set name='Batch5 Member' where id=b;
+ if (select body->>'pushOnboardingSeen' from public.gym_preferences where user_id=b)<>'true' then raise exception 'welcome repeated on unrelated update';end if;
+ select id into category from public.gym_video_categories order by position limit 1;
+ perform public.onoff_video_save(a,jsonb_build_object('name',name1,'categoryId',category,'videoId','dQw4w9WgXcQ','notes','preserve video'));
+ perform public.onoff_video_save(a,jsonb_build_object('originalName',name1,'name',name2,'categoryId',category,'videoId','dQw4w9WgXcQ','notes','preserve video'));
+ perform public.onoff_video_save(a,jsonb_build_object('originalName',name2,'name',name3,'categoryId',category,'videoId','dQw4w9WgXcQ','notes','preserve video'));
+ if not exists(select 1 from public.gym_movements where name=name3 and not deleted and body->'aliases' ? name1 and body->'aliases' ? name2 and body->>'videoId'='dQw4w9WgXcQ') then raise exception 'rename chain lost aliases/video';end if;
+ if (select count(*) from public.gym_movements where name in (name1,name2) and deleted)<>2 then raise exception 'old names not hidden';end if;
+ denied:=false;begin perform public.onoff_video_save(b,jsonb_build_object('name','Forbidden video','categoryId',category));exception when insufficient_privilege then denied:=true;end;if not denied then raise exception 'member edited video';end if;
+ insert into public.gym_photos(id,owner_id,kind,path,uploaded) values(photo,b,'community',b::text||'/'||photo::text||'.jpg',true);
+ payload:=jsonb_build_object('id',post,'title','An arbitrary title','body','Post contents','startsAt',stamp,'bannerPinned',true,'sendPush',true,'photoIds',jsonb_build_array(photo));
+ perform public.onoff_meetup_create(b,payload);perform public.onoff_meetup_create(b,payload);
+ if (select count(*) from public.gym_posts where id=post and author_id=b and banner_pinned and starts_at=stamp)<>1 then raise exception 'meetup retry duplicated';end if;
+ if not exists(select 1 from public.gym_photos where id=photo and active and post_id=post) then raise exception 'meetup attachment missing';end if;
+ if (select count(*) from public.gym_push_jobs j where id='meetup:'||post::text)<>1 then raise exception 'meetup push duplicate';end if;
+ if not exists(select 1 from public.gym_push_jobs j where id='meetup:'||post::text and kind='notices' and j.payload->>'body'='운동 번개 '||to_char(stamp at time zone 'Asia/Seoul','MM/DD HH24:MI')||' 함께 운동해요' and j.payload->>'url'='/Onoffgym/?post='||post::text||'#community') then raise exception 'meetup fixed notice/deep link wrong';end if;
+ denied:=false;begin perform public.onoff_meetup_pin(c,post,false);exception when insufficient_privilege then denied:=true;end;if not denied then raise exception 'another member pinned post';end if;
+ perform public.onoff_meetup_pin(a,post,false);perform public.onoff_meetup_pin(b,post,true);
+ if (public.onoff_post_snapshot(post)->>'banner_pinned')<>'true' then raise exception 'snapshot lost meetup';end if;
+ update public.gym_members set status='pending' where id=c;
+ denied:=false;begin perform public.onoff_meetup_create(c,payload||jsonb_build_object('id',gen_random_uuid()));exception when insufficient_privilege then denied:=true;end;if not denied then raise exception 'pending member posted meetup';end if;
+ perform public.onoff_points(a,jsonb_build_object('action','settings','enabled',true,'pin',pin,'maxBalance',null));
+ perform public.onoff_points(a,jsonb_build_object('action','grant','memberId',b,'requestId',gen_random_uuid(),'amount',25,'reason','rollback grant'));
+ select count(*) into coupon_count from public.gym_point_coupons;select count(*) into ledger_count from public.gym_point_ledger;
+ denied:=false;begin perform public.onoff_point_reset(b,reset_req);exception when insufficient_privilege then denied:=true;end;if not denied then raise exception 'member reset points';end if;
+ reply:=public.onoff_point_reset(a,reset_req);
+ if exists(select 1 from public.gym_point_accounts where balance<>0) then raise exception 'reset not global';end if;
+ if (select count(*) from public.gym_point_coupons)<>coupon_count or (select count(*) from public.gym_point_ledger)<ledger_count then raise exception 'reset removed coupons/history';end if;
+ perform public.onoff_points(a,jsonb_build_object('action','grant','memberId',b,'requestId',gen_random_uuid(),'amount',7,'reason','after reset'));
+ reply:=public.onoff_point_reset(a,reset_req);
+ if reply->>'already'<>'true' or (select balance from public.gym_point_accounts where user_id=b)<>7 then raise exception 'reset retry removed new credit';end if;
+end $$;
+select true as batch5_sql_passed,not has_function_privilege('authenticated','public.onoff_point_reset(uuid,uuid)','execute') as reset_private,not has_table_privilege('anon','public.gym_point_resets','select') as audit_private,not has_function_privilege('authenticated','public.onoff_meetup_create(uuid,jsonb)','execute') as meetup_rpc_private;
+rollback;

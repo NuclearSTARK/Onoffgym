@@ -30,11 +30,17 @@ function createPointsService(db2, { now = () => /* @__PURE__ */ new Date() } = {
     if (m?.status !== "approved") fail("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     if (path === "/api/points") return snapshot(m);
     const isAdmin = m.role === "admin";
-    if (["/api/points/admin", "/api/points/settings", "/api/points/product", "/api/points/product/delete", "/api/points/rule", "/api/points/rule/delete", "/api/points/grant", "/api/points/deduct", "/api/points/method", "/api/points/method/delete"].includes(path) && !isAdmin) fail("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+    if (["/api/points/admin", "/api/points/settings", "/api/points/product", "/api/points/product/delete", "/api/points/rule", "/api/points/rule/delete", "/api/points/grant", "/api/points/deduct", "/api/points/reset", "/api/points/method", "/api/points/method/delete"].includes(path) && !isAdmin) fail("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
     if (path === "/api/points/admin") {
       const cfg = await read(db2.from("gym_point_config").select("pin_hash").eq("singleton", true).maybeSingle());
       const [base, coupons, members, accounts] = await Promise.all([snapshot(m), read(db2.from("gym_point_coupons").select("id,user_id,name,price,total,remaining,created_at,last_used_at,expires_at").order("created_at", { ascending: false }).limit(100)), read(db2.from("gym_members").select("id,name,status")), read(db2.from("gym_point_accounts").select("user_id,balance"))]);
       return { ...base, pinConfigured: !!cfg?.pin_hash, members: members.filter((m2) => m2.status === "approved").map((m2) => ({ id: m2.id, name: m2.name, balance: Number(accounts.find((a) => a.user_id === m2.id)?.balance || 0) })), issued: (coupons || []).map((c) => ({ ...c, expired: !!c.expires_at && Date.parse(c.expires_at) <= +now(), memberName: members.find((m2) => m2.id === c.user_id)?.name || "\uD68C\uC6D0" })) };
+    }
+    if (path === "/api/points/reset") {
+      if (!uuid(b.requestId) || b.confirmed !== true) fail("\uCD08\uAE30\uD654 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      const { data: data2, error: error2 } = await db2.rpc("onoff_point_reset", { actor: m.id, request_id: b.requestId });
+      if (error2) fail(error2.code === "42501" ? "\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694." : "\uD3EC\uC778\uD2B8 \uCD08\uAE30\uD654 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error2.code === "42501" ? 403 : 503);
+      return data2;
     }
     let p;
     if (path === "/api/points/settings") {
@@ -160,6 +166,10 @@ function resolveVideoCategory(id, categories, redirects = {}) {
   const active = new Set(categories.map((c) => c[0]));
   for (let i = 0; i < 40 && !active.has(id) && redirects[id]; i++) id = redirects[id];
   return active.has(id) ? id : categories.find((c) => c[0] === "other")?.[0] || categories[0]?.[0] || "other";
+}
+function findVideoMovement(items, name) {
+  const key = String(name || "").trim().toLocaleLowerCase();
+  return items.find((m) => m.name.toLocaleLowerCase() === key) || items.find((m) => (m.aliases || []).some((alias) => alias.toLocaleLowerCase() === key));
 }
 
 // web/permissions.js
@@ -557,6 +567,14 @@ async function tvPassword(password, salt) {
   return tvHex(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(salt), iterations: 1e5 }, key, 256));
 }
 
+// web/meetups.js
+function meetupMessage(instant) {
+  const date = new Date(instant);
+  if (!instant || !Number.isFinite(+date)) return "";
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date).map((x) => [x.type, x.value]));
+  return `\uC6B4\uB3D9 \uBC88\uAC1C ${parts.month}/${parts.day} ${parts.hour}:${parts.minute} \uD568\uAED8 \uC6B4\uB3D9\uD574\uC694`;
+}
+
 // worker/push.js
 function unbase64(s) {
   return Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
@@ -672,13 +690,19 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
             const test = await one("gym_push_tests", "hash", current.test_hash);
             allowed = job.kind === "test" && current.test_hash === job.testHash && Date.parse(test?.expires) > +now();
           }
+          let meetup = null;
+          if (job.payload?.meetupId) {
+            meetup = await one("gym_posts", "id", job.payload.meetupId);
+            const writer = meetup ? await one("gym_members", "id", meetup.author_id) : null;
+            allowed = allowed && meetup?.category === "\uC6B4\uB3D9 \uBC88\uAC1C" && writer?.status === "approved" && !!meetupMessage(meetup.starts_at);
+          }
           if (!allowed) {
             state = "skipped";
             reason = job.kind === "approvals" ? "\uAC00\uC785 \uC54C\uB9BC \uB300\uC0C1 \uC870\uAC74\uC774 \uBCC0\uACBD\uB418\uC5B4 \uBC1C\uC1A1 \uC81C\uC678" : "\uC54C\uB9BC \uC218\uC2E0 \uC870\uAC74\uC774 \uBCC0\uACBD\uB418\uC5B4 \uBC1C\uC1A1 \uC81C\uC678";
           } else {
             const subscription = validateSubscription(current.body);
             if (!subscription) throw Error("Invalid subscription");
-            const payload = job.kind === "approvals" ? { ...job.payload, url: "/Onoffgym/?approval=" + encodeURIComponent(job.subjectId) + "#admin/members" } : job.payload;
+            const payload = meetup ? { title: "\uC6B4\uB3D9 \uBC88\uAC1C", body: meetupMessage(meetup.starts_at), url: "/Onoffgym/?post=" + encodeURIComponent(meetup.id) + "#community", tag: "meetup:" + meetup.id } : job.kind === "approvals" ? { ...job.payload, url: "/Onoffgym/?approval=" + encodeURIComponent(job.subjectId) + "#admin/members" } : job.payload;
             const body = await encryptPush(subscription, payload), authorization = await vapidAuthorization(subscription.endpoint, { VAPID_PUBLIC_KEY: config.publicKey, VAPID_PRIVATE_JWK: JSON.stringify(config.privateJwk), VAPID_SUBJECT: config.subject }, now());
             const response = await pushFetch(subscription.endpoint, { method: "POST", headers: { Authorization: authorization, "Content-Encoding": "aes128gcm", "Content-Type": "application/octet-stream", TTL: "3600", Urgency: job.kind === "test" ? "high" : "normal" }, body, redirect: "error", signal: AbortSignal.timeout(8e3) });
             if (!response.ok) reason = "\uD478\uC2DC \uC11C\uBE44\uC2A4 HTTP " + response.status;
@@ -904,6 +928,16 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       staff ? rows("gym_membership_events", (q) => q.order("created_at", { ascending: false }).limit(500)) : [],
       staff ? rows("gym_attendance", (q) => q.order("date", { ascending: false }).limit(2e3)) : []
     ]);
+    if (canRead) {
+      const extras = await rows("gym_posts", (q) => q.eq("banner_pinned", true).eq("category", "\uC6B4\uB3D9 \uBC88\uAC1C").order("starts_at").limit(100));
+      const linked = url.searchParams.get("post");
+      if (uuid2(linked)) {
+        const post = await one("gym_posts", "id", linked);
+        if (post) extras.push(post);
+      }
+      const merged = [...new Map([...posts, ...extras].map((p) => [p.id, p])).values()];
+      posts.splice(0, posts.length, ...merged);
+    }
     const pointBalances = staff ? await rows("gym_point_accounts") : [];
     const records = [...new Map([...ownRecords, ...selectedRecords].map((r) => [r.id, r])).values()], names = new Map(memberRows.map((x) => [x.id, x.name])), rank = /* @__PURE__ */ new Map(), avatars = /* @__PURE__ */ new Map();
     if (canRead) {
@@ -974,6 +1008,10 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     }
     if (path === "/api/preferences") {
       const p = {};
+      if ("pushOnboardingSeen" in b) {
+        if (b.pushOnboardingSeen !== true) bad("\uC54C\uB9BC \uC548\uB0B4 \uC0C1\uD0DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        p.pushOnboardingSeen = true;
+      }
       if ("avatarEmoji" in b) {
         if (!validAvatar(b.avatarEmoji)) bad("\uD504\uB85C\uD544 \uC774\uBAA8\uC9C0\uB97C \uBAA9\uB85D\uC5D0\uC11C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
         p.avatarEmoji = b.avatarEmoji;
@@ -1045,6 +1083,16 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       const item = await one(b.kind === "notice" ? "gym_notices" : "gym_posts", "id", b.id);
       if (!item) bad("\uAC8C\uC2DC\uAE00\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
       return commit(m.id, "community-read", { id: b.id, kind: b.kind });
+    }
+    if (path === "/api/meetups") {
+      if (!uuid2(b.id) || b.category && b.category !== "\uC6B4\uB3D9 \uBC88\uAC1C" || typeof b.startsAt !== "string" || b.startsAt.length > 40 || !Number.isFinite(Date.parse(b.startsAt)) || new Date(b.startsAt).getUTCFullYear() < 1900 || "bannerPinned" in b && typeof b.bannerPinned !== "boolean" || "sendPush" in b && typeof b.sendPush !== "boolean") bad("\uC6B4\uB3D9 \uC2DC\uC791 \uB0A0\uC9DC\xB7\uC2DC\uAC04\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      const ids = b.photoIds || [];
+      if (!Array.isArray(ids) || ids.length > 3 || ids.some((id) => !uuid2(id)) || new Set(ids).size !== ids.length) bad("\uCCA8\uBD80 \uC0AC\uC9C4\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      return result(db2.rpc("onoff_meetup_create", { actor: m.id, p: { id: b.id, title: text(b.title, 1, 80, "\uC81C\uBAA9"), body: text(b.body, 1, 3e3, "\uB0B4\uC6A9"), startsAt: new Date(b.startsAt).toISOString(), bannerPinned: b.bannerPinned === true, sendPush: b.sendPush === true, photoIds: ids } }));
+    }
+    if (path === "/api/meetups/pin") {
+      if (!uuid2(b.id) || typeof b.pinned !== "boolean") bad("\uC6B4\uB3D9 \uBC88\uAC1C \uACE0\uC815 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      return result(db2.rpc("onoff_meetup_pin", { actor: m.id, post_id: b.id, pinned: b.pinned }));
     }
     if (path === "/api/posts") {
       if (b.photoIds?.length) {
@@ -1190,7 +1238,15 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       if (videoId === null) bad("\uC720\uD29C\uBE0C \uC8FC\uC18C\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const categories = await videoCategories(), categoryId = b.categoryId || resolveVideoCategory(videoCategory(name, await setting("rmCatalogue", DEFAULT_RM_CATALOGUE)), categories, await setting("videoCategoryRedirects", {}));
       if (!categories.some(([id]) => id === categoryId)) bad("\uBD84\uB958\uB97C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
-      return result(db2.rpc("onoff_video_manage", { actor: m.id, p: { action: "movement-save", name, videoId, categoryId, notes: text(b.notes, 0, 1e3, "\uC124\uBA85") } }));
+      let originalName = name;
+      if (b.originalName) {
+        originalName = text(b.originalName, 2, 80, "\uAE30\uC874 \uB3D9\uC791 \uC774\uB984");
+        const items = await library(), source = findVideoMovement(items, originalName), target = findVideoMovement(items, name);
+        if (!source) bad("\uC218\uC815\uD560 \uB3D9\uC791\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+        originalName = source.name;
+        if (target && target.name !== originalName) bad("\uC774\uBBF8 \uB4F1\uB85D\uB41C \uB3D9\uC791 \uC774\uB984\uC774\uC5D0\uC694.", 409);
+      }
+      return result(db2.rpc("onoff_video_save", { actor: m.id, p: { originalName, name, videoId, categoryId, notes: text(b.notes, 0, 1e3, "\uC124\uBA85") } }));
     }
     if (path === "/api/notices") {
       if (b.id && !uuid2(b.id)) bad("\uACF5\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");

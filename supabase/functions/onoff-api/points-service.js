@@ -16,12 +16,13 @@ export function createPointsService(db,{now=()=>new Date()}={}){
   if(m?.status!=='approved')fail('관리자 승인 후 이용할 수 있어요.',403);
   if(path==='/api/points')return snapshot(m);
   const isAdmin=m.role==='admin';
-  if(['/api/points/admin','/api/points/settings','/api/points/product','/api/points/product/delete','/api/points/rule','/api/points/rule/delete','/api/points/grant','/api/points/deduct','/api/points/method','/api/points/method/delete'].includes(path)&&!isAdmin)fail('운영자 권한이 필요해요.',403);
+  if(['/api/points/admin','/api/points/settings','/api/points/product','/api/points/product/delete','/api/points/rule','/api/points/rule/delete','/api/points/grant','/api/points/deduct','/api/points/reset','/api/points/method','/api/points/method/delete'].includes(path)&&!isAdmin)fail('운영자 권한이 필요해요.',403);
   if(path==='/api/points/admin'){
    const cfg=await read(db.from('gym_point_config').select('pin_hash').eq('singleton',true).maybeSingle());
    const [base,coupons,members,accounts]=await Promise.all([snapshot(m),read(db.from('gym_point_coupons').select('id,user_id,name,price,total,remaining,created_at,last_used_at,expires_at').order('created_at',{ascending:false}).limit(100)),read(db.from('gym_members').select('id,name,status')),read(db.from('gym_point_accounts').select('user_id,balance'))]);
    return {...base,pinConfigured:!!cfg?.pin_hash,members:members.filter(m=>m.status==='approved').map(m=>({id:m.id,name:m.name,balance:Number(accounts.find(a=>a.user_id===m.id)?.balance||0)})),issued:(coupons||[]).map(c=>({...c,expired:!!c.expires_at&&Date.parse(c.expires_at)<=+now(),memberName:members.find(m=>m.id===c.user_id)?.name||'회원'}))};
   }
+  if(path==='/api/points/reset'){if(!uuid(b.requestId)||b.confirmed!==true)fail('초기화 요청을 확인해주세요.');const {data,error}=await db.rpc('onoff_point_reset',{actor:m.id,request_id:b.requestId});if(error)fail(error.code==='42501'?'운영자 권한이 필요해요.':'포인트 초기화 요청을 처리하지 못했어요.',error.code==='42501'?403:503);return data;}
   let p;
   if(path==='/api/points/settings'){
    if(typeof b.enabled!=='boolean'||b.pin&&(typeof b.pin!=='string'||!/^\d{4}$/.test(b.pin)))fail('적립 설정과 4자리 비밀번호를 확인해주세요.');

@@ -1,3 +1,4 @@
+import {meetupMessage} from '../../../web/meetups.js';
 import {hasPermission} from '../../../web/permissions.js';
 import {base64,encryptPush,pushDigest,validateSubscription,vapidAuthorization} from '../../../worker/push.js';
 const fail=(message,status=400)=>{throw Object.assign(Error(message),{status});};
@@ -15,9 +16,10 @@ export function createPushService(db,{now=()=>new Date(),pushFetch=fetch}={}){
   await Promise.all(Array.from({length:Math.min(8,jobs.length)},async()=>{for(;;){const job=jobs[cursor++];if(!job)return;let state='failed',reason=null;try{
    const current=await one('gym_push_subscriptions','id',job.subscriptionId);if(!current)continue;
    let allowed=false;if(current.user_id){const member=await one('gym_members','id',current.user_id);allowed=member?.status==='approved'&&(job.kind==='test'||current.preferences?.[job.kind]!==false);if(job.kind==='approvals'){const pending=await one('gym_members','id',job.subjectId);allowed=allowed&&member?.role==='admin'&&(pending?.status==='pending'||pending?.status==='approved'&&job.payload?.signupEvent===true);}}else if(current.test_hash){const test=await one('gym_push_tests','hash',current.test_hash);allowed=job.kind==='test'&&current.test_hash===job.testHash&&Date.parse(test?.expires)>+now();}
+   let meetup=null;if(job.payload?.meetupId){meetup=await one('gym_posts','id',job.payload.meetupId);const writer=meetup?await one('gym_members','id',meetup.author_id):null;allowed=allowed&&meetup?.category==='운동 번개'&&writer?.status==='approved'&&!!meetupMessage(meetup.starts_at);}
    if(!allowed){state='skipped';reason=job.kind==='approvals'?'가입 알림 대상 조건이 변경되어 발송 제외':'알림 수신 조건이 변경되어 발송 제외';}else {
     const subscription=validateSubscription(current.body);if(!subscription)throw Error('Invalid subscription');
-    const payload=job.kind==='approvals'?{...job.payload,url:'/Onoffgym/?approval='+encodeURIComponent(job.subjectId)+'#admin/members'}:job.payload;
+    const payload=meetup?{title:'운동 번개',body:meetupMessage(meetup.starts_at),url:'/Onoffgym/?post='+encodeURIComponent(meetup.id)+'#community',tag:'meetup:'+meetup.id}:job.kind==='approvals'?{...job.payload,url:'/Onoffgym/?approval='+encodeURIComponent(job.subjectId)+'#admin/members'}:job.payload;
     const body=await encryptPush(subscription,payload),authorization=await vapidAuthorization(subscription.endpoint,{VAPID_PUBLIC_KEY:config.publicKey,VAPID_PRIVATE_JWK:JSON.stringify(config.privateJwk),VAPID_SUBJECT:config.subject},now());
     const response=await pushFetch(subscription.endpoint,{method:'POST',headers:{Authorization:authorization,'Content-Encoding':'aes128gcm','Content-Type':'application/octet-stream',TTL:'3600',Urgency:job.kind==='test'?'high':'normal'},body,redirect:'error',signal:AbortSignal.timeout(8000)});
     if(!response.ok)reason='푸시 서비스 HTTP '+response.status;

@@ -16,7 +16,9 @@ export function videoCategory(name,catalogue){
 }
 export function videoGroups(movements,catalogue,{search='',category='all',categories=VIDEO_CATEGORIES}={}){
  const needle=search.trim().toLowerCase();
- return categories.filter(([id])=>category==='all'||category===id).map(([id,label])=>({id,label,items:movements.filter(m=>m.name.toLowerCase().includes(needle)&&(m.categoryId||videoCategory(m.name,catalogue))===id).sort(movementOrder)})).filter(g=>g.items.length);
+ return categories.filter(([id])=>category==='all'||category===id).map(([id,label])=>({id,label,items:movements.filter(m=>[m.name,...(m.aliases||[])].some(name=>name.toLowerCase().includes(needle))&&(m.categoryId||videoCategory(m.name,catalogue))===id).sort(movementOrder)})).filter(g=>g.items.length);
 }
 
 export function resolveVideoCategory(id,categories,redirects={}){const active=new Set(categories.map(c=>c[0]));for(let i=0;i<40&&!active.has(id)&&redirects[id];i++)id=redirects[id];return active.has(id)?id:categories.find(c=>c[0]==='other')?.[0]||categories[0]?.[0]||'other';}
+
+export function findVideoMovement(items,name){const key=String(name||'').trim().toLocaleLowerCase();return items.find(m=>m.name.toLocaleLowerCase()===key)||items.find(m=>(m.aliases||[]).some(alias=>alias.toLocaleLowerCase()===key));}

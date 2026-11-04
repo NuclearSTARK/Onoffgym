@@ -13,7 +13,7 @@ export function recordInputMarkup(section,{record,unit='lbs',batch=false,disable
  else if(kind==='라운드 + 횟수')fields=`<div class="field-row">${numeric('라운드','rounds',r.rounds??'')}${numeric('추가 횟수','extra',r.extra??'')}</div>`;
  else if(kind==='완료 여부')fields=select('완료 여부','completed',[['','선택해주세요.'],['true','완료'],['false','미완료']],r.completed==null?'':String(r.completed));
  else fields=`<label class="field"><span>상세 결과</span><textarea data-result-key="details" maxlength="1000" rows="3" placeholder="세트별 결과, 변경 동작 등을 자유롭게 기록하세요."${attr}>${escape(r.details||'')}</textarea></label>`;
- fields+=select('운동 조건','condition',[['','RX / Scaled 선택'],['rx','RX · 제시된 조건'],['scaled','Scaled · 조정한 조건'],...(record&&(!record.result||record.result.condition==='unspecified')?[['unspecified','기존 기록 · 조건 미분류']]:[])],r.condition||'');
+ fields+=select('운동 조건','condition',[['',`${conditionLabel('rx')} / Scaled 선택`],['rx',`${conditionLabel('rx')} · 제시된 조건`],['scaled','Scaled · 조정한 조건'],...(record&&(!record.result||record.result.condition==='unspecified')?[['unspecified','기존 기록 · 조건 미분류']]:[])],r.condition||'');
  if(policy.ranking==='metric')fields+=field('순위 기준 · '+policy.metricLabel,'rankingValue',r.rankingValue??'','type="number" min="0" step="any" inputmode="decimal"')+`<p class="field-hint">${escape(policy.metricLabel)} ${policy.metricOrder==='asc'?'작은':'큰'} 값부터 비교해요. 상세 결과는 순위 계산에 쓰지 않아요.</p>`;
  if(policy.ranking==='none')fields+='<p class="field-hint">이 구간은 순위 없이 기록만 남겨요.</p>';
  const markup=`<div class="structured-record" data-unit="${unit}" data-blocked="${disabled}" data-canonical-lbs="${r.lbs??''}">${changed?`<p class="field-hint">구간의 기록 양식이 변경됐어요. 기존 결과: ${escape(record.value??record.lbs)}</p>`:''}${fields}</div>`;return markup;

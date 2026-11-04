@@ -3,6 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
 // web/record-schema.js
 var CONDITIONS = ["rx", "scaled", "unspecified"];
+var RX_LABEL = "Rx'd";
 var complex = (kind) => ["\uC138\uD2B8\uBCC4 \uD69F\uC218\xB7\uCE7C\uB85C\uB9AC", "\uC790\uC720 \uAE30\uB85D"].includes(kind);
 function recordPolicy(section = {}) {
   const p = section.recordPolicy || {}, ranking = p.ranking ?? (complex(section.kind) ? "none" : "auto");
@@ -27,7 +28,7 @@ var clock = (seconds) => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:$
 function normalizeRecordResult(section, input) {
   if (!input || input.version != null && input.version !== 1) throw Error("\uAE30\uB85D \uC591\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
   const policy = recordPolicy(section), condition = input?.condition;
-  if (!CONDITIONS.includes(condition)) throw Error("\uC6B4\uB3D9 \uC870\uAC74(RX / Scaled)\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+  if (!CONDITIONS.includes(condition)) throw Error(`\uC6B4\uB3D9 \uC870\uAC74(${RX_LABEL} / Scaled)\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.`);
   const result = { version: 1, condition, policyKey: policyKey(section) }, out = { result }, kind = section.kind;
   if (["\uC911\uB7C9", "1RM"].includes(kind)) {
     result.lbs = number(input.lbs, "\uC911\uB7C9", 6614);
@@ -68,7 +69,7 @@ function normalizeRecordResult(section, input) {
 var recordCondition = (r) => r.result?.condition || "unspecified";
 function canonicalRecordPayload(section, record, old) {
   if (record.result) {
-    if (record.result.condition === "unspecified" && (!old || recordCondition(old) !== "unspecified")) throw Error("\uC6B4\uB3D9 \uC870\uAC74(RX / Scaled)\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+    if (record.result.condition === "unspecified" && (!old || recordCondition(old) !== "unspecified")) throw Error(`\uC6B4\uB3D9 \uC870\uAC74(${RX_LABEL} / Scaled)\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.`);
     return normalizeRecordResult(section, record.result);
   }
   if (old && !old.result && old.kind === section.kind && (old.value ?? null) === (record.value ?? null) && (old.lbs ?? null) === (record.lbs ?? null)) return old.lbs != null ? { lbs: old.lbs } : { value: old.value };

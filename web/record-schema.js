@@ -1,6 +1,7 @@
 // Shared by the member form, staff batch entry and the authenticated API.
 export const CONDITIONS=['rx','scaled','unspecified'];
-export const conditionLabel=c=>({rx:'RX',scaled:'Scaled',unspecified:'조건 미분류'}[c]||'조건 미분류');
+export const RX_LABEL="Rx'd";
+export const conditionLabel=c=>({rx:RX_LABEL,scaled:'Scaled',unspecified:'조건 미분류'}[c]||'조건 미분류');
 const complex=kind=>['세트별 횟수·칼로리','자유 기록'].includes(kind);
 export function recordPolicy(section={}){
  const p=section.recordPolicy||{},ranking=p.ranking??(complex(section.kind)?'none':'auto');
@@ -16,7 +17,7 @@ const clock=seconds=>`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String
 export function normalizeRecordResult(section,input){
  if(!input||input.version!=null&&input.version!==1)throw Error('기록 양식을 확인해주세요.');
  const policy=recordPolicy(section),condition=input?.condition;
- if(!CONDITIONS.includes(condition))throw Error('운동 조건(RX / Scaled)을 선택해주세요.');
+ if(!CONDITIONS.includes(condition))throw Error(`운동 조건(${RX_LABEL} / Scaled)을 선택해주세요.`);
  const result={version:1,condition,policyKey:policyKey(section)},out={result},kind=section.kind;
  if(['중량','1RM'].includes(kind)){result.lbs=number(input.lbs,'중량',6614);if(!result.lbs)throw Error('중량은 0보다 커야 해요.');out.lbs=result.lbs;}
  else if(kind==='시간'){
@@ -56,7 +57,7 @@ export function structuredScore(record,section){
 }
 export function canonicalRecordPayload(section,record,old){
  if(record.result){
-  if(record.result.condition==='unspecified'&&(!old||recordCondition(old)!=='unspecified'))throw Error('운동 조건(RX / Scaled)을 선택해주세요.');
+  if(record.result.condition==='unspecified'&&(!old||recordCondition(old)!=='unspecified'))throw Error(`운동 조건(${RX_LABEL} / Scaled)을 선택해주세요.`);
   return normalizeRecordResult(section,record.result);
  }
  // Older clients can keep their existing text without silently converting it.

@@ -20,14 +20,14 @@ export async function backendRequest(path,body){
  const {data:{session}}=await client.auth.getSession();
  const headers={apikey:config.publishableKey};if(session?.access_token)headers.Authorization='Bearer '+session.access_token;
  const url=config.url+'/functions/v1/onoff-api'+path;
- const send=async (u,b)=>{const r=await fetch(u,{method:b?'POST':'GET',headers:{...headers,...(b?{'Content-Type':'application/json'}:{})},body:b?JSON.stringify(b):undefined});let value;try{value=await r.json();}catch{throw Error('서버 응답을 확인할 수 없어요.');}if(!r.ok)throw Object.assign(Error(value.error||'연결을 확인해주세요.'),{status:r.status});return value;};
+ const send=async (u,b)=>{const r=await fetch(u,{method:b?'POST':'GET',headers:{...headers,...(b?{'Content-Type':'application/json'}:{})},body:b?JSON.stringify(b):undefined});let value;try{value=await r.json();}catch{throw Error('서버 응답을 확인할 수 없어요.');}if(!r.ok)throw Object.assign(Error(value.error||'연결을 확인해주세요.'),{status:r.status,...(value.joinAccess?{joinAccess:value.joinAccess}:{})});return value;};
  if(!body&&path.startsWith('/api/bootstrap')){
   if(!session){resetBackendCache();return {viewer:null,workouts:{},members:[],library:[],serverNow:new Date().toISOString(),shared:true};}
   const key=session.user.id+path,generation=cacheGeneration,cached=cacheKey===key?cache:null,cachedRevision=revision;
   if(cached){const check=await send(config.url+'/functions/v1/onoff-api/api/revision');if(generation===cacheGeneration&&check.revision===cachedRevision)return {...cached,serverNow:check.serverNow};}
   const value=await send(url);if(generation===cacheGeneration){cache=value;cacheKey=key;revision=value.revision;}return value;
  }
- const value=await send(url,body);if(body&&!['/api/photos/url','/api/photos/urls'].includes(path))resetBackendCache();return value;
+ const value=await send(url,body);if(body&&!['/api/photos/url','/api/photos/urls','/api/posts/access'].includes(path))resetBackendCache();return value;
 }
 export async function backendTvRequest(path,body){
  const key='onoff-tv-session-'+config.projectId,token=localStorage.getItem(key),headers={apikey:config.publishableKey};

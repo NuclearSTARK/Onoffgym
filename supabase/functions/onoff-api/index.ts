@@ -1,6 +1,219 @@
 // supabase/functions/onoff-api/entry.js
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
+// web/core.js
+var MOVEMENTS = ["Front Squat", "Back Squat", "Deadlift", "Clean", "Clean & Jerk", "Snatch", "Power Snatch", "Squat Snatch", "Strict Press", "Push Press", "Split Jerk", "Row", "Box Step Over", "Pull-up", "Ring Dip", "Burpee"];
+var KINDS = ["\uC5C6\uC74C", "\uC911\uB7C9", "1RM", "\uC2DC\uAC04", "\uD69F\uC218", "\uB77C\uC6B4\uB4DC + \uD69F\uC218", "\uCE7C\uB85C\uB9AC", "\uC138\uD2B8\uBCC4 \uD69F\uC218\xB7\uCE7C\uB85C\uB9AC", "\uC644\uB8CC \uC5EC\uBD80"];
+var DEFAULT_BANNER = { enabled: true, text: "ONOFF\uC640 \uD568\uAED8, \uC624\uB298\uC758 \uB098\uB97C \uCF1C\uBCF4\uC138\uC694! \xB7 \uC6B4\uB3D9 \uD6C4 \uB098\uC758 \uAE30\uB85D\uC744 \uB0A8\uACA8\uC8FC\uC138\uC694.", color: "blue" };
+function validBanner(b) {
+  return !!b && typeof b.enabled === "boolean" && typeof b.text === "string" && b.text.trim().length > 0 && b.text.length <= 500 && ["blue", "mint", "amber"].includes(b.color);
+}
+function kstDate(now = /* @__PURE__ */ new Date()) {
+  return new Date(+now + 9 * 36e5).toISOString().slice(0, 10);
+}
+function addDays(date, days) {
+  return new Date(Date.parse(date + "T12:00:00+09:00") + days * 864e5).toISOString().slice(0, 10);
+}
+function releaseAt(date, time = "22:00") {
+  return Date.parse(addDays(date, -1) + "T" + time + ":00+09:00");
+}
+function isReleased(date, now = /* @__PURE__ */ new Date(), time = "22:00") {
+  return +now >= releaseAt(date, time);
+}
+function tvWorkoutDate(now = /* @__PURE__ */ new Date(), time = "22:00") {
+  const date = kstDate(now);
+  return isReleased(addDays(date, 1), now, time) ? addDays(date, 1) : date;
+}
+function workoutDayState(date, holidays = {}) {
+  const day = (/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay();
+  return holidays[date] ? "holiday" : day === 0 ? "rest" : day === 6 ? "open-gym" : "class";
+}
+function workoutSchedule(date, workouts = {}, holidays = {}) {
+  const day = (/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay();
+  const end = (time) => {
+    const [h, m] = time.split(":").map(Number);
+    return String(h + 1).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+  };
+  const special = Object.values(workouts).filter((w) => w.date === date && w.sections?.length).flatMap((w) => (w.sessions || []).map((time) => ({ time, end: end(time), type: w.program })));
+  if (holidays[date] || day === 0) return special.sort((a, b) => a.time.localeCompare(b.time));
+  if (day === 6) return [...special, { time: "10:00", end: "20:00", type: "OPEN GYM" }].sort((a, b) => a.time.localeCompare(b.time));
+  const alternate = day === 2 || day === 5;
+  let slots = [["09:30", alternate ? "WOD" : "B/T"], ["11:00", alternate ? "B/T" : "WOD"], ["12:00", "OPEN GYM"], ["17:00", alternate ? "WOD" : "B/T"], ["18:00", alternate ? "B/T" : "WOD"], ["19:10", alternate ? "WOD" : "B/T"], ["20:30", alternate ? "B/T" : "WOD"]];
+  if (day === 3) slots = slots.filter(([time]) => !["17:00", "20:30"].includes(time)).map(([t, p]) => [t, p === "OPEN GYM" ? p : "WOD"]);
+  return slots.map(([time, type]) => ({ time, type, end: type === "OPEN GYM" ? "16:30" : end(time) }));
+}
+function normalizeDate(v) {
+  const m = String(v ?? "").trim().match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (!m) return null;
+  const s = `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  if (!Number.isFinite(Date.parse(s + "T00:00:00Z")) || (/* @__PURE__ */ new Date(s + "T00:00:00Z")).toISOString().slice(0, 10) !== s) return null;
+  return s;
+}
+function youtubeId(value) {
+  if (!value) return "";
+  try {
+    const u = new URL(String(value));
+    if (u.protocol !== "https:") return null;
+    const h = u.hostname.replace(/^www\./, "");
+    let id2;
+    if (h === "youtu.be") id2 = u.pathname.slice(1).split("/")[0];
+    else if (["youtube.com", "m.youtube.com", "youtube-nocookie.com"].includes(h)) {
+      id2 = u.searchParams.get("v") || u.pathname.match(/^\/(?:embed|shorts|live)\/([^/]+)/)?.[1];
+    }
+    return /^[A-Za-z0-9_-]{11}$/.test(id2 || "") ? id2 : null;
+  } catch {
+    return null;
+  }
+}
+function normalizeRows(rows, library = MOVEMENTS, holidays = {}) {
+  const errors = [], warnings = [], groups = /* @__PURE__ */ new Map(), seen = /* @__PURE__ */ new Set();
+  const canonical = new Map(library.map((n) => [n.toLowerCase(), n]));
+  if (!Array.isArray(rows) || rows.length > 1e3) return { errors: ["\uCD5C\uB300 1,000\uD589\uAE4C\uC9C0 \uB4F1\uB85D\uD560 \uC218 \uC788\uC5B4\uC694."], workouts: [] };
+  rows.forEach((r, i) => {
+    if (!Object.values(r).some((v) => String(v).trim())) return;
+    const line = i + 2, date = normalizeDate(r["\uB0A0\uC9DC"]), program = String(r["\uC218\uC5C5"] || "").trim().toUpperCase(), sm = String(r["\uAD6C\uAC04"] || "").trim().toUpperCase().match(/^S?([1-9]\d?)$/), title = String(r["\uC81C\uBAA9"] || "").trim(), text2 = String(r["\uC6B4\uB3D9 \uB0B4\uC6A9"] || "").trim(), kind = String(r["\uAE30\uB85D \uC885\uB958"] || "\uC5C6\uC74C").trim(), movementText = String(r["\uAD00\uB828 \uB3D9\uC791"] || "").trim(), overview = String(r["\uC624\uB298 \uC6B4\uB3D9 \uC124\uBA85 \uC601\uC0C1"] || "").trim();
+    const issues = [];
+    if (!date) issues.push("\uB0A0\uC9DC\uB294 YYYY-MM-DD \uD615\uC2DD\uC73C\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    if (!["B/T", "WOD"].includes(program)) issues.push("\uC218\uC5C5\uC740 B/T \uB610\uB294 WOD\uB9CC \uC785\uB825\uD560 \uC218 \uC788\uC5B4\uC694.");
+    if (date) {
+      const day = (/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay();
+      if (day === 3 && program === "B/T") issues.push("\uC218\uC694\uC77C\uC5D0\uB294 WOD\uB9CC \uB4F1\uB85D\uD560 \uC218 \uC788\uC5B4\uC694.");
+    }
+    if (!sm) issues.push("\uAD6C\uAC04\uC740 S1\uBD80\uD130 S99\uAE4C\uC9C0 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    if (!title || title.length > 100) issues.push("\uC81C\uBAA9\uC740 1~100\uC790\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    if (!text2 || text2.length > 5e3) issues.push("\uC6B4\uB3D9 \uB0B4\uC6A9\uC740 1~5,000\uC790\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    if (!KINDS.includes(kind)) issues.push("\uAE30\uB85D \uC885\uB958\uB97C \uC591\uC2DD\uC758 \uBAA9\uB85D\uC5D0\uC11C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+    const ms = movementText ? movementText.split(/[;,\n]/).map((x) => x.trim()).filter(Boolean) : [];
+    const movements = ms.map((n) => canonical.get(n.toLowerCase()) || n), linkedMovements = ms.map((n) => canonical.get(n.toLowerCase())).filter(Boolean);
+    if (ms.some((n) => !canonical.has(n.toLowerCase()))) warnings.push(`${line}\uD589: \uC9C1\uC811 \uC785\uB825\uD55C \uB3D9\uC791\uC740 \uC218\uC5C5\uC5D0 \uC800\uC7A5\uB418\uBA70 \uC601\uC0C1\xB71RM \uC790\uB3D9 \uC5F0\uACB0\uC740 \uBCF4\uB958\uB429\uB2C8\uB2E4.`);
+    if (ms.length > 30 || ms.some((n) => n.length > 80)) issues.push("\uAD00\uB828 \uB3D9\uC791\uC740 80\uC790 \uC774\uB0B4\uB85C \uCD5C\uB300 30\uAC1C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    const overviewId = overview ? youtubeId(overview) : "";
+    if (overview && !overviewId) issues.push("\uC720\uD6A8\uD55C \uC720\uD29C\uBE0C \uC601\uC0C1 \uC8FC\uC18C\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    const times = String(r["\uC218\uC5C5 \uC2DC\uAC04(\uACF5\uD734\uC77C)"] || "").split(/[,;\n]/).map((t) => t.trim()).filter(Boolean);
+    if (date && (holidays[date] || [0, 6].includes((/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay())) && !times.length) issues.push("\uD734\uAC15\uC77C\xB7\uC8FC\uB9D0 \uD2B9\uBCC4 \uC218\uC5C5\uC758 \uC2DC\uC791 \uC2DC\uAC01\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    if (times.some((t) => !/^([01]\d|2[0-3]):[0-5]\d$/.test(t) || t > "23:00") || new Set(times).size !== times.length) issues.push("\uC218\uC5C5 \uC2DC\uAC04\uC740 00:00~23:00 \uC0AC\uC774 HH:mm\uC73C\uB85C \uC911\uBCF5 \uC5C6\uC774 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    const duplicateKey = `${date}_${program}_${sm?.[1]}`;
+    if (seen.has(duplicateKey)) issues.push("\uAC19\uC740 \uB0A0\uC9DC\xB7\uC218\uC5C5\xB7\uAD6C\uAC04\uC774 \uD30C\uC77C\uC5D0 \uC911\uBCF5\uB418\uC5B4 \uC788\uC5B4\uC694.");
+    seen.add(duplicateKey);
+    if (issues.length) {
+      errors.push(...issues.map((x) => `${line}\uD589: ${x}`));
+      return;
+    }
+    const key = `${date}_${program}`;
+    let w = groups.get(key);
+    if (!w) {
+      w = { date, program, title: program === "WOD" ? "Work of the Day" : "Body Training", sections: [], overviewId: "", sessions: times };
+      groups.set(key, w);
+    }
+    if (w.sessions.join(",") !== times.join(",")) {
+      errors.push(`${line}\uD589: \uAC19\uC740 \uC218\uC5C5\uC758 \uC2DC\uC791 \uC2DC\uAC01\uC774 \uC11C\uB85C \uB2EC\uB77C\uC694.`);
+      return;
+    }
+    if (overviewId) {
+      if (w.overviewId && w.overviewId !== overviewId) {
+        errors.push(`${line}\uD589: \uAC19\uC740 \uC218\uC5C5\uC758 \uC124\uBA85 \uC601\uC0C1 \uC8FC\uC18C\uAC00 \uC11C\uB85C \uB2EC\uB77C\uC694.`);
+        return;
+      }
+      w.overviewId = overviewId;
+    }
+    w.sections.push({ number: +sm[1], title, text: text2, record: kind !== "\uC5C6\uC74C", kind, movements, linkedMovements, movement: (kind === "1RM" && movements.length !== 1 ? "" : linkedMovements[0]) || "" });
+  });
+  for (const w of groups.values()) {
+    w.sections.sort((a, b) => a.number - b.number);
+    if (w.sections.some((s, i) => s.number !== i + 1)) errors.push(`${w.date} ${w.program}: \uAD6C\uAC04\uC744 S1\uBD80\uD130 \uBE60\uC9D0\uC5C6\uC774 \uC785\uB825\uD574\uC8FC\uC138\uC694.`);
+  }
+  return { errors, warnings, workouts: [...groups.values()].sort((a, b) => a.date.localeCompare(b.date) || a.program.localeCompare(b.program)) };
+}
+function validateWorkouts(workouts, library = MOVEMENTS, holidays = {}) {
+  if (!Array.isArray(workouts) || !workouts.length || workouts.length > 250) return { errors: ["1~250\uAC1C \uC218\uC5C5\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694."], workouts: [] };
+  const rows = [];
+  for (const w of workouts) {
+    if (!Array.isArray(w.sections) || !w.sections.length) return { errors: ["\uC218\uC5C5 \uAD6C\uAC04\uC774 \uBE44\uC5B4 \uC788\uC5B4\uC694."], workouts: [] };
+    w.sections.forEach((s, i) => rows.push({ "\uB0A0\uC9DC": w.date, "\uC218\uC5C5": w.program, "\uAD6C\uAC04": "S" + (i + 1), "\uC81C\uBAA9": s.title || "S" + (i + 1), "\uC6B4\uB3D9 \uB0B4\uC6A9": s.text, "\uAE30\uB85D \uC885\uB958": s.record ? s.kind : "\uC5C6\uC74C", "\uAD00\uB828 \uB3D9\uC791": (s.movements?.length ? s.movements : s.movement ? [s.movement] : []).join("; "), "\uC624\uB298 \uC6B4\uB3D9 \uC124\uBA85 \uC601\uC0C1": w.overviewId ? "https://youtu.be/" + w.overviewId : "", "\uC218\uC5C5 \uC2DC\uAC04(\uACF5\uD734\uC77C)": (w.sessions || []).join(", ") }));
+  }
+  return normalizeRows(rows, library, holidays);
+}
+
+// web/membership.js
+function memberDays(a, b) {
+  return Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 864e5);
+}
+function periodEnd(start, months) {
+  if (!normalizeDate(start) || ![1, 3, 6, 12].includes(Number(months))) throw Error("\uC2DC\uC791\uC77C\uACFC \uAE30\uAC04\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  const d = /* @__PURE__ */ new Date(start + "T00:00:00Z"), day = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + Number(months));
+  d.setUTCDate(Math.min(day, new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()));
+  return addDays(d.toISOString().slice(0, 10), -1);
+}
+function membershipState(pass, today, attendedToday = false) {
+  if (!pass) return { status: "unregistered", label: "\uD68C\uC6D0\uAD8C \uBBF8\uB4F1\uB85D", active: true, soon: false };
+  if (pass.paused_at) return { status: "paused", label: "\uD734\uD68C \uC911", active: false, soon: false };
+  if (pass.start_date > today) return { status: "scheduled", label: "\uC774\uC6A9 \uC2DC\uC791 \uC804", active: false, soon: false };
+  const days = pass.end_date ? memberDays(today, pass.end_date) + 1 : null;
+  if (attendedToday && pass.kind === "visits" && pass.remaining_visits === 0 && (days === null || days > 0)) return { status: "active", label: "\uC624\uB298 \uB9C8\uC9C0\uB9C9 \uD68C\uCC28 \uC774\uC6A9 \uC911", active: true, soon: true, days };
+  if (days !== null && days <= 0 || pass.kind === "visits" && pass.remaining_visits <= 0) return { status: "expired", label: "\uB9CC\uB8CC", active: false, soon: false, days };
+  const soon = days !== null && days <= 7 || pass.kind === "visits" && pass.remaining_visits <= 3;
+  return { status: "active", label: soon ? "\uB9CC\uB8CC \uC608\uC815" : "\uC774\uC6A9 \uC911", active: true, soon, days };
+}
+function changeMembership(old, b, today) {
+  let p = old ? { ...old } : null;
+  const action = b.action;
+  if (["register", "extend"].includes(action)) {
+    if (b.endDate && !normalizeDate(b.endDate)) throw Error("\uC885\uB8CC\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (!["period", "visits"].includes(b.kind)) throw Error("\uD68C\uC6D0\uAD8C \uC885\uB958\uB97C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+    if (action === "extend" && (!old || old.kind !== b.kind || old.paused_at)) throw Error("\uAC19\uC740 \uC885\uB958\uC758 \uD68C\uC6D0\uAD8C\uC744 \uC7AC\uAC1C\uD55C \uD6C4 \uC5F0\uC7A5\uD574\uC8FC\uC138\uC694.");
+    const start = normalizeDate(b.startDate || today);
+    if (!start) throw Error("\uC2DC\uC791\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (b.kind === "period") {
+      const months = Number(b.months);
+      if (![1, 3, 6, 12].includes(months)) throw Error("1\xB73\xB76\uAC1C\uC6D4 \uB610\uB294 1\uB144\uAD8C\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+      const base = action === "extend" && old.end_date >= today ? addDays(old.end_date, 1) : start;
+      p = { id: action === "extend" ? old.id : crypto.randomUUID(), kind: "period", months, start_date: action === "extend" ? old.start_date : start, end_date: normalizeDate(b.endDate) || periodEnd(base, months), total_visits: null, remaining_visits: null, paused_at: null };
+    } else {
+      const count = Number(b.visits);
+      if (!Number.isInteger(count) || count < 1 || count > 9999) throw Error("\uD69F\uC218\uB294 1~9,999\uD68C\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+      if (b.endDate && !normalizeDate(b.endDate)) throw Error("\uC720\uD6A8\uAE30\uAC04\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { id: action === "extend" ? old.id : crypto.randomUUID(), kind: "visits", months: null, start_date: action === "extend" ? old.start_date : start, end_date: b.endDate || (action === "extend" ? old?.end_date : null) || null, total_visits: count + (action === "extend" ? old.total_visits : 0), remaining_visits: count + (action === "extend" ? old.remaining_visits : 0), paused_at: null };
+    }
+  } else if (action === "pause") {
+    if (!old || !membershipState(old, today).active || old.paused_at) throw Error("\uC774\uC6A9 \uC911\uC778 \uD68C\uC6D0\uAD8C\uB9CC \uD734\uD68C\uD560 \uC218 \uC788\uC5B4\uC694.");
+    p.paused_at = today;
+  } else if (action === "resume") {
+    if (!old?.paused_at) throw Error("\uD734\uD68C \uC911\uC778 \uD68C\uC6D0\uAD8C\uC774 \uC544\uB2C8\uC5D0\uC694.");
+    const days = Math.max(0, memberDays(old.paused_at, today));
+    p.end_date = p.end_date ? addDays(p.end_date, days) : null;
+    p.paused_at = null;
+  } else if (action === "adjust") {
+    if (!old || !String(b.reason || "").trim()) throw Error("\uD68C\uC6D0\uAD8C\uACFC \uC218\uC815 \uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (b.endDate && !normalizeDate(b.endDate)) throw Error("\uC885\uB8CC\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    p.end_date = b.endDate || null;
+    if (p.kind === "period" && !p.end_date) throw Error("\uAE30\uAC04\uAD8C\uC758 \uC885\uB8CC\uC77C\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    if (p.kind === "visits") {
+      const n = Number(b.remaining);
+      if (!Number.isInteger(n) || n < 0 || n > 9999) throw Error("\uC794\uC5EC\uD69F\uC218\uB97C 0~9,999\uD68C\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+      p.remaining_visits = n;
+      p.total_visits = Math.max(p.total_visits, n);
+    }
+  } else throw Error("\uCC98\uB9AC\uD560 \uD68C\uC6D0\uAD8C \uC791\uC5C5\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+  if (p.end_date && p.end_date < p.start_date) throw Error("\uC885\uB8CC\uC77C\uC774 \uC2DC\uC791\uC77C\uBCF4\uB2E4 \uBE60\uB97C \uC218 \uC5C6\uC5B4\uC694.");
+  return p;
+}
+
+// web/participation-access.js
+function participationAccess({ viewer, author, post, pass, today, attendedToday = false }) {
+  const deny = (code, message, action = "") => ({ allowed: false, code, message, action });
+  if (viewer?.status !== "approved") return deny("approval_required", "\uAC00\uC785 \uC2B9\uC778 \uD6C4 \uCC38\uC5EC\uD560 \uC218 \uC788\uC5B4\uC694.");
+  if (!post) return deny("post_missing", "\uC0AD\uC81C\uB418\uC5C8\uAC70\uB098 \uD655\uC778\uD560 \uC218 \uC5C6\uB294 \uAC8C\uC2DC\uAE00\uC774\uC5D0\uC694.");
+  if (post.category === "\uC790\uC720\uAE00") return deny("not_joinable", "\uC774 \uAC8C\uC2DC\uAE00\uC740 \uCC38\uC5EC \uC2E0\uCCAD\uC744 \uBC1B\uC9C0 \uC54A\uC544\uC694.");
+  if (viewer.disclosure_consent === false) return deny("sharing_required", "\uCC38\uC5EC\uC790 \uC774\uB984 \uACF5\uAC1C\uB97C \uC704\uD574 \uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C \uB3D9\uC758\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.", "privacy-settings");
+  if (!author || author.status !== "approved") return deny("author_unavailable", "\uC791\uC131\uC790 \uACC4\uC815 \uC0C1\uD0DC\uB97C \uD655\uC778\uD558\uB294 \uB3D9\uC548\uC5D0\uB294 \uC0C8\uB85C \uCC38\uC5EC\uD560 \uC218 \uC5C6\uC5B4\uC694.");
+  if (author.disclosure_consent === false) return deny(author.privacy_version === "email-signup-v1" ? "author_review" : "post_private", author.privacy_version === "email-signup-v1" ? "\uC791\uC131\uC790\uAC00 \uC0C8 \uAC1C\uC778\uC815\uBCF4 \uC548\uB0B4\uB97C \uD655\uC778\uD558\uBA74 \uCC38\uC5EC\uD560 \uC218 \uC788\uC5B4\uC694." : "\uC791\uC131\uC790\uAC00 \uACF5\uAC1C\uB97C \uC911\uB2E8\uD55C \uAC8C\uC2DC\uAE00\uC5D0\uB294 \uC0C8\uB85C \uCC38\uC5EC\uD560 \uC218 \uC5C6\uC5B4\uC694.");
+  const access = membershipState(pass, today, attendedToday);
+  if (viewer.role !== "admin" && !access.active) return deny("membership_required", access.status === "paused" ? "\uD734\uD68C \uC911\uC5D0\uB294 \uC0C8\uB85C \uCC38\uC5EC\uD560 \uC218 \uC5C6\uC5B4\uC694. \uAE30\uC874 \uCC38\uC5EC\uB294 \uCDE8\uC18C\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4." : access.status === "scheduled" ? "\uD68C\uC6D0\uAD8C \uC774\uC6A9 \uC2DC\uC791\uC77C\uBD80\uD130 \uCC38\uC5EC\uD560 \uC218 \uC788\uC5B4\uC694." : "\uD68C\uC6D0\uAD8C \uAE30\uAC04 \uB610\uB294 \uB0A8\uC740 \uD69F\uC218\uB97C \uC6B4\uC601\uC790\uC5D0\uAC8C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  return { allowed: true, code: "allowed", message: "", action: "" };
+}
+
 // supabase/functions/onoff-api/named-service.js
 var fail = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
@@ -415,139 +628,6 @@ function createAccountService(db2, { reauthenticate } = {}) {
   } };
 }
 
-// web/core.js
-var MOVEMENTS = ["Front Squat", "Back Squat", "Deadlift", "Clean", "Clean & Jerk", "Snatch", "Power Snatch", "Squat Snatch", "Strict Press", "Push Press", "Split Jerk", "Row", "Box Step Over", "Pull-up", "Ring Dip", "Burpee"];
-var KINDS = ["\uC5C6\uC74C", "\uC911\uB7C9", "1RM", "\uC2DC\uAC04", "\uD69F\uC218", "\uB77C\uC6B4\uB4DC + \uD69F\uC218", "\uCE7C\uB85C\uB9AC", "\uC138\uD2B8\uBCC4 \uD69F\uC218\xB7\uCE7C\uB85C\uB9AC", "\uC644\uB8CC \uC5EC\uBD80"];
-var DEFAULT_BANNER = { enabled: true, text: "ONOFF\uC640 \uD568\uAED8, \uC624\uB298\uC758 \uB098\uB97C \uCF1C\uBCF4\uC138\uC694! \xB7 \uC6B4\uB3D9 \uD6C4 \uB098\uC758 \uAE30\uB85D\uC744 \uB0A8\uACA8\uC8FC\uC138\uC694.", color: "blue" };
-function validBanner(b) {
-  return !!b && typeof b.enabled === "boolean" && typeof b.text === "string" && b.text.trim().length > 0 && b.text.length <= 500 && ["blue", "mint", "amber"].includes(b.color);
-}
-function kstDate(now = /* @__PURE__ */ new Date()) {
-  return new Date(+now + 9 * 36e5).toISOString().slice(0, 10);
-}
-function addDays(date, days) {
-  return new Date(Date.parse(date + "T12:00:00+09:00") + days * 864e5).toISOString().slice(0, 10);
-}
-function releaseAt(date, time = "22:00") {
-  return Date.parse(addDays(date, -1) + "T" + time + ":00+09:00");
-}
-function isReleased(date, now = /* @__PURE__ */ new Date(), time = "22:00") {
-  return +now >= releaseAt(date, time);
-}
-function tvWorkoutDate(now = /* @__PURE__ */ new Date(), time = "22:00") {
-  const date = kstDate(now);
-  return isReleased(addDays(date, 1), now, time) ? addDays(date, 1) : date;
-}
-function workoutDayState(date, holidays = {}) {
-  const day = (/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay();
-  return holidays[date] ? "holiday" : day === 0 ? "rest" : day === 6 ? "open-gym" : "class";
-}
-function workoutSchedule(date, workouts = {}, holidays = {}) {
-  const day = (/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay();
-  const end = (time) => {
-    const [h, m] = time.split(":").map(Number);
-    return String(h + 1).padStart(2, "0") + ":" + String(m).padStart(2, "0");
-  };
-  const special = Object.values(workouts).filter((w) => w.date === date && w.sections?.length).flatMap((w) => (w.sessions || []).map((time) => ({ time, end: end(time), type: w.program })));
-  if (holidays[date] || day === 0) return special.sort((a, b) => a.time.localeCompare(b.time));
-  if (day === 6) return [...special, { time: "10:00", end: "20:00", type: "OPEN GYM" }].sort((a, b) => a.time.localeCompare(b.time));
-  const alternate = day === 2 || day === 5;
-  let slots = [["09:30", alternate ? "WOD" : "B/T"], ["11:00", alternate ? "B/T" : "WOD"], ["12:00", "OPEN GYM"], ["17:00", alternate ? "WOD" : "B/T"], ["18:00", alternate ? "B/T" : "WOD"], ["19:10", alternate ? "WOD" : "B/T"], ["20:30", alternate ? "B/T" : "WOD"]];
-  if (day === 3) slots = slots.filter(([time]) => !["17:00", "20:30"].includes(time)).map(([t, p]) => [t, p === "OPEN GYM" ? p : "WOD"]);
-  return slots.map(([time, type]) => ({ time, type, end: type === "OPEN GYM" ? "16:30" : end(time) }));
-}
-function normalizeDate(v) {
-  const m = String(v ?? "").trim().match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
-  if (!m) return null;
-  const s = `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
-  if (!Number.isFinite(Date.parse(s + "T00:00:00Z")) || (/* @__PURE__ */ new Date(s + "T00:00:00Z")).toISOString().slice(0, 10) !== s) return null;
-  return s;
-}
-function youtubeId(value) {
-  if (!value) return "";
-  try {
-    const u = new URL(String(value));
-    if (u.protocol !== "https:") return null;
-    const h = u.hostname.replace(/^www\./, "");
-    let id2;
-    if (h === "youtu.be") id2 = u.pathname.slice(1).split("/")[0];
-    else if (["youtube.com", "m.youtube.com", "youtube-nocookie.com"].includes(h)) {
-      id2 = u.searchParams.get("v") || u.pathname.match(/^\/(?:embed|shorts|live)\/([^/]+)/)?.[1];
-    }
-    return /^[A-Za-z0-9_-]{11}$/.test(id2 || "") ? id2 : null;
-  } catch {
-    return null;
-  }
-}
-function normalizeRows(rows, library = MOVEMENTS, holidays = {}) {
-  const errors = [], warnings = [], groups = /* @__PURE__ */ new Map(), seen = /* @__PURE__ */ new Set();
-  const canonical = new Map(library.map((n) => [n.toLowerCase(), n]));
-  if (!Array.isArray(rows) || rows.length > 1e3) return { errors: ["\uCD5C\uB300 1,000\uD589\uAE4C\uC9C0 \uB4F1\uB85D\uD560 \uC218 \uC788\uC5B4\uC694."], workouts: [] };
-  rows.forEach((r, i) => {
-    if (!Object.values(r).some((v) => String(v).trim())) return;
-    const line = i + 2, date = normalizeDate(r["\uB0A0\uC9DC"]), program = String(r["\uC218\uC5C5"] || "").trim().toUpperCase(), sm = String(r["\uAD6C\uAC04"] || "").trim().toUpperCase().match(/^S?([1-9]\d?)$/), title = String(r["\uC81C\uBAA9"] || "").trim(), text2 = String(r["\uC6B4\uB3D9 \uB0B4\uC6A9"] || "").trim(), kind = String(r["\uAE30\uB85D \uC885\uB958"] || "\uC5C6\uC74C").trim(), movementText = String(r["\uAD00\uB828 \uB3D9\uC791"] || "").trim(), overview = String(r["\uC624\uB298 \uC6B4\uB3D9 \uC124\uBA85 \uC601\uC0C1"] || "").trim();
-    const issues = [];
-    if (!date) issues.push("\uB0A0\uC9DC\uB294 YYYY-MM-DD \uD615\uC2DD\uC73C\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-    if (!["B/T", "WOD"].includes(program)) issues.push("\uC218\uC5C5\uC740 B/T \uB610\uB294 WOD\uB9CC \uC785\uB825\uD560 \uC218 \uC788\uC5B4\uC694.");
-    if (date) {
-      const day = (/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay();
-      if (day === 3 && program === "B/T") issues.push("\uC218\uC694\uC77C\uC5D0\uB294 WOD\uB9CC \uB4F1\uB85D\uD560 \uC218 \uC788\uC5B4\uC694.");
-    }
-    if (!sm) issues.push("\uAD6C\uAC04\uC740 S1\uBD80\uD130 S99\uAE4C\uC9C0 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-    if (!title || title.length > 100) issues.push("\uC81C\uBAA9\uC740 1~100\uC790\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-    if (!text2 || text2.length > 5e3) issues.push("\uC6B4\uB3D9 \uB0B4\uC6A9\uC740 1~5,000\uC790\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-    if (!KINDS.includes(kind)) issues.push("\uAE30\uB85D \uC885\uB958\uB97C \uC591\uC2DD\uC758 \uBAA9\uB85D\uC5D0\uC11C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
-    const ms = movementText ? movementText.split(/[;,\n]/).map((x) => x.trim()).filter(Boolean) : [];
-    const movements = ms.map((n) => canonical.get(n.toLowerCase()) || n), linkedMovements = ms.map((n) => canonical.get(n.toLowerCase())).filter(Boolean);
-    if (ms.some((n) => !canonical.has(n.toLowerCase()))) warnings.push(`${line}\uD589: \uC9C1\uC811 \uC785\uB825\uD55C \uB3D9\uC791\uC740 \uC218\uC5C5\uC5D0 \uC800\uC7A5\uB418\uBA70 \uC601\uC0C1\xB71RM \uC790\uB3D9 \uC5F0\uACB0\uC740 \uBCF4\uB958\uB429\uB2C8\uB2E4.`);
-    if (ms.length > 30 || ms.some((n) => n.length > 80)) issues.push("\uAD00\uB828 \uB3D9\uC791\uC740 80\uC790 \uC774\uB0B4\uB85C \uCD5C\uB300 30\uAC1C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-    const overviewId = overview ? youtubeId(overview) : "";
-    if (overview && !overviewId) issues.push("\uC720\uD6A8\uD55C \uC720\uD29C\uBE0C \uC601\uC0C1 \uC8FC\uC18C\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-    const times = String(r["\uC218\uC5C5 \uC2DC\uAC04(\uACF5\uD734\uC77C)"] || "").split(/[,;\n]/).map((t) => t.trim()).filter(Boolean);
-    if (date && (holidays[date] || [0, 6].includes((/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay())) && !times.length) issues.push("\uD734\uAC15\uC77C\xB7\uC8FC\uB9D0 \uD2B9\uBCC4 \uC218\uC5C5\uC758 \uC2DC\uC791 \uC2DC\uAC01\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-    if (times.some((t) => !/^([01]\d|2[0-3]):[0-5]\d$/.test(t) || t > "23:00") || new Set(times).size !== times.length) issues.push("\uC218\uC5C5 \uC2DC\uAC04\uC740 00:00~23:00 \uC0AC\uC774 HH:mm\uC73C\uB85C \uC911\uBCF5 \uC5C6\uC774 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-    const duplicateKey = `${date}_${program}_${sm?.[1]}`;
-    if (seen.has(duplicateKey)) issues.push("\uAC19\uC740 \uB0A0\uC9DC\xB7\uC218\uC5C5\xB7\uAD6C\uAC04\uC774 \uD30C\uC77C\uC5D0 \uC911\uBCF5\uB418\uC5B4 \uC788\uC5B4\uC694.");
-    seen.add(duplicateKey);
-    if (issues.length) {
-      errors.push(...issues.map((x) => `${line}\uD589: ${x}`));
-      return;
-    }
-    const key = `${date}_${program}`;
-    let w = groups.get(key);
-    if (!w) {
-      w = { date, program, title: program === "WOD" ? "Work of the Day" : "Body Training", sections: [], overviewId: "", sessions: times };
-      groups.set(key, w);
-    }
-    if (w.sessions.join(",") !== times.join(",")) {
-      errors.push(`${line}\uD589: \uAC19\uC740 \uC218\uC5C5\uC758 \uC2DC\uC791 \uC2DC\uAC01\uC774 \uC11C\uB85C \uB2EC\uB77C\uC694.`);
-      return;
-    }
-    if (overviewId) {
-      if (w.overviewId && w.overviewId !== overviewId) {
-        errors.push(`${line}\uD589: \uAC19\uC740 \uC218\uC5C5\uC758 \uC124\uBA85 \uC601\uC0C1 \uC8FC\uC18C\uAC00 \uC11C\uB85C \uB2EC\uB77C\uC694.`);
-        return;
-      }
-      w.overviewId = overviewId;
-    }
-    w.sections.push({ number: +sm[1], title, text: text2, record: kind !== "\uC5C6\uC74C", kind, movements, linkedMovements, movement: (kind === "1RM" && movements.length !== 1 ? "" : linkedMovements[0]) || "" });
-  });
-  for (const w of groups.values()) {
-    w.sections.sort((a, b) => a.number - b.number);
-    if (w.sections.some((s, i) => s.number !== i + 1)) errors.push(`${w.date} ${w.program}: \uAD6C\uAC04\uC744 S1\uBD80\uD130 \uBE60\uC9D0\uC5C6\uC774 \uC785\uB825\uD574\uC8FC\uC138\uC694.`);
-  }
-  return { errors, warnings, workouts: [...groups.values()].sort((a, b) => a.date.localeCompare(b.date) || a.program.localeCompare(b.program)) };
-}
-function validateWorkouts(workouts, library = MOVEMENTS, holidays = {}) {
-  if (!Array.isArray(workouts) || !workouts.length || workouts.length > 250) return { errors: ["1~250\uAC1C \uC218\uC5C5\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694."], workouts: [] };
-  const rows = [];
-  for (const w of workouts) {
-    if (!Array.isArray(w.sections) || !w.sections.length) return { errors: ["\uC218\uC5C5 \uAD6C\uAC04\uC774 \uBE44\uC5B4 \uC788\uC5B4\uC694."], workouts: [] };
-    w.sections.forEach((s, i) => rows.push({ "\uB0A0\uC9DC": w.date, "\uC218\uC5C5": w.program, "\uAD6C\uAC04": "S" + (i + 1), "\uC81C\uBAA9": s.title || "S" + (i + 1), "\uC6B4\uB3D9 \uB0B4\uC6A9": s.text, "\uAE30\uB85D \uC885\uB958": s.record ? s.kind : "\uC5C6\uC74C", "\uAD00\uB828 \uB3D9\uC791": (s.movements?.length ? s.movements : s.movement ? [s.movement] : []).join("; "), "\uC624\uB298 \uC6B4\uB3D9 \uC124\uBA85 \uC601\uC0C1": w.overviewId ? "https://youtu.be/" + w.overviewId : "", "\uC218\uC5C5 \uC2DC\uAC04(\uACF5\uD734\uC77C)": (w.sessions || []).join(", ") }));
-  }
-  return normalizeRows(rows, library, holidays);
-}
-
 // web/holidays.js
 var HOLIDAY_SOURCE = "https://calendar.google.com/calendar/ical/ko.south_korea.official%23holiday%40group.v.calendar.google.com/public/basic.ics";
 var HOLIDAY_FALLBACK = { "2025-08-15": { "name": "\uAD11\uBCF5\uC808", "substitute": false }, "2029-02-13": { "name": "\uC124\uB0A0", "substitute": false }, "2021-10-04": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uAC1C\uCC9C\uC808", "substitute": true }, "2021-10-09": { "name": "\uD55C\uAE00\uB0A0", "substitute": false }, "2022-02-01": { "name": "\uC124\uB0A0", "substitute": false }, "2022-03-01": { "name": "\uC0BC\uC77C\uC808", "substitute": false }, "2022-05-08": { "name": "\uBD80\uCC98\uB2D8\uC624\uC2E0\uB0A0", "substitute": false }, "2022-06-01": { "name": "\uC9C0\uBC29\uC120\uAC70\uC77C", "substitute": false }, "2022-09-09": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2022-09-12": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uCD94\uC11D \uC5F0\uD734", "substitute": true }, "2022-10-09": { "name": "\uD55C\uAE00\uB0A0", "substitute": false }, "2022-10-10": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uD55C\uAE00\uB0A0", "substitute": true }, "2023-01-24": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2023-10-03": { "name": "\uAC1C\uCC9C\uC808", "substitute": false }, "2024-01-01": { "name": "\uC0C8\uD574\uCCAB\uB0A0", "substitute": false }, "2024-02-10": { "name": "\uC124\uB0A0", "substitute": false }, "2024-08-15": { "name": "\uAD11\uBCF5\uC808", "substitute": false }, "2024-09-18": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2024-10-09": { "name": "\uD55C\uAE00\uB0A0", "substitute": false }, "2025-01-30": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2025-05-05": { "name": "\uC5B4\uB9B0\uC774\uB0A0", "substitute": false }, "2025-10-05": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2025-10-07": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2026-10-03": { "name": "\uAC1C\uCC9C\uC808", "substitute": false }, "2026-10-09": { "name": "\uD55C\uAE00\uB0A0", "substitute": false }, "2027-08-15": { "name": "\uAD11\uBCF5\uC808", "substitute": false }, "2027-09-15": { "name": "\uCD94\uC11D", "substitute": false }, "2027-10-09": { "name": "\uD55C\uAE00\uB0A0", "substitute": false }, "2027-12-25": { "name": "\uD06C\uB9AC\uC2A4\uB9C8\uC2A4", "substitute": false }, "2028-01-26": { "name": "\uC124\uB0A0", "substitute": false }, "2028-01-27": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2028-05-05": { "name": "\uC5B4\uB9B0\uC774\uB0A0", "substitute": false }, "2028-08-15": { "name": "\uAD11\uBCF5\uC808", "substitute": false }, "2028-10-02": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2028-10-03": { "name": "\uCD94\uC11D", "substitute": false }, "2028-10-09": { "name": "\uD55C\uAE00\uB0A0", "substitute": false }, "2029-08-15": { "name": "\uAD11\uBCF5\uC808", "substitute": false }, "2029-09-22": { "name": "\uCD94\uC11D", "substitute": false }, "2029-12-25": { "name": "\uD06C\uB9AC\uC2A4\uB9C8\uC2A4", "substitute": false }, "2021-05-05": { "name": "\uC5B4\uB9B0\uC774\uB0A0", "substitute": false }, "2021-08-15": { "name": "\uAD11\uBCF5\uC808", "substitute": false }, "2021-08-16": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uAD11\uBCF5\uC808", "substitute": true }, "2021-10-03": { "name": "\uAC1C\uCC9C\uC808", "substitute": false }, "2022-01-01": { "name": "\uC0C8\uD574\uCCAB\uB0A0", "substitute": false }, "2022-02-02": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2022-06-06": { "name": "\uD604\uCDA9\uC77C", "substitute": false }, "2022-08-15": { "name": "\uAD11\uBCF5\uC808", "substitute": false }, "2022-10-03": { "name": "\uAC1C\uCC9C\uC808", "substitute": false }, "2022-12-25": { "name": "\uD06C\uB9AC\uC2A4\uB9C8\uC2A4", "substitute": false }, "2023-01-01": { "name": "\uC0C8\uD574\uCCAB\uB0A0", "substitute": false }, "2023-03-01": { "name": "\uC0BC\uC77C\uC808", "substitute": false }, "2023-05-27": { "name": "\uBD80\uCC98\uB2D8\uC624\uC2E0\uB0A0", "substitute": false }, "2023-06-06": { "name": "\uD604\uCDA9\uC77C", "substitute": false }, "2023-08-15": { "name": "\uAD11\uBCF5\uC808", "substitute": false }, "2023-09-28": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2024-03-01": { "name": "\uC0BC\uC77C\uC808", "substitute": false }, "2024-05-05": { "name": "\uC5B4\uB9B0\uC774\uB0A0", "substitute": false }, "2024-05-06": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uC5B4\uB9B0\uC774\uB0A0", "substitute": true }, "2024-09-17": { "name": "\uCD94\uC11D", "substitute": false }, "2024-12-25": { "name": "\uD06C\uB9AC\uC2A4\uB9C8\uC2A4", "substitute": false }, "2025-01-01": { "name": "\uC0C8\uD574\uCCAB\uB0A0", "substitute": false }, "2025-01-29": { "name": "\uC124\uB0A0", "substitute": false }, "2025-03-01": { "name": "\uC0BC\uC77C\uC808", "substitute": false }, "2026-01-01": { "name": "\uC0C8\uD574\uCCAB\uB0A0", "substitute": false }, "2026-02-17": { "name": "\uC124\uB0A0", "substitute": false }, "2026-03-01": { "name": "\uC0BC\uC77C\uC808", "substitute": false }, "2027-02-08": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2027-03-01": { "name": "\uC0BC\uC77C\uC808", "substitute": false }, "2027-05-13": { "name": "\uBD80\uCC98\uB2D8\uC624\uC2E0\uB0A0", "substitute": false }, "2027-09-14": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2027-10-11": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uD55C\uAE00\uB0A0", "substitute": true }, "2028-06-06": { "name": "\uD604\uCDA9\uC77C", "substitute": false }, "2029-05-05": { "name": "\uC5B4\uB9B0\uC774\uB0A0", "substitute": false }, "2021-01-01": { "name": "\uC0C8\uD574\uCCAB\uB0A0", "substitute": false }, "2021-02-13": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2021-09-20": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2021-09-21": { "name": "\uCD94\uC11D", "substitute": false }, "2021-09-22": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2021-10-11": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uD55C\uAE00\uB0A0", "substitute": true }, "2021-12-25": { "name": "\uD06C\uB9AC\uC2A4\uB9C8\uC2A4", "substitute": false }, "2022-01-31": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2022-05-05": { "name": "\uC5B4\uB9B0\uC774\uB0A0", "substitute": false }, "2023-01-23": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2023-05-29": { "name": "\uC11D\uAC00\uD0C4\uC2E0\uC77C \uB300\uCCB4\uACF5\uD734\uC77C", "substitute": false }, "2023-09-29": { "name": "\uCD94\uC11D", "substitute": false }, "2023-09-30": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2023-10-02": { "name": "\uCD94\uC11D (\uB300\uCCB4\uACF5\uD734\uC77C)", "substitute": false }, "2023-10-09": { "name": "\uD55C\uAE00\uB0A0", "substitute": false }, "2023-12-25": { "name": "\uD06C\uB9AC\uC2A4\uB9C8\uC2A4", "substitute": false }, "2024-02-09": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2024-02-12": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2024-05-15": { "name": "\uBD80\uCC98\uB2D8\uC624\uC2E0\uB0A0", "substitute": false }, "2024-06-06": { "name": "\uD604\uCDA9\uC77C", "substitute": false }, "2025-10-03": { "name": "\uAC1C\uCC9C\uC808", "substitute": false }, "2025-12-25": { "name": "\uD06C\uB9AC\uC2A4\uB9C8\uC2A4", "substitute": false }, "2026-02-18": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2026-05-05": { "name": "\uC5B4\uB9B0\uC774\uB0A0", "substitute": false }, "2026-08-15": { "name": "\uAD11\uBCF5\uC808", "substitute": false }, "2026-09-24": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2026-09-26": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2027-01-01": { "name": "\uC0C8\uD574\uCCAB\uB0A0", "substitute": false }, "2027-05-05": { "name": "\uC5B4\uB9B0\uC774\uB0A0", "substitute": false }, "2027-10-03": { "name": "\uAC1C\uCC9C\uC808", "substitute": false }, "2028-01-01": { "name": "\uC0C8\uD574\uCCAB\uB0A0", "substitute": false }, "2028-05-02": { "name": "\uBD80\uCC98\uB2D8\uC624\uC2E0\uB0A0", "substitute": false }, "2028-12-25": { "name": "\uD06C\uB9AC\uC2A4\uB9C8\uC2A4", "substitute": false }, "2029-03-01": { "name": "\uC0BC\uC77C\uC808", "substitute": false }, "2029-05-20": { "name": "\uBD80\uCC98\uB2D8\uC624\uC2E0\uB0A0", "substitute": false }, "2029-06-06": { "name": "\uD604\uCDA9\uC77C", "substitute": false }, "2029-09-21": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2029-09-23": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2029-10-03": { "name": "\uAC1C\uCC9C\uC808", "substitute": false }, "2021-02-12": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2021-03-01": { "name": "\uC0BC\uC77C\uC808", "substitute": false }, "2021-05-19": { "name": "\uBD80\uCC98\uB2D8\uC624\uC2E0\uB0A0", "substitute": false }, "2021-06-06": { "name": "\uD604\uCDA9\uC77C", "substitute": false }, "2022-03-09": { "name": "\uB300\uD1B5\uB839 \uC120\uAC70", "substitute": false }, "2022-09-10": { "name": "\uCD94\uC11D", "substitute": false }, "2022-09-11": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2023-01-21": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2023-01-22": { "name": "\uC124\uB0A0", "substitute": false }, "2023-05-05": { "name": "\uC5B4\uB9B0\uC774\uB0A0", "substitute": false }, "2024-02-11": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2024-04-10": { "name": "\uAD6D\uD68C\uC758\uC6D0\uC120\uAC70\uC77C", "substitute": false }, "2024-10-03": { "name": "\uAC1C\uCC9C\uC808", "substitute": false }, "2025-06-06": { "name": "\uD604\uCDA9\uC77C", "substitute": false }, "2025-10-06": { "name": "\uCD94\uC11D", "substitute": false }, "2025-10-09": { "name": "\uD55C\uAE00\uB0A0", "substitute": false }, "2026-05-24": { "name": "\uBD80\uCC98\uB2D8\uC624\uC2E0\uB0A0", "substitute": false }, "2026-06-06": { "name": "\uD604\uCDA9\uC77C", "substitute": false }, "2026-09-25": { "name": "\uCD94\uC11D", "substitute": false }, "2026-12-25": { "name": "\uD06C\uB9AC\uC2A4\uB9C8\uC2A4", "substitute": false }, "2027-06-06": { "name": "\uD604\uCDA9\uC77C", "substitute": false }, "2027-09-16": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2028-03-01": { "name": "\uC0BC\uC77C\uC808", "substitute": false }, "2028-10-04": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2029-01-01": { "name": "\uC0C8\uD574\uCCAB\uB0A0", "substitute": false }, "2029-02-14": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2029-09-24": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uCD94\uC11D \uC5F0\uD734", "substitute": true }, "2029-10-09": { "name": "\uD55C\uAE00\uB0A0", "substitute": false }, "2024-10-01": { "name": "\uAD6D\uAD70\uC758\uB0A0", "substitute": false }, "2025-01-28": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2026-05-25": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uBD80\uCC98\uB2D8\uC624\uC2E0\uB0A0", "substitute": true }, "2029-05-21": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uBD80\uCC98\uB2D8\uC624\uC2E0\uB0A0", "substitute": true }, "2026-02-16": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2026-03-02": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uC0BC\uC77C\uC808", "substitute": true }, "2025-03-03": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uC0BC\uC77C\uC808", "substitute": true }, "2025-05-06": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uC5B4\uB9B0\uC774\uB0A0", "substitute": true }, "2025-10-08": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uCD94\uC11D \uC5F0\uD734", "substitute": true }, "2030-01-01": { "name": "\uC0C8\uD574\uCCAB\uB0A0", "substitute": false }, "2030-02-04": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2030-03-01": { "name": "\uC0BC\uC77C\uC808", "substitute": false }, "2030-05-05": { "name": "\uC5B4\uB9B0\uC774\uB0A0", "substitute": false }, "2030-05-09": { "name": "\uBD80\uCC98\uB2D8\uC624\uC2E0\uB0A0", "substitute": false }, "2030-06-06": { "name": "\uD604\uCDA9\uC77C", "substitute": false }, "2030-08-15": { "name": "\uAD11\uBCF5\uC808", "substitute": false }, "2030-09-11": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2030-09-12": { "name": "\uCD94\uC11D", "substitute": false }, "2030-09-13": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2030-10-03": { "name": "\uAC1C\uCC9C\uC808", "substitute": false }, "2030-10-09": { "name": "\uD55C\uAE00\uB0A0", "substitute": false }, "2030-12-25": { "name": "\uD06C\uB9AC\uC2A4\uB9C8\uC2A4", "substitute": false }, "2025-01-27": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2025-06-03": { "name": "\uB300\uD1B5\uB839 \uC120\uAC70", "substitute": false }, "2026-06-03": { "name": "\uC9C0\uBC29\uC120\uAC70\uC77C", "substitute": false }, "2026-08-17": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uAD11\uBCF5\uC808", "substitute": true }, "2026-10-05": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uAC1C\uCC9C\uC808", "substitute": true }, "2031-01-01": { "name": "\uC0C8\uD574\uCCAB\uB0A0", "substitute": false }, "2031-01-23": { "name": "\uC124\uB0A0", "substitute": false }, "2031-01-24": { "name": "\uC124\uB0A0 \uC5F0\uD734", "substitute": false }, "2031-03-01": { "name": "\uC0BC\uC77C\uC808", "substitute": false }, "2031-03-03": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uC0BC\uC77C\uC808", "substitute": true }, "2031-05-05": { "name": "\uC5B4\uB9B0\uC774\uB0A0", "substitute": false }, "2031-05-28": { "name": "\uBD80\uCC98\uB2D8\uC624\uC2E0\uB0A0", "substitute": false }, "2031-06-06": { "name": "\uD604\uCDA9\uC77C", "substitute": false }, "2031-08-15": { "name": "\uAD11\uBCF5\uC808", "substitute": false }, "2031-09-30": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2031-10-01": { "name": "\uCD94\uC11D", "substitute": false }, "2031-10-02": { "name": "\uCD94\uC11D \uC5F0\uD734", "substitute": false }, "2031-10-03": { "name": "\uAC1C\uCC9C\uC808", "substitute": false }, "2031-10-09": { "name": "\uD55C\uAE00\uB0A0", "substitute": false }, "2031-12-25": { "name": "\uD06C\uB9AC\uC2A4\uB9C8\uC2A4", "substitute": false }, "2026-07-17": { "name": "\uC81C\uD5CC\uC808", "substitute": false }, "2027-07-17": { "name": "\uC81C\uD5CC\uC808", "substitute": false }, "2028-07-17": { "name": "\uC81C\uD5CC\uC808", "substitute": false }, "2029-07-17": { "name": "\uC81C\uD5CC\uC808", "substitute": false }, "2030-07-17": { "name": "\uC81C\uD5CC\uC808", "substitute": false }, "2031-07-17": { "name": "\uC81C\uD5CC\uC808", "substitute": false }, "2026-05-01": { "name": "\uB178\uB3D9\uC808", "substitute": false }, "2027-05-01": { "name": "\uB178\uB3D9\uC808", "substitute": false }, "2027-05-03": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uB178\uB3D9\uC808", "substitute": true }, "2028-05-01": { "name": "\uB178\uB3D9\uC808", "substitute": false }, "2029-05-01": { "name": "\uB178\uB3D9\uC808", "substitute": false }, "2030-05-01": { "name": "\uB178\uB3D9\uC808", "substitute": false }, "2031-05-01": { "name": "\uB178\uB3D9\uC808", "substitute": false }, "2027-02-07": { "name": "\uC124\uB0A0", "substitute": false }, "2027-02-09": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uC124\uB0A0", "substitute": true }, "2027-07-19": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uC81C\uD5CC\uC808", "substitute": true }, "2027-08-16": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uAD11\uBCF5\uC808", "substitute": true }, "2027-10-04": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uAC1C\uCC9C\uC808", "substitute": true }, "2027-12-27": { "name": "\uB300\uCCB4\uACF5\uD734\uC77C \xB7 \uD06C\uB9AC\uC2A4\uB9C8\uC2A4", "substitute": true } };
@@ -563,72 +643,6 @@ function parseHolidayCalendar(text2) {
   }
   if (Object.keys(dates).length < 10) throw Error("\uACF5\uD734\uC77C \uCE98\uB9B0\uB354 \uC751\uB2F5\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
   return dates;
-}
-
-// web/membership.js
-function memberDays(a, b) {
-  return Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 864e5);
-}
-function periodEnd(start, months) {
-  if (!normalizeDate(start) || ![1, 3, 6, 12].includes(Number(months))) throw Error("\uC2DC\uC791\uC77C\uACFC \uAE30\uAC04\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-  const d = /* @__PURE__ */ new Date(start + "T00:00:00Z"), day = d.getUTCDate();
-  d.setUTCDate(1);
-  d.setUTCMonth(d.getUTCMonth() + Number(months));
-  d.setUTCDate(Math.min(day, new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()));
-  return addDays(d.toISOString().slice(0, 10), -1);
-}
-function membershipState(pass, today, attendedToday = false) {
-  if (!pass) return { status: "unregistered", label: "\uD68C\uC6D0\uAD8C \uBBF8\uB4F1\uB85D", active: true, soon: false };
-  if (pass.paused_at) return { status: "paused", label: "\uD734\uD68C \uC911", active: false, soon: false };
-  if (pass.start_date > today) return { status: "scheduled", label: "\uC774\uC6A9 \uC2DC\uC791 \uC804", active: false, soon: false };
-  const days = pass.end_date ? memberDays(today, pass.end_date) + 1 : null;
-  if (attendedToday && pass.kind === "visits" && pass.remaining_visits === 0 && (days === null || days > 0)) return { status: "active", label: "\uC624\uB298 \uB9C8\uC9C0\uB9C9 \uD68C\uCC28 \uC774\uC6A9 \uC911", active: true, soon: true, days };
-  if (days !== null && days <= 0 || pass.kind === "visits" && pass.remaining_visits <= 0) return { status: "expired", label: "\uB9CC\uB8CC", active: false, soon: false, days };
-  const soon = days !== null && days <= 7 || pass.kind === "visits" && pass.remaining_visits <= 3;
-  return { status: "active", label: soon ? "\uB9CC\uB8CC \uC608\uC815" : "\uC774\uC6A9 \uC911", active: true, soon, days };
-}
-function changeMembership(old, b, today) {
-  let p = old ? { ...old } : null;
-  const action = b.action;
-  if (["register", "extend"].includes(action)) {
-    if (b.endDate && !normalizeDate(b.endDate)) throw Error("\uC885\uB8CC\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    if (!["period", "visits"].includes(b.kind)) throw Error("\uD68C\uC6D0\uAD8C \uC885\uB958\uB97C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
-    if (action === "extend" && (!old || old.kind !== b.kind || old.paused_at)) throw Error("\uAC19\uC740 \uC885\uB958\uC758 \uD68C\uC6D0\uAD8C\uC744 \uC7AC\uAC1C\uD55C \uD6C4 \uC5F0\uC7A5\uD574\uC8FC\uC138\uC694.");
-    const start = normalizeDate(b.startDate || today);
-    if (!start) throw Error("\uC2DC\uC791\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    if (b.kind === "period") {
-      const months = Number(b.months);
-      if (![1, 3, 6, 12].includes(months)) throw Error("1\xB73\xB76\uAC1C\uC6D4 \uB610\uB294 1\uB144\uAD8C\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
-      const base = action === "extend" && old.end_date >= today ? addDays(old.end_date, 1) : start;
-      p = { id: action === "extend" ? old.id : crypto.randomUUID(), kind: "period", months, start_date: action === "extend" ? old.start_date : start, end_date: normalizeDate(b.endDate) || periodEnd(base, months), total_visits: null, remaining_visits: null, paused_at: null };
-    } else {
-      const count = Number(b.visits);
-      if (!Number.isInteger(count) || count < 1 || count > 9999) throw Error("\uD69F\uC218\uB294 1~9,999\uD68C\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-      if (b.endDate && !normalizeDate(b.endDate)) throw Error("\uC720\uD6A8\uAE30\uAC04\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      p = { id: action === "extend" ? old.id : crypto.randomUUID(), kind: "visits", months: null, start_date: action === "extend" ? old.start_date : start, end_date: b.endDate || (action === "extend" ? old?.end_date : null) || null, total_visits: count + (action === "extend" ? old.total_visits : 0), remaining_visits: count + (action === "extend" ? old.remaining_visits : 0), paused_at: null };
-    }
-  } else if (action === "pause") {
-    if (!old || !membershipState(old, today).active || old.paused_at) throw Error("\uC774\uC6A9 \uC911\uC778 \uD68C\uC6D0\uAD8C\uB9CC \uD734\uD68C\uD560 \uC218 \uC788\uC5B4\uC694.");
-    p.paused_at = today;
-  } else if (action === "resume") {
-    if (!old?.paused_at) throw Error("\uD734\uD68C \uC911\uC778 \uD68C\uC6D0\uAD8C\uC774 \uC544\uB2C8\uC5D0\uC694.");
-    const days = Math.max(0, memberDays(old.paused_at, today));
-    p.end_date = p.end_date ? addDays(p.end_date, days) : null;
-    p.paused_at = null;
-  } else if (action === "adjust") {
-    if (!old || !String(b.reason || "").trim()) throw Error("\uD68C\uC6D0\uAD8C\uACFC \uC218\uC815 \uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    if (b.endDate && !normalizeDate(b.endDate)) throw Error("\uC885\uB8CC\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    p.end_date = b.endDate || null;
-    if (p.kind === "period" && !p.end_date) throw Error("\uAE30\uAC04\uAD8C\uC758 \uC885\uB8CC\uC77C\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-    if (p.kind === "visits") {
-      const n = Number(b.remaining);
-      if (!Number.isInteger(n) || n < 0 || n > 9999) throw Error("\uC794\uC5EC\uD69F\uC218\uB97C 0~9,999\uD68C\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-      p.remaining_visits = n;
-      p.total_visits = Math.max(p.total_visits, n);
-    }
-  } else throw Error("\uCC98\uB9AC\uD560 \uD68C\uC6D0\uAD8C \uC791\uC5C5\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
-  if (p.end_date && p.end_date < p.start_date) throw Error("\uC885\uB8CC\uC77C\uC774 \uC2DC\uC791\uC77C\uBCF4\uB2E4 \uBE60\uB97C \uC218 \uC5C6\uC5B4\uC694.");
-  return p;
 }
 
 // web/tv-colors.js
@@ -870,8 +884,8 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
 
 // supabase/functions/onoff-api/server.js
 var ORIGINS = /* @__PURE__ */ new Set(["https://nuclearstark.github.io", "https://onoff-crossfit-gym.powerloding.chatgpt.site"]);
-var bad = (message, status = 400) => {
-  throw Object.assign(Error(message), { status });
+var bad = (message, status = 400, extra = {}) => {
+  throw Object.assign(Error(message), { status, ...extra });
 };
 var uuid3 = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 var text = (v, min, max, label) => {
@@ -981,6 +995,11 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     const [ws, holidays, prefs] = await Promise.all([rows("gym_workouts", (q) => q.eq("date", date).lte("release_at", now().toISOString())), calendar(), setting("tvDisplay", {})]);
     return { date, releaseTime, serverNow: now().toISOString(), dayState: workoutDayState(date, holidays.dates), holidayName: holidays.dates[date]?.name || "", workouts: ws.map((w) => w.body), preferences: normalizeTvPreferences(prefs) };
   }
+  async function joinAccess(m, id2) {
+    const [post, pass] = await Promise.all([one("gym_posts", "id", id2), one("gym_memberships", "user_id", m.id)]), author = post ? await one("gym_members", "id", post.author_id) : null, day = kstDate(now());
+    const attendance = pass?.kind === "visits" && pass.remaining_visits === 0 ? await rows("gym_attendance", (q) => q.eq("user_id", m.id).eq("date", day).eq("membership_id", pass.id)) : [];
+    return participationAccess({ viewer: m, author, post, pass, today: day, attendedToday: attendance.length > 0 });
+  }
   async function bootstrap(m, url) {
     const rev = await revision(m);
     if (m.status !== "approved") return { viewer: m, privacyReviewRequired: m.privacy_version !== PRIVACY_VERSION, workouts: {}, library: [], members: [], ...rev };
@@ -1076,7 +1095,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       photos: canRead ? await media.list(viewDate, posts.map((p) => p.id), noticeRows.map((n) => n.id), m) : [],
       rms: rms.map((r) => ({ ...r.body, id: r.id, memberId: r.user_id })),
       preferences: prefs?.body || {},
-      posts: posts.map((p) => ({ ...p, authorId: p.author_id, author: names.get(p.author_id) || "\uD68C\uC6D0", date: kstDate(new Date(p.created_at)), joined: [], joinedIds: joins.filter((j) => j.post_id === p.id && memberRows.find((x) => x.id === j.user_id)?.disclosure_consent !== false).map((j) => j.user_id), joinedNames: Object.fromEntries(joins.filter((j) => j.post_id === p.id && memberRows.find((x) => x.id === j.user_id)?.disclosure_consent !== false).map((j) => [j.user_id, names.get(j.user_id) || "\uD68C\uC6D0"])), comments: comments.filter((c) => c.post_id === p.id && memberRows.find((x) => x.id === c.author_id)?.disclosure_consent !== false).map((c) => ({ ...c, authorId: c.author_id, author: names.get(c.author_id) || "\uD68C\uC6D0" })) })),
+      posts: posts.map((p) => ({ ...p, viewerJoined: joins.some((j) => j.post_id === p.id && j.user_id === m.id), joinAccess: participationAccess({ viewer: m, author: memberRows.find((x) => x.id === p.author_id), post: p, pass, today: day, attendedToday: att.some((a) => a.date === day && a.membership_id === pass?.id) }), authorId: p.author_id, author: names.get(p.author_id) || "\uD68C\uC6D0", date: kstDate(new Date(p.created_at)), joined: [], joinedIds: joins.filter((j) => j.post_id === p.id && memberRows.find((x) => x.id === j.user_id)?.disclosure_consent !== false).map((j) => j.user_id), joinedNames: Object.fromEntries(joins.filter((j) => j.post_id === p.id && memberRows.find((x) => x.id === j.user_id)?.disclosure_consent !== false).map((j) => [j.user_id, names.get(j.user_id) || "\uD68C\uC6D0"])), comments: comments.filter((c) => c.post_id === p.id && memberRows.find((x) => x.id === c.author_id)?.disclosure_consent !== false).map((c) => ({ ...c, authorId: c.author_id, author: names.get(c.author_id) || "\uD68C\uC6D0" })) })),
       tv: hasPermission(m, "tv") ? await tvSettings() : void 0,
       push: await push.status(m),
       historyLimit: 1e3
@@ -1097,7 +1116,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     if (path === "/api/bootstrap") return bootstrap(m, url);
     if (path === "/api/profile") return commit(m.id, "profile", { name: text(b.name, 2, 30, "\uC2E4\uBA85") });
     approved(m);
-    if ((path === "/api/posts" || path === "/api/meetups" || (path === "/api/posts/comment" || path === "/api/posts/join" && b.joined !== false)) && m.disclosure_consent === false) bad("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC774\uC6A9\uD574\uC8FC\uC138\uC694.", 403);
+    if ((path === "/api/posts" || path === "/api/meetups" || path === "/api/posts/comment") && m.disclosure_consent === false) bad("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC774\uC6A9\uD574\uC8FC\uC138\uC694.", 403);
     if (path.startsWith("/api/named-wods/")) return named.route(m, path, b);
     if (path === "/api/rm/comparison") {
       if (typeof b.movementId !== "string" || b.movementId.length > 100) bad("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
@@ -1214,11 +1233,28 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       if (!["\uC6B4\uB3D9 \uBC88\uAC1C", "\uACF5\uB3D9\uAD6C\uB9E4", "\uC790\uC720\uAE00"].includes(b.category)) bad("\uB9D0\uBA38\uB9AC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return commit(m.id, "post", { category: b.category, title: text(b.title, 1, 80, "\uC81C\uBAA9"), body: text(b.body, 1, 3e3, "\uB0B4\uC6A9") });
     }
+    if (path === "/api/posts/access") {
+      if (!uuid3(b.id)) bad("\uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      return joinAccess(m, b.id);
+    }
     if (path === "/api/posts/join") {
       if (!uuid3(b.id) || typeof b.joined !== "boolean") bad("\uAC8C\uC2DC\uAE00\uACFC \uCC38\uC5EC \uC0C1\uD0DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      return result(db2.rpc("onoff_post_participation", { actor: m.id, target_post: b.id, joined: b.joined }));
+      if (b.joined) {
+        const access = await joinAccess(m, b.id);
+        if (!access.allowed) bad(access.message, 403, { joinAccess: access });
+      }
+      try {
+        return await result(db2.rpc("onoff_post_participation", { actor: m.id, target_post: b.id, joined: b.joined }));
+      } catch (error) {
+        if (error.status === 403 && b.joined) {
+          const access = await joinAccess(m, b.id);
+          if (!access.allowed) bad(access.message, 403, { joinAccess: access });
+          bad("\uCC38\uC5EC \uC870\uAC74\uC774 \uBCC0\uACBD\uB410\uC5B4\uC694. \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uD655\uC778\uD574\uC8FC\uC138\uC694.", 409);
+        }
+        throw error;
+      }
     }
-    if (["/api/posts/delete", "/api/posts/join", "/api/posts/comment"].includes(path)) {
+    if (["/api/posts/delete", "/api/posts/comment"].includes(path)) {
       if (!uuid3(b.id)) bad("\uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       if (!path.endsWith("delete")) {
         const post = await one("gym_posts", "id", b.id);
@@ -1420,7 +1456,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return response(await route(req, path, url, b));
     } catch (e) {
       if (!e.status) console.error("ONOFF request failed", e.name);
-      return response({ error: e.status ? e.message : "\uC11C\uBC84 \uC5F0\uACB0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." }, e.status || 503);
+      return response({ error: e.status ? e.message : "\uC11C\uBC84 \uC5F0\uACB0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", ...e.status && e.joinAccess ? { joinAccess: e.joinAccess } : {} }, e.status || 503);
     }
   };
 }

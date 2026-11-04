@@ -1,0 +1,55 @@
+/* Community: readable type, distinct identities, five stories per swipe page. */
+.community-pages{display:block;min-width:0}
+.community-pages .swipe-page{display:grid;align-content:start;gap:14px;min-width:0}
+.community-pages .post-card{width:100%;min-width:0}
+.community-pages .post-card h3{font-size:18px;line-height:1.55}
+.community-pages .post-card>p{font-size:14px;line-height:1.75}
+.community-pages .post-footer{font-size:12px;line-height:1.6;gap:10px;flex-wrap:wrap}
+.post-footer strong,.post-thread .board-meta strong,.post-thread .comment>small,.post-thread .community-participants{font-weight:700}
+.post-thread .board-meta{font-size:13px;line-height:1.65}
+.post-thread .post-body{font-size:15px;line-height:1.85}
+.post-thread .comment{font-size:15px;line-height:1.8}
+.post-thread .comment>small{font-size:13px;margin-bottom:5px;display:block}
+.post-thread .community-participants{font-size:13px;line-height:1.75}
+.post-thread .post-title{font-size:23px;line-height:1.5;overflow-wrap:anywhere}
+.post-thread>h3{font-size:18px}
+.post-thread .photo-gallery{min-width:0;max-width:100%}
+.post-thread .post-actions{padding-bottom:6px}
+#meetup-header-banner button.meetup-entry{color:#fff}
+#meetup-header-banner button.meetup-entry-gold{color:#ffe8a6}
+#meetup-header-banner .meetup-entry-divider{display:inline-block;color:#ffffff80;margin:0 24px;font-weight:400}
+/* Preserve the card actions while its body opens a detail/relative-position view. */
+.rm-compare-open,.named-card-main{display:block;width:100%;text-align:left;padding:0;color:inherit}
+.rm-compare-open>h3,.named-card-main>h3{padding-right:28px;overflow-wrap:anywhere}
+.named-card-main .rm-number{font-size:34px;line-height:1.45;margin-top:22px}
+.named-card-main .rm-number>small{display:block;font-size:11px;margin:4px 0 0;font-family:inherit;color:var(--muted)}
+.named-member-group{margin:26px 0}
+.named-member-group>h2{font-size:17px;margin:0 0 15px}
+.named-description{white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.85;margin-bottom:24px}
+.named-row-actions{display:flex;align-items:center;gap:3px;flex-shrink:0}
+.named-row-actions .icon-control{width:36px;min-width:36px;height:40px;padding:8px}
+.named-row-actions svg{width:18px;height:18px}
+.named-admin .rm-admin-row>div:first-child{min-width:0}
+.named-record-history .history-row>div:first-child{min-width:0;flex:1}
+.named-record-history .history-row strong{font-size:19px}
+.named-record-history .history-row p{font-size:12px;overflow-wrap:anywhere;color:var(--muted)}
+.rm-comparison{padding:8px 2px}
+.rm-comparison-own{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:14px}
+.rm-standing-label{font-size:28px;display:block;margin:22px 0 8px}
+.rm-position-chart{position:relative;margin:56px 8px 24px}
+.rm-position-zones{display:flex;overflow:hidden;border-radius:8px;height:40px}
+.rm-position-zones>span{flex:1;display:grid;place-items:center;color:#edf3ff;font-size:12px;background:#42516a}
+.rm-position-zones>span:nth-child(2){background:#365d99}.rm-position-zones>span:nth-child(3){background:#826927}
+.rm-position-marker{position:absolute;left:clamp(3%,var(--position),97%);top:-32px;transform:translateX(-50%);text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:12px;font-weight:800;color:var(--ink)}
+.rm-position-marker>span{background:var(--ink);color:var(--bg);border-radius:5px;padding:2px 9px}.rm-position-marker>i{width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid var(--ink)}
+.member-manager .member-identity>div>strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.member-manager .member-role-badge{white-space:nowrap;margin-left:6px}
+.member-manager .member-row:has([data-member-approve]) .member-row-actions{gap:4px}
+.member-manager .member-row:has([data-member-approve]) .member-row-actions>.btn{min-width:50px;padding:8px;font-size:12px;min-height:40px}
+.member-manager .member-row:has([data-member-approve]) .member-row-actions>.btn svg{display:none}
+.account-retention{font-size:12px;line-height:1.7;color:var(--muted);padding:10px;border:1px solid var(--line);border-radius:8px}
+.account-retention.overdue,.danger-text{color:#ffacb8}.account-delete-launch{margin-top:20px}
+.privacy-consent-summary{font-size:12px;line-height:1.8;text-align:left;border:1px solid var(--line);border-radius:10px;padding:14px;margin:15px 0;color:var(--muted);background:var(--bg)}
+.privacy-consent-summary dt{font-weight:700;color:var(--ink)}.privacy-consent-summary dd{margin:3px 0 10px}.privacy-consent-summary p{margin:12px 0 0}
+.privacy-welcome{width:min(100%,600px);text-align:left}.privacy-welcome h1{font-size:23px}.privacy-welcome .checkbox-label{font-size:13px;line-height:1.8;align-items:flex-start;gap:10px;margin:16px 0}.privacy-welcome .checkbox-label input{flex-shrink:0;margin-top:4px}
+.privacy-welcome>p{font-size:13px}.privacy-welcome .link{font-size:13px;margin:12px 0}

@@ -1,20 +1,70 @@
 // supabase/functions/onoff-api/entry.js
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
-// supabase/functions/onoff-api/points-service.js
+// supabase/functions/onoff-api/named-service.js
 var fail = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
-var uuid = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+var uuid = (x) => typeof x === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(x);
+var id = (x) => typeof x === "string" && /^[a-z0-9-]{1,80}$/.test(x);
+var validText = (x, min, max) => typeof x === "string" && x.trim().length >= min && x.length <= max;
+function createNamedService(db2) {
+  async function rpc(name, p) {
+    const { data, error } = await db2.rpc(name, p);
+    if (error) fail(error.code === "42501" ? "\uC774 \uAE30\uB2A5\uC758 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : error.code === "23505" ? "\uC774\uBBF8 \uB4F1\uB85D\uB41C \uC885\uBAA9 \uB610\uB294 \uBD84\uB958\uC608\uC694." : "\uC694\uCCAD\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : error.code === "23505" ? 409 : 400);
+    return data;
+  }
+  return { snapshot: (m) => rpc("onoff_named_snapshot", { actor: m.id }), async route(m, path, b) {
+    if (m.status !== "approved") fail("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    let p;
+    if (path === "/api/named-wods/selection") {
+      if (!Array.isArray(b.ids) || b.ids.length > 250 || b.ids.some((x) => !id(x))) fail("\uC885\uBAA9 \uC120\uD0DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "selection", ids: [...new Set(b.ids)] };
+    } else if (path === "/api/named-wods/record") {
+      if (!uuid(b.id) || !id(b.wodId) || !/^\d{4}-\d{2}-\d{2}$/.test(b.date || "") || !validText(b.note ?? "", 0, 150)) fail("\uC885\uBAA9\xB7\uB0A0\uC9DC\xB7\uBA54\uBAA8\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      const time = Number.isInteger(b.seconds) && b.seconds >= 1 && b.seconds <= 59999, rounds = Number.isInteger(b.rounds) && b.rounds >= 0 && b.rounds <= 9999 && Number.isInteger(b.reps) && b.reps >= 0 && b.reps <= 99999 && b.rounds + b.reps > 0;
+      if (!time && !rounds) fail("\uC2DC\uAC04 \uB610\uB294 \uB77C\uC6B4\uB4DC\xB7\uD69F\uC218\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "record", id: b.id, wodId: b.wodId, date: b.date, note: (b.note || "").trim(), ...time ? { seconds: b.seconds } : { rounds: b.rounds, reps: b.reps } };
+    } else if (path === "/api/named-wods/record/delete") {
+      if (!uuid(b.id)) fail("\uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p = { action: "record-delete", id: b.id };
+    } else {
+      if (m.role !== "admin") fail("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (path === "/api/named-wods/catalogue") {
+        if (b.id && !id(b.id) || !validText(b.name, 1, 80) || !validText(b.description ?? "", 0, 1e4) || !id(b.categoryId) || !["time", "rounds"].includes(b.recordType) || typeof b.isDefault !== "boolean" || typeof b.active !== "boolean") fail("\uC885\uBAA9 \uC124\uC815\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        p = { action: "catalogue", ...b.id ? { id: b.id } : {}, name: b.name.trim(), description: b.description || "", categoryId: b.categoryId, recordType: b.recordType, isDefault: b.isDefault, active: b.active };
+      } else if (path === "/api/named-wods/catalogue/delete") {
+        if (!id(b.id)) fail("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        p = { action: "catalogue-delete", id: b.id };
+      } else if (path === "/api/named-wods/category") {
+        if (b.id && !id(b.id) || !validText(b.label, 1, 40)) fail("\uBD84\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        p = { action: "category", ...b.id ? { id: b.id } : {}, label: b.label.trim() };
+      } else if (path === "/api/named-wods/category/delete") {
+        if (!id(b.id) || !id(b.targetId) || b.id === b.targetId) fail("\uC62E\uAE38 \uBD84\uB958\uB97C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+        p = { action: "category-delete", id: b.id, targetId: b.targetId };
+      } else fail("Named WOD \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    }
+    return rpc("onoff_named_mutate", { actor: m.id, p });
+  } };
+}
+
+// web/privacy-version.js
+var PRIVACY_VERSION = "privacy-2026-11-04";
+
+// supabase/functions/onoff-api/points-service.js
+var fail2 = (message, status = 400) => {
+  throw Object.assign(Error(message), { status });
+};
+var uuid2 = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 var integer = (n, min, max) => Number.isSafeInteger(n) && n >= min && n <= max;
 function createPointsService(db2, { now = () => /* @__PURE__ */ new Date() } = {}) {
   const read = async (q) => {
     const { data, error } = await q;
-    if (error) fail("\uD3EC\uC778\uD2B8 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+    if (error) fail2("\uD3EC\uC778\uD2B8 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
     return data;
   };
   async function snapshot(m) {
-    if (m?.status !== "approved") fail("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (m?.status !== "approved") fail2("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     const [cfg, account, coupons, products, ledger, rules, methods] = await Promise.all([
       read(db2.from("gym_point_config").select("enabled,attendance_points,record_points,max_balance").eq("singleton", true).maybeSingle()),
       read(db2.from("gym_point_accounts").select("balance").eq("user_id", m.id).maybeSingle()),
@@ -27,67 +77,67 @@ function createPointsService(db2, { now = () => /* @__PURE__ */ new Date() } = {
     return { enabled: !!cfg?.enabled, attendancePoints: cfg?.attendance_points || 0, recordPoints: cfg?.record_points || 0, balance: Number(account?.balance || 0), maxBalance: cfg?.max_balance == null ? null : Number(cfg.max_balance), rules: rules || [], methods: methods || [], coupons: (coupons || []).map((c) => ({ ...c, expired: !!c.expires_at && Date.parse(c.expires_at) <= +now() })), products: products || [], ledger: ledger || [] };
   }
   async function route(m, path, b) {
-    if (m?.status !== "approved") fail("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (m?.status !== "approved") fail2("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     if (path === "/api/points") return snapshot(m);
     const isAdmin = m.role === "admin";
-    if (["/api/points/admin", "/api/points/settings", "/api/points/product", "/api/points/product/delete", "/api/points/rule", "/api/points/rule/delete", "/api/points/grant", "/api/points/deduct", "/api/points/reset", "/api/points/method", "/api/points/method/delete"].includes(path) && !isAdmin) fail("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+    if (["/api/points/admin", "/api/points/settings", "/api/points/product", "/api/points/product/delete", "/api/points/rule", "/api/points/rule/delete", "/api/points/grant", "/api/points/deduct", "/api/points/reset", "/api/points/method", "/api/points/method/delete"].includes(path) && !isAdmin) fail2("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
     if (path === "/api/points/admin") {
       const cfg = await read(db2.from("gym_point_config").select("pin_hash").eq("singleton", true).maybeSingle());
       const [base, coupons, members, accounts] = await Promise.all([snapshot(m), read(db2.from("gym_point_coupons").select("id,user_id,name,price,total,remaining,created_at,last_used_at,expires_at").order("created_at", { ascending: false }).limit(100)), read(db2.from("gym_members").select("id,name,status")), read(db2.from("gym_point_accounts").select("user_id,balance"))]);
       return { ...base, pinConfigured: !!cfg?.pin_hash, members: members.filter((m2) => m2.status === "approved").map((m2) => ({ id: m2.id, name: m2.name, balance: Number(accounts.find((a) => a.user_id === m2.id)?.balance || 0) })), issued: (coupons || []).map((c) => ({ ...c, expired: !!c.expires_at && Date.parse(c.expires_at) <= +now(), memberName: members.find((m2) => m2.id === c.user_id)?.name || "\uD68C\uC6D0" })) };
     }
     if (path === "/api/points/reset") {
-      if (!uuid(b.requestId) || b.confirmed !== true) fail("\uCD08\uAE30\uD654 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.requestId) || b.confirmed !== true) fail2("\uCD08\uAE30\uD654 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const { data: data2, error: error2 } = await db2.rpc("onoff_point_reset", { actor: m.id, request_id: b.requestId });
-      if (error2) fail(error2.code === "42501" ? "\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694." : "\uD3EC\uC778\uD2B8 \uCD08\uAE30\uD654 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error2.code === "42501" ? 403 : 503);
+      if (error2) fail2(error2.code === "42501" ? "\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694." : "\uD3EC\uC778\uD2B8 \uCD08\uAE30\uD654 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error2.code === "42501" ? 403 : 503);
       return data2;
     }
     let p;
     if (path === "/api/points/settings") {
-      if (typeof b.enabled !== "boolean" || b.pin && (typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin))) fail("\uC801\uB9BD \uC124\uC815\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (typeof b.enabled !== "boolean" || b.pin && (typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin))) fail2("\uC801\uB9BD \uC124\uC815\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "settings", enabled: b.enabled, pin: b.pin || "" };
       for (const key of ["attendancePoints", "recordPoints"]) if (key in b) {
-        if (!integer(b[key], 0, 1e6)) fail("\uC801\uB9BD\uC561\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (!integer(b[key], 0, 1e6)) fail2("\uC801\uB9BD\uC561\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p[key] = b[key];
       }
       if ("maxBalance" in b) {
-        if (b.maxBalance !== null && !integer(b.maxBalance, 1, 9e12)) fail("\uCD1D \uBCF4\uC720 \uD3EC\uC778\uD2B8 \uC0C1\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (b.maxBalance !== null && !integer(b.maxBalance, 1, 9e12)) fail2("\uCD1D \uBCF4\uC720 \uD3EC\uC778\uD2B8 \uC0C1\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p.maxBalance = b.maxBalance;
       }
     } else if (path === "/api/points/rule") {
-      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !b.methodId && !["attendance", "record", "manual"].includes(b.kind) || b.methodId && (typeof b.methodId !== "string" || b.methodId.length > 80) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || !integer(b.amount, 0, 1e6)) fail("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !b.methodId && !["attendance", "record", "manual"].includes(b.kind) || b.methodId && (typeof b.methodId !== "string" || b.methodId.length > 80) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || !integer(b.amount, 0, 1e6)) fail2("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "rule-save", id: b.id || "", ...b.methodId ? { methodId: b.methodId } : { kind: b.kind }, name: b.name.trim(), amount: b.amount };
     } else if (path === "/api/points/rule/delete") {
-      if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail2("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "rule-delete", id: b.id };
     } else if (path === "/api/points/method") {
-      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !["manual", "attendance", "record"].includes(b.kind) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60) fail("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !["manual", "attendance", "record"].includes(b.kind) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60) fail2("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "method-save", id: b.id || "", name: b.name.trim(), kind: b.kind };
     } else if (path === "/api/points/method/delete") {
-      if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail2("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "method-delete", id: b.id };
     } else if (path === "/api/points/deduct") {
-      if (!uuid(b.memberId) || !uuid(b.requestId) || !integer(b.amount, 1, 1e6) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200) fail("\uCC28\uAC10 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.memberId) || !uuid2(b.requestId) || !integer(b.amount, 1, 1e6) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200) fail2("\uCC28\uAC10 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "deduct", memberId: b.memberId, requestId: b.requestId, amount: b.amount, reason: b.reason.trim() };
     } else if (path === "/api/points/grant") {
-      if (!uuid(b.memberId) || !uuid(b.requestId) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200 || b.ruleId && (typeof b.ruleId !== "string" || b.ruleId.length > 80) || !b.ruleId && !integer(b.amount, 1, 1e6)) fail("\uC9C0\uAE09 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.memberId) || !uuid2(b.requestId) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200 || b.ruleId && (typeof b.ruleId !== "string" || b.ruleId.length > 80) || !b.ruleId && !integer(b.amount, 1, 1e6)) fail2("\uC9C0\uAE09 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "grant", memberId: b.memberId, requestId: b.requestId, ruleId: b.ruleId || null, reason: b.reason.trim(), ...!b.ruleId ? { amount: b.amount } : {} };
     } else if (path === "/api/points/product") {
-      if (b.id && !uuid(b.id) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || typeof b.description !== "string" || b.description.length > 300 || !integer(b.price, 1, 1e9) || !integer(b.uses, 1, 1e3)) fail("\uC0C1\uD488 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && !uuid2(b.id) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || typeof b.description !== "string" || b.description.length > 300 || !integer(b.price, 1, 1e9) || !integer(b.uses, 1, 1e3)) fail2("\uC0C1\uD488 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "product-save", id: b.id || "", name: b.name.trim(), description: b.description, price: b.price, uses: b.uses };
     } else if (path === "/api/points/product/delete") {
-      if (!uuid(b.id)) fail("\uC0C1\uD488\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.id)) fail2("\uC0C1\uD488\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "product-delete", id: b.id };
     } else if (path === "/api/points/exchange") {
-      if (!uuid(b.productId) || !uuid(b.requestId) || !integer(b.expectedPrice, 1, 1e9) || !integer(b.expectedUses, 1, 1e3)) fail("\uAD50\uD658 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.productId) || !uuid2(b.requestId) || !integer(b.expectedPrice, 1, 1e9) || !integer(b.expectedUses, 1, 1e3)) fail2("\uAD50\uD658 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "exchange", productId: b.productId, requestId: b.requestId, expectedPrice: b.expectedPrice, expectedUses: b.expectedUses };
     } else if (path === "/api/points/use") {
-      if (!uuid(b.couponId) || !uuid(b.requestId) || typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin)) fail("\uCFE0\uD3F0\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.couponId) || !uuid2(b.requestId) || typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin)) fail2("\uCFE0\uD3F0\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "use", couponId: b.couponId, requestId: b.requestId, pin: b.pin };
-    } else fail("\uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    } else fail2("\uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
     const { data, error } = await db2.rpc("onoff_points", { actor: m.id, p });
-    if (error) fail(error.code === "42501" ? "\uC774 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD560 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : error.code === "P0001" ? error.message : "\uD3EC\uC778\uD2B8 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : error.code === "P0001" ? 400 : 503);
-    if (data?.ok === false) fail(data.error, data.status || 400);
+    if (error) fail2(error.code === "42501" ? "\uC774 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD560 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : error.code === "P0001" ? error.message : "\uD3EC\uC778\uD2B8 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : error.code === "P0001" ? 400 : 503);
+    if (data?.ok === false) fail2(data.error, data.status || 400);
     return data;
   }
   return { snapshot, route };
@@ -128,7 +178,7 @@ var rmSeeds = [
   ["thruster", "Thruster", "complex"],
   ["cluster", "Cluster", "complex"]
 ];
-var DEFAULT_RM_CATALOGUE = rmSeeds.map(([id, name, category, isDefault = false, aliases = []]) => ({ id, name, category, isDefault, active: true, aliases }));
+var DEFAULT_RM_CATALOGUE = rmSeeds.map(([id2, name, category, isDefault = false, aliases = []]) => ({ id: id2, name, category, isDefault, active: true, aliases }));
 var rmKey = (value) => String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
 function findRmMovement(catalogue, value) {
   return catalogue.find((m) => m.id === value) || catalogue.find((m) => [m.name, ...m.aliases || []].some((n) => rmKey(n) === rmKey(value)));
@@ -150,7 +200,7 @@ function updateRmCatalogue(catalogue, body, idFactory = () => crypto.randomUUID(
 var VIDEO_CATEGORIES = [...RM_CATEGORIES, ["cardio", "\uC720\uC0B0\uC18C"], ["gymnastics", "\uB9E8\uBAB8\xB7\uCCB4\uC870"], ["other", "\uAE30\uD0C0 \uB3D9\uC791"]];
 function videoCategory(name, catalogue) {
   const known = findRmMovement(catalogue, name);
-  if (known && VIDEO_CATEGORIES.some(([id]) => id === known.category)) return known.category;
+  if (known && VIDEO_CATEGORIES.some(([id2]) => id2 === known.category)) return known.category;
   const n = String(name).toLowerCase();
   if (/clean.*jerk|thruster|cluster/.test(n)) return "complex";
   if (/snatch/.test(n)) return "snatch";
@@ -162,10 +212,10 @@ function videoCategory(name, catalogue) {
   if (/pull.up|push.up|muscle.up|handstand|toes.to.bar|sit.up|burpee|plank|box (jump|step)|air squat/.test(n)) return "gymnastics";
   return "other";
 }
-function resolveVideoCategory(id, categories, redirects = {}) {
+function resolveVideoCategory(id2, categories, redirects = {}) {
   const active = new Set(categories.map((c) => c[0]));
-  for (let i = 0; i < 40 && !active.has(id) && redirects[id]; i++) id = redirects[id];
-  return active.has(id) ? id : categories.find((c) => c[0] === "other")?.[0] || categories[0]?.[0] || "other";
+  for (let i = 0; i < 40 && !active.has(id2) && redirects[id2]; i++) id2 = redirects[id2];
+  return active.has(id2) ? id2 : categories.find((c) => c[0] === "other")?.[0] || categories[0]?.[0] || "other";
 }
 function findVideoMovement(items, name) {
   const key = String(name || "").trim().toLocaleLowerCase();
@@ -179,15 +229,15 @@ function hasPermission(member, key) {
 }
 
 // supabase/functions/onoff-api/media-service.js
-var fail2 = (message, status = 400) => {
+var fail3 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 function cleanJpeg(bytes) {
-  if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216) fail2("JPEG \uC0AC\uC9C4\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+  if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216) fail3("JPEG \uC0AC\uC9C4\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
   const parts = [bytes.subarray(0, 2)];
   let i = 2;
   while (i < bytes.length) {
-    if (bytes[i] !== 255) fail2("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (bytes[i] !== 255) fail3("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
     const marker = bytes[i + 1];
     if (marker === 218) {
       parts.push(bytes.subarray(i));
@@ -200,17 +250,17 @@ function cleanJpeg(bytes) {
       return output.slice(0, length);
     }
     const size = bytes[i + 2] << 8 | bytes[i + 3];
-    if (size < 2 || i + 2 + size > bytes.length) fail2("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC190\uC0C1\uB410\uC5B4\uC694.");
+    if (size < 2 || i + 2 + size > bytes.length) fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC190\uC0C1\uB410\uC5B4\uC694.");
     if (!(marker >= 224 && marker <= 239) && marker !== 254) parts.push(bytes.subarray(i, i + 2 + size));
     i += 2 + size;
   }
-  fail2("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
 }
 function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}) {
   const bucket = db2.storage?.from("onoff-private-photos");
   async function result(q) {
     const { data, error } = await q;
-    if (error) fail2(error.code === "42501" ? "\uC0AC\uC9C4 \uC811\uADFC \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : "\uC0AC\uC9C4\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : 503);
+    if (error) fail3(error.code === "42501" ? "\uC0AC\uC9C4 \uC811\uADFC \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : "\uC0AC\uC9C4\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : 503);
     return data;
   }
   async function cleanup() {
@@ -227,74 +277,81 @@ function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}
     } catch {
     }
   }
+  async function visiblePhotos(m, photos) {
+    if (m?.role === "admin") return photos;
+    const ids = [...new Set(photos.map((p) => p.owner_id).filter((id2) => id2 && id2 !== m?.id))];
+    const owners = ids.length ? await result(db2.from("gym_members").select("id,status,disclosure_consent").in("id", ids)) : [];
+    return photos.filter((p) => !p.owner_id || p.owner_id === m?.id || owners.some((o) => o.id === p.owner_id && o.status === "approved" && o.disclosure_consent !== false));
+  }
   async function route(m, path, b) {
-    if (m.status !== "approved") fail2("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (m.status !== "approved") fail3("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     if (path === "/api/photos/upload") {
-      if (!["community", "daily", "notice"].includes(b.kind) || b.kind === "daily" && !hasPermission(m, "photos") || b.kind === "notice" && !hasPermission(m, "notices")) fail2("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
-      if (typeof b.data !== "string" || b.data.length > 82e4) fail2("\uC555\uCD95\uB41C \uC0AC\uC9C4\uC740 600KB \uC774\uD558\uC5EC\uC57C \uD574\uC694.");
+      if (m.disclosure_consent === false) fail3("\uC0AC\uC9C4 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC774\uC6A9\uD574\uC8FC\uC138\uC694.", 403);
+      if (!["community", "daily", "notice"].includes(b.kind) || b.kind === "daily" && !hasPermission(m, "photos") || b.kind === "notice" && !hasPermission(m, "notices")) fail3("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (typeof b.data !== "string" || b.data.length > 82e4) fail3("\uC555\uCD95\uB41C \uC0AC\uC9C4\uC740 600KB \uC774\uD558\uC5EC\uC57C \uD574\uC694.");
       let bytes;
       try {
         bytes = Uint8Array.from(atob(b.data), (c) => c.charCodeAt(0));
       } catch {
-        fail2("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       }
       bytes = cleanJpeg(bytes);
-      if (bytes.length > 614400) fail2("\uC0AC\uC9C4 \uD06C\uAE30\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
+      if (bytes.length > 614400) fail3("\uC0AC\uC9C4 \uD06C\uAE30\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
       await cleanup();
       const pending = await result(db2.from("gym_photos").select("id").eq("owner_id", m.id).eq("active", false).limit(10));
-      if (pending.length >= 10) fail2("\uBBF8\uC0AC\uC6A9 \uC0AC\uC9C4\uC774 \uB9CE\uC544\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 429);
-      const id = crypto.randomUUID(), storagePath = m.id + "/" + id + ".jpg";
-      await result(db2.from("gym_photos").insert({ id, owner_id: m.id, kind: b.kind, path: storagePath }));
+      if (pending.length >= 10) fail3("\uBBF8\uC0AC\uC6A9 \uC0AC\uC9C4\uC774 \uB9CE\uC544\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 429);
+      const id2 = crypto.randomUUID(), storagePath = m.id + "/" + id2 + ".jpg";
+      await result(db2.from("gym_photos").insert({ id: id2, owner_id: m.id, kind: b.kind, path: storagePath }));
       const { error } = await bucket.upload(storagePath, bytes, { contentType: "image/jpeg", cacheControl: "60", upsert: false });
       if (error) {
-        await result(db2.from("gym_photos").delete().eq("id", id).eq("owner_id", m.id));
-        fail2("\uC0AC\uC9C4 \uC5C5\uB85C\uB4DC \uC2E4\uD328 \xB7 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uBA74 \uC7AC\uC5C5\uB85C\uB4DC\uD569\uB2C8\uB2E4.", 503);
+        await result(db2.from("gym_photos").delete().eq("id", id2).eq("owner_id", m.id));
+        fail3("\uC0AC\uC9C4 \uC5C5\uB85C\uB4DC \uC2E4\uD328 \xB7 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uBA74 \uC7AC\uC5C5\uB85C\uB4DC\uD569\uB2C8\uB2E4.", 503);
       }
-      await result(db2.from("gym_photos").update({ uploaded: true }).eq("id", id).eq("owner_id", m.id));
-      return { id };
+      await result(db2.from("gym_photos").update({ uploaded: true }).eq("id", id2).eq("owner_id", m.id));
+      return { id: id2 };
     }
     if (path === "/api/photos/urls") {
-      if (!Array.isArray(b.ids) || b.ids.length < 1 || b.ids.length > 12 || b.ids.some((id) => typeof id !== "string" || !/^[-a-f0-9]{36}$/i.test(id))) fail2("\uC0AC\uC9C4 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      const photos = await result(db2.from("gym_photos").select("id,path").eq("active", true).in("id", [...new Set(b.ids)]));
+      if (!Array.isArray(b.ids) || b.ids.length < 1 || b.ids.length > 12 || b.ids.some((id2) => typeof id2 !== "string" || !/^[-a-f0-9]{36}$/i.test(id2))) fail3("\uC0AC\uC9C4 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      const photos = await visiblePhotos(m, await result(db2.from("gym_photos").select("id,path,owner_id").eq("active", true).in("id", [...new Set(b.ids)])));
       if (!photos.length) return { urls: [] };
       const { data, error } = await bucket.createSignedUrls(photos.map((p) => p.path), 60);
-      if (error) fail2("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+      if (error) fail3("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
       return { urls: photos.flatMap((p) => {
         const signed = data.find((x) => x.path === p.path);
         return signed?.signedUrl ? [{ id: p.id, url: signed.signedUrl }] : [];
       }), expiresIn: 60 };
     }
     if (path === "/api/photos/program") {
-      if (!hasPermission(m, "photos")) fail2("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (!hasPermission(m, "photos")) fail3("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       return result(db2.rpc("onoff_photo_program", { actor: m.id, photo_id: b.id, target_program: b.program }));
     }
     if (path === "/api/photos/url") {
       const photo = await result(db2.from("gym_photos").select("*").eq("id", b.id).eq("active", true).maybeSingle());
-      if (!photo) fail2("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      if (!photo || !(await visiblePhotos(m, [photo])).length) fail3("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
       const { data, error } = await bucket.createSignedUrl(photo.path, 60);
-      if (error) fail2("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+      if (error) fail3("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
       return { url: data.signedUrl, expiresIn: 60 };
     }
     if (path === "/api/photos/attach") {
-      if (b.kind !== "daily") fail2("\uC0AC\uC9C4 \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      if (!hasPermission(m, "photos")) fail2("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (b.kind !== "daily") fail3("\uC0AC\uC9C4 \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!hasPermission(m, "photos")) fail3("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       return result(db2.rpc("onoff_attach_photos", { actor: m.id, p: b }));
     }
     if (path === "/api/photos/delete") {
       const photo = await result(db2.from("gym_photos").select("*").eq("id", b.id).maybeSingle());
-      if (!photo) fail2("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
-      if (photo.active ? photo.kind === "daily" ? !hasPermission(m, "photos") : photo.kind === "notice" ? !hasPermission(m, "notices") : m.role !== "admin" : photo.owner_id !== m.id) fail2("\uC0AC\uC9C4 \uC0AD\uC81C \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 403);
+      if (!photo) fail3("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      if (photo.active ? photo.kind === "daily" ? !hasPermission(m, "photos") : photo.kind === "notice" ? !hasPermission(m, "notices") : m.role !== "admin" : photo.owner_id !== m.id) fail3("\uC0AC\uC9C4 \uC0AD\uC81C \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 403);
       await result(db2.from("gym_photos").delete().eq("id", photo.id));
       await cleanup();
       return { ok: true };
     }
-    fail2("\uC0AC\uC9C4 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 404);
+    fail3("\uC0AC\uC9C4 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 404);
   }
-  async function list(date, postIds, noticeIds = []) {
+  async function list(date, postIds, noticeIds = [], member) {
     if (!bucket) return [];
-    const fields = "id,kind,post_id,notice_id,date,program,session";
+    const fields = "id,kind,post_id,notice_id,date,program,session,owner_id";
     const [daily, community, notices] = await Promise.all([result(db2.from("gym_photos").select(fields).eq("active", true).eq("kind", "daily").eq("date", date)), postIds.length ? result(db2.from("gym_photos").select(fields).eq("active", true).in("post_id", postIds)) : [], noticeIds.length ? result(db2.from("gym_photos").select(fields).eq("active", true).in("notice_id", noticeIds)) : []]);
-    return [...daily, ...community, ...notices];
+    return (await visiblePhotos(member, [...daily, ...community, ...notices])).map(({ owner_id, ...photo }) => photo);
   }
   return { route, list, cleanup };
 }
@@ -305,21 +362,51 @@ var validAvatar = (value) => AVATAR_EMOJIS.includes(value);
 var avatarEmoji = (value) => validAvatar(value) ? value : "\u{1F3CB}\uFE0F";
 
 // supabase/functions/onoff-api/account-service.js
-var fail3 = (message, status = 400) => {
+var fail4 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 function createAccountService(db2, { reauthenticate } = {}) {
-  return { async withdraw(member, b) {
-    if (b.confirmed !== true || typeof b.password !== "string" || !b.password || b.password.length > 128) fail3("\uD0C8\uD1F4 \uB3D9\uC758\uC640 \uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    if (!member.email || !reauthenticate) fail3("\uC774\uBA54\uC77C \uB85C\uADF8\uC778\uC744 \uB2E4\uC2DC \uD655\uC778\uD574\uC8FC\uC138\uC694.", 401);
+  return { async removeByAdmin(member, b) {
+    if (member.role !== "admin" || member.status !== "approved" || member.id === b.id) fail4("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+    const args = { actor: member.id, target: b.id, request_id: b.requestId };
+    const prepared = await db2.rpc("onoff_account_delete_prepare", { ...args, confirmed_name: b.confirmedName });
+    if (prepared.error) fail4(prepared.error.code === "42501" ? "\uACC4\uC815 \uC0AD\uC81C \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uC0AD\uC81C\uD560 \uC218 \uC5C6\uC5B4\uC694." : "\uD68C\uC6D0 \uC774\uB984\uACFC \uC0AD\uC81C \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", prepared.error.code === "42501" ? 403 : 409);
+    if (!prepared.data?.already) {
+      const paths = prepared.data?.paths || [];
+      if (paths.length) {
+        const bucket = db2.storage?.from("onoff-private-photos");
+        if (!bucket) fail4("\uC0AC\uC9C4 \uC0AD\uC81C \uC5F0\uACB0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 503);
+        for (let i = 0; i < paths.length; i += 100) {
+          const removed = await bucket.remove(paths.slice(i, i + 100));
+          if (removed.error) fail4("\uC0AC\uC9C4 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uACC4\uC815 \uC0AD\uC81C\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+        }
+      }
+      const deleted = await db2.auth.admin.deleteUser(b.id, false);
+      if (deleted.error) fail4("\uACC4\uC815 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    }
+    const completed = await db2.rpc("onoff_account_delete_complete", args);
+    if (completed.error) fail4("\uACC4\uC815 \uC0AD\uC81C \uC644\uB8CC \uD655\uC778\uC744 \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    return { ok: true, deleted: true };
+  }, async withdraw(member, b) {
+    if (b.confirmed !== true || typeof b.password !== "string" || !b.password || b.password.length > 128) fail4("\uD0C8\uD1F4 \uB3D9\uC758\uC640 \uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (!member.email || !reauthenticate) fail4("\uC774\uBA54\uC77C \uB85C\uADF8\uC778\uC744 \uB2E4\uC2DC \uD655\uC778\uD574\uC8FC\uC138\uC694.", 401);
     const session = await reauthenticate(member.email, b.password);
-    if (!session || session.user?.id !== member.id || !session.accessToken) fail3("\uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.", 403);
+    if (!session || session.user?.id !== member.id || !session.accessToken) fail4("\uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.", 403);
     const prepared = await db2.rpc("onoff_withdraw_prepare", { actor: member.id });
-    if (prepared.error) fail3(prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uB2E4\uB978 \uC2B9\uC778\uB41C \uC6B4\uC601\uC790\uC5D0\uAC8C \uAD8C\uD55C\uC744 \uB118\uAE34 \uB4A4 \uD0C8\uD1F4\uD560 \uC218 \uC788\uC5B4\uC694." : "\uD0C8\uD1F4 \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", prepared.error.code === "23514" ? 409 : 503);
+    if (prepared.error) fail4(prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uB2E4\uB978 \uC2B9\uC778\uB41C \uC6B4\uC601\uC790\uC5D0\uAC8C \uAD8C\uD55C\uC744 \uB118\uAE34 \uB4A4 \uD0C8\uD1F4\uD560 \uC218 \uC788\uC5B4\uC694." : "\uD0C8\uD1F4 \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", prepared.error.code === "23514" ? 409 : 503);
+    if (db2.storage?.from) {
+      const photos = await db2.from("gym_photos").select("path").eq("owner_id", member.id);
+      if (photos.error) fail4("\uC0AC\uC9C4 \uC0AD\uC81C \uC900\uBE44\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+      const paths = (photos.data || []).map((x) => x.path);
+      for (let i = 0; i < paths.length; i += 100) {
+        const removed2 = await db2.storage.from("onoff-private-photos").remove(paths.slice(i, i + 100));
+        if (removed2.error) fail4("\uC0AC\uC9C4 \uC0AD\uC81C\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+      }
+    }
     const revoked = await db2.auth.admin.signOut(session.accessToken, "global");
-    if (revoked.error) fail3("\uB85C\uADF8\uC778 \uC5F0\uACB0 \uD574\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    if (revoked.error) fail4("\uB85C\uADF8\uC778 \uC5F0\uACB0 \uD574\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
     const removed = await db2.auth.admin.deleteUser(member.id, false);
-    if (removed.error) fail3("\uACC4\uC815 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    if (removed.error) fail4("\uACC4\uC815 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
     return { ok: true, deleted: true };
   } };
 }
@@ -378,12 +465,12 @@ function youtubeId(value) {
     const u = new URL(String(value));
     if (u.protocol !== "https:") return null;
     const h = u.hostname.replace(/^www\./, "");
-    let id;
-    if (h === "youtu.be") id = u.pathname.slice(1).split("/")[0];
+    let id2;
+    if (h === "youtu.be") id2 = u.pathname.slice(1).split("/")[0];
     else if (["youtube.com", "m.youtube.com", "youtube-nocookie.com"].includes(h)) {
-      id = u.searchParams.get("v") || u.pathname.match(/^\/(?:embed|shorts|live)\/([^/]+)/)?.[1];
+      id2 = u.searchParams.get("v") || u.pathname.match(/^\/(?:embed|shorts|live)\/([^/]+)/)?.[1];
     }
-    return /^[A-Za-z0-9_-]{11}$/.test(id || "") ? id : null;
+    return /^[A-Za-z0-9_-]{11}$/.test(id2 || "") ? id2 : null;
   } catch {
     return null;
   }
@@ -626,7 +713,7 @@ async function pushDigest(value) {
 }
 
 // supabase/functions/onoff-api/push-service.js
-var fail4 = (message, status = 400) => {
+var fail5 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 var same = (a, b) => {
@@ -639,7 +726,7 @@ var same = (a, b) => {
 function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFetch = fetch } = {}) {
   async function result(q) {
     const { data, error } = await q;
-    if (error) fail4(error.code === "42501" ? "\uC54C\uB9BC \uC694\uCCAD \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : "\uC54C\uB9BC \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : 400);
+    if (error) fail5(error.code === "42501" ? "\uC54C\uB9BC \uC694\uCCAD \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : "\uC54C\uB9BC \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : 400);
     return data;
   }
   const one = (table, key, value) => result(db2.from(table).select("*").eq(key, value).maybeSingle());
@@ -652,20 +739,20 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
   }
   async function access(req) {
     const code = req.headers.get("X-OnOff-Push-Test") || "";
-    if (!/^[a-f0-9]{32}$/.test(code)) fail4("\uC720\uD6A8\uD55C \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C \uB610\uB294 \uCF54\uB4DC\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.", 401);
+    if (!/^[a-f0-9]{32}$/.test(code)) fail5("\uC720\uD6A8\uD55C \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C \uB610\uB294 \uCF54\uB4DC\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.", 401);
     const hash = await pushDigest(code), test = await one("gym_push_tests", "hash", hash);
-    if (!test || Date.parse(test.expires) <= +now()) fail4("\uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB410\uC5B4\uC694.", 401);
+    if (!test || Date.parse(test.expires) <= +now()) fail5("\uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB410\uC5B4\uC694.", 401);
     return { hash, test };
   }
   async function subscribe(actor, testHash, b) {
     const sub = validateSubscription(b.subscription);
-    if (!sub) fail4("\uC54C\uB9BC \uAD6C\uB3C5 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    const id = await pushDigest(sub.endpoint), preferences = { notices: b.preferences?.notices !== false, workouts: b.preferences?.workouts !== false, approvals: b.preferences?.approvals !== false };
-    await result(db2.rpc("onoff_push_subscribe", { actor, test_code: testHash, sub_id: id, sub_body: sub, prefs: preferences }));
-    return { ok: true, id };
+    if (!sub) fail5("\uC54C\uB9BC \uAD6C\uB3C5 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    const id2 = await pushDigest(sub.endpoint), preferences = { notices: b.preferences?.notices !== false, workouts: b.preferences?.workouts !== false, approvals: b.preferences?.approvals !== false };
+    await result(db2.rpc("onoff_push_subscribe", { actor, test_code: testHash, sub_id: id2, sub_body: sub, prefs: preferences }));
+    return { ok: true, id: id2 };
   }
-  async function enqueue({ id, kind, payload, targetId = null, testHash = null, dueAt }) {
-    await result(db2.from("gym_push_jobs").upsert({ id, kind, payload, target_id: targetId, test_hash: testHash, ...dueAt ? { due_at: dueAt } : {} }, { onConflict: "id", ignoreDuplicates: true }));
+  async function enqueue({ id: id2, kind, payload, targetId = null, testHash = null, dueAt }) {
+    await result(db2.from("gym_push_jobs").upsert({ id: id2, kind, payload, target_id: targetId, test_hash: testHash, ...dueAt ? { due_at: dueAt } : {} }, { onConflict: "id", ignoreDuplicates: true }));
   }
   async function dispatch() {
     const config = await keys(), jobs = await result(db2.rpc("onoff_push_claim", { max_count: 100 }));
@@ -694,7 +781,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
           if (job.payload?.meetupId) {
             meetup = await one("gym_posts", "id", job.payload.meetupId);
             const writer = meetup ? await one("gym_members", "id", meetup.author_id) : null;
-            allowed = allowed && meetup?.category === "\uC6B4\uB3D9 \uBC88\uAC1C" && writer?.status === "approved" && !!meetupMessage(meetup.starts_at);
+            allowed = allowed && meetup?.category === "\uC6B4\uB3D9 \uBC88\uAC1C" && writer?.status === "approved" && writer?.disclosure_consent !== false && !!meetupMessage(meetup.starts_at);
           }
           if (!allowed) {
             state = "skipped";
@@ -735,30 +822,30 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
   async function publicRoute(req, path, b) {
     if (path === "/api/push/dispatch") {
       const secret = await setting("pushCronSecret");
-      if (!secret || !same(req.headers.get("X-OnOff-Worker"), secret)) fail4("\uC54C\uB9BC \uBC1C\uC1A1 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 401);
+      if (!secret || !same(req.headers.get("X-OnOff-Worker"), secret)) fail5("\uC54C\uB9BC \uBC1C\uC1A1 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 401);
       return dispatch();
     }
     const { hash, test } = await access(req);
     if (path === "/api/push/test-access/config") return { publicKey: (await keys()).publicKey, expires: test.expires, schedulerConfigured: await setting("pushCronEnabled", false) };
     if (path === "/api/push/test-access/status") return { jobs: await testStatus(hash) };
     if (path === "/api/push/test-access/subscribe") return subscribe(null, hash, b);
-    const endpoint = typeof b.endpoint === "string" ? b.endpoint : "", id = await pushDigest(endpoint);
+    const endpoint = typeof b.endpoint === "string" ? b.endpoint : "", id2 = await pushDigest(endpoint);
     if (path === "/api/push/test-access/unsubscribe") {
-      await result(db2.from("gym_push_subscriptions").delete().eq("id", id).eq("test_hash", hash));
+      await result(db2.from("gym_push_subscriptions").delete().eq("id", id2).eq("test_hash", hash));
       return { ok: true };
     }
     if (path === "/api/push/test-access/send") {
-      const job = await result(db2.rpc("onoff_push_compose", { actor: null, test_code: hash, p: { mode: "test", title: b.title || "ONOFF \uD478\uC2DC \uD14C\uC2A4\uD2B8", body: b.body || "\uC571\uC744 \uB2EB\uC740 \uC0C1\uD0DC\uC758 \uC54C\uB9BC \uC218\uC2E0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", subscriptionId: id, delayed: b.delayed === true } }));
+      const job = await result(db2.rpc("onoff_push_compose", { actor: null, test_code: hash, p: { mode: "test", title: b.title || "ONOFF \uD478\uC2DC \uD14C\uC2A4\uD2B8", body: b.body || "\uC571\uC744 \uB2EB\uC740 \uC0C1\uD0DC\uC758 \uC54C\uB9BC \uC218\uC2E0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", subscriptionId: id2, delayed: b.delayed === true } }));
       return { ok: true, job, queued: true };
     }
-    fail4("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    fail5("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
   }
   async function memberRoute(member, path, b) {
     if (["/api/push/compose", "/api/push/history"].includes(path)) {
-      if (!hasPermission(member, "push")) fail4("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (!hasPermission(member, "push")) fail5("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       if (path.endsWith("/history")) return { jobs: await result(db2.rpc("onoff_push_history", { actor: member.id })) };
-      if (!["test", "all"].includes(b.mode)) fail4("\uBC1C\uC1A1 \uB300\uC0C1\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      if (b.mode === "test" && !b.endpoint) fail4("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
+      if (!["test", "all"].includes(b.mode)) fail5("\uBC1C\uC1A1 \uB300\uC0C1\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.mode === "test" && !b.endpoint) fail5("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
       const job = await result(db2.rpc("onoff_push_compose", { actor: member.id, test_code: null, p: { mode: b.mode, title: "ONOFF", body: b.body, subscriptionId: await pushDigest(b.endpoint || ""), delayed: b.mode === "test" } }));
       return { ok: true, queued: true, job };
     }
@@ -766,13 +853,13 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
       await keys();
       return subscribe(member.id, null, b);
     }
-    const id = await pushDigest(typeof b.endpoint === "string" ? b.endpoint : "");
+    const id2 = await pushDigest(typeof b.endpoint === "string" ? b.endpoint : "");
     if (path === "/api/push/unsubscribe") {
-      await result(db2.from("gym_push_subscriptions").delete().eq("id", id).eq("user_id", member.id));
+      await result(db2.from("gym_push_subscriptions").delete().eq("id", id2).eq("user_id", member.id));
       return { ok: true };
     }
-    if (path === "/api/push/test") fail4("\uAC1C\uC778\uC124\uC815\uC758 \uC2DC\uD5D8 \uBC1C\uC1A1\uC740 \uC885\uB8CC\uB410\uC5B4\uC694. \uBCC4\uB3C4 \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uD654\uBA74\uC744 \uC0AC\uC6A9\uD574\uC8FC\uC138\uC694.", 410);
-    fail4("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    if (path === "/api/push/test") fail5("\uAC1C\uC778\uC124\uC815\uC758 \uC2DC\uD5D8 \uBC1C\uC1A1\uC740 \uC885\uB8CC\uB410\uC5B4\uC694. \uBCC4\uB3C4 \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uD654\uBA74\uC744 \uC0AC\uC6A9\uD574\uC8FC\uC138\uC694.", 410);
+    fail5("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
   }
   return { status, dispatch, enqueue, publicRoute, memberRoute };
 }
@@ -782,18 +869,19 @@ var ORIGINS = /* @__PURE__ */ new Set(["https://nuclearstark.github.io", "https:
 var bad = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
-var uuid2 = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+var uuid3 = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 var text = (v, min, max, label) => {
   if (typeof v !== "string" || v.trim().length < min || v.length > max) bad(label + "\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
   return v.trim();
 };
 function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch, now = () => /* @__PURE__ */ new Date() } = {}) {
   const media = createMediaService(db2, { now }), points = createPointsService(db2, { now });
-  const push = createPushService(db2, { now }), account = createAccountService(db2, { reauthenticate });
+  const push = createPushService(db2, { now }), account = createAccountService(db2, { reauthenticate }), named = createNamedService(db2);
   async function result(q) {
     const { data, error } = await q;
     if (error) {
       const code = error.code;
+      if (code === "23514") bad(error.message?.includes("14\uC138") ? "\uD68C\uC6D0\uC774 \uBA3C\uC800 \uB9CC 14\uC138 \uC774\uC0C1 \uD655\uC778\uACFC \uAC1C\uC778\uC815\uBCF4 \uC548\uB0B4 \uB3D9\uC758\uB97C \uC644\uB8CC\uD574\uC57C \uC2B9\uC778\uD560 \uC218 \uC788\uC5B4\uC694." : "\uBCC0\uACBD\uD560 \uC218 \uC5C6\uB294 \uACC4\uC815 \uC0C1\uD0DC\uC785\uB2C8\uB2E4.", 409);
       bad(code === "42501" ? "\uC774 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD560 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : code === "23505" ? "\uC774\uBBF8 \uB4F1\uB85D\uB41C \uD56D\uBAA9\uC774 \uC788\uC5B4\uC694. \uC0C8\uB85C \uBD88\uB7EC\uC628 \uB4A4 \uD655\uC778\uD574\uC8FC\uC138\uC694." : code === "40001" ? "\uB2E4\uB978 \uAE30\uAE30\uC5D0\uC11C \uBCC0\uACBD\uB410\uC5B4\uC694. \uB2E4\uC2DC \uBD88\uB7EC\uC640 \uC8FC\uC138\uC694." : "\uC800\uC7A5 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", code === "42501" ? 403 : ["23505", "40001"].includes(code) ? 409 : 503);
     }
     return data;
@@ -891,7 +979,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
   }
   async function bootstrap(m, url) {
     const rev = await revision(m);
-    if (m.status !== "approved") return { viewer: m, workouts: {}, library: [], members: [], ...rev };
+    if (m.status !== "approved") return { viewer: m, privacyReviewRequired: m.privacy_version !== PRIVACY_VERSION, workouts: {}, library: [], members: [], ...rev };
     const staff = m.role === "admin", all = hasPermission(m, "workouts.read") && url.searchParams.get("view") !== "member", day = kstDate(now()), viewDate = normalizeDate(url.searchParams.get("date")) || day;
     const [pass, att, memberRows, prefs, cal, noticeRows, cat, lib, pointData] = await Promise.all([
       one("gym_memberships", "user_id", m.id),
@@ -931,12 +1019,15 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     if (canRead) {
       const extras = await rows("gym_posts", (q) => q.eq("banner_pinned", true).eq("category", "\uC6B4\uB3D9 \uBC88\uAC1C").order("starts_at").limit(100));
       const linked = url.searchParams.get("post");
-      if (uuid2(linked)) {
+      if (uuid3(linked)) {
         const post = await one("gym_posts", "id", linked);
         if (post) extras.push(post);
       }
       const merged = [...new Map([...posts, ...extras].map((p) => [p.id, p])).values()];
-      posts.splice(0, posts.length, ...merged);
+      posts.splice(0, posts.length, ...merged.filter((p) => {
+        const author = memberRows.find((m2) => m2.id === p.author_id);
+        return staff || author?.disclosure_consent !== false || p.author_id === m.id;
+      }));
     }
     const pointBalances = staff ? await rows("gym_point_accounts") : [];
     const records = [...new Map([...ownRecords, ...selectedRecords].map((r) => [r.id, r])).values()], names = new Map(memberRows.map((x) => [x.id, x.name])), rank = /* @__PURE__ */ new Map(), avatars = /* @__PURE__ */ new Map();
@@ -951,6 +1042,8 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return (hasPermission(m, "acc.read") && url.searchParams.get("view") !== "member" ? q : q.lte("release_at", now().toISOString())).order("date", { ascending: false }).limit(1e3);
     }) : [];
     return {
+      named: await named.snapshot(m),
+      privacyReviewRequired: m.privacy_version !== PRIVACY_VERSION,
       points: pointData,
       accWorkouts: Object.fromEntries(accRows.map((w) => [w.date, w.body])),
       videoCategories: await videoCategories(),
@@ -975,11 +1068,11 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       workouts: Object.fromEntries(ws.map((w) => [w.key, w.body])),
       publishedDates: [...new Set(ws.filter((w) => Date.parse(w.release_at) <= +now()).map((w) => w.date))],
       notices: canRead ? noticeRows.map((n) => ({ ...n, category: "\uACF5\uC9C0\uC0AC\uD56D", author: names.get(n.author_id) || "\uC6B4\uC601\uC790", serverNotice: true, date: kstDate(new Date(n.created_at)), comments: [], joined: [] })) : [],
-      records: records.map((r) => ({ ...r.body, id: r.id, memberId: r.user_id, name: names.get(r.user_id) || "\uD68C\uC6D0", avatarEmoji: avatars.get(r.user_id) || avatarEmoji(), rank: rank.get(r.user_id) !== false })),
-      photos: canRead ? await media.list(viewDate, posts.map((p) => p.id), noticeRows.map((n) => n.id)) : [],
+      records: records.filter((r) => staff || r.user_id === m.id || memberRows.find((x) => x.id === r.user_id)?.disclosure_consent !== false).map((r) => ({ ...r.body, id: r.id, memberId: r.user_id, name: names.get(r.user_id) || "\uD68C\uC6D0", avatarEmoji: avatars.get(r.user_id) || avatarEmoji(), rank: rank.get(r.user_id) !== false })),
+      photos: canRead ? await media.list(viewDate, posts.map((p) => p.id), noticeRows.map((n) => n.id), m) : [],
       rms: rms.map((r) => ({ ...r.body, id: r.id, memberId: r.user_id })),
       preferences: prefs?.body || {},
-      posts: posts.map((p) => ({ ...p, authorId: p.author_id, author: names.get(p.author_id) || "\uD68C\uC6D0", date: kstDate(new Date(p.created_at)), joined: [], joinedIds: joins.filter((j) => j.post_id === p.id).map((j) => j.user_id), joinedNames: Object.fromEntries(joins.filter((j) => j.post_id === p.id).map((j) => [j.user_id, names.get(j.user_id) || "\uD68C\uC6D0"])), comments: comments.filter((c) => c.post_id === p.id).map((c) => ({ ...c, authorId: c.author_id, author: names.get(c.author_id) || "\uD68C\uC6D0" })) })),
+      posts: posts.map((p) => ({ ...p, authorId: p.author_id, author: names.get(p.author_id) || "\uD68C\uC6D0", date: kstDate(new Date(p.created_at)), joined: [], joinedIds: joins.filter((j) => j.post_id === p.id && memberRows.find((x) => x.id === j.user_id)?.disclosure_consent !== false).map((j) => j.user_id), joinedNames: Object.fromEntries(joins.filter((j) => j.post_id === p.id && memberRows.find((x) => x.id === j.user_id)?.disclosure_consent !== false).map((j) => [j.user_id, names.get(j.user_id) || "\uD68C\uC6D0"])), comments: comments.filter((c) => c.post_id === p.id && memberRows.find((x) => x.id === c.author_id)?.disclosure_consent !== false).map((c) => ({ ...c, authorId: c.author_id, author: names.get(c.author_id) || "\uD68C\uC6D0" })) })),
       tv: hasPermission(m, "tv") ? await tvSettings() : void 0,
       push: await push.status(m),
       historyLimit: 1e3
@@ -992,10 +1085,25 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     const m = await member(req);
     if (path === "/api/bootstrap" && m.status === "approved") await media.cleanup();
     if (path === "/api/account/delete") return account.withdraw(m, b);
+    if (path === "/api/privacy/accept") {
+      if (b.version !== PRIVACY_VERSION || b.ageOver14 !== true || typeof b.disclosure !== "boolean") bad("\uB9CC 14\uC138 \uC774\uC0C1 \uD655\uC778\uACFC \uAC1C\uC778\uC815\uBCF4 \uC548\uB0B4 \uB3D9\uC758\uAC00 \uD544\uC694\uD574\uC694.");
+      return result(db2.rpc("onoff_privacy_accept", { actor: m.id, p: { version: PRIVACY_VERSION, ageOver14: true, disclosure: b.disclosure } }));
+    }
     if (path === "/api/revision") return revision(m);
     if (path === "/api/bootstrap") return bootstrap(m, url);
     if (path === "/api/profile") return commit(m.id, "profile", { name: text(b.name, 2, 30, "\uC2E4\uBA85") });
     approved(m);
+    if ((path === "/api/posts" || path === "/api/meetups" || ["/api/posts/comment", "/api/posts/join"].includes(path)) && m.disclosure_consent === false) bad("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC774\uC6A9\uD574\uC8FC\uC138\uC694.", 403);
+    if (path.startsWith("/api/named-wods/")) return named.route(m, path, b);
+    if (path === "/api/rm/comparison") {
+      if (typeof b.movementId !== "string" || b.movementId.length > 100) bad("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      return result(db2.rpc("onoff_rm_comparison", { actor: m.id, movement_id: b.movementId }));
+    }
+    if (path === "/api/members/delete") {
+      admin(m);
+      if (!uuid3(b.id) || !uuid3(b.requestId) || b.id === m.id || b.confirmed !== true || typeof b.confirmedName !== "string" || b.confirmedName.length > 40) bad("\uC0AD\uC81C\uD560 \uD68C\uC6D0\uACFC \uD655\uC778 \uB0B4\uC6A9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      return account.removeByAdmin(m, b);
+    }
     if (path === "/api/points" || path.startsWith("/api/points/")) return points.route(m, path, b);
     if (path.startsWith("/api/photos/")) {
       if (path === "/api/photos/attach" && (!normalizeDate(b.date) || b.date > kstDate(now()) || !["ALL", "B/T", "WOD"].includes(b.program) || b.session && !/^([01]\d|2[0-3]):[0-5]\d$/.test(b.session))) bad("\uC0AC\uC9C4 \uB0A0\uC9DC\xB7\uC218\uC5C5\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
@@ -1022,13 +1130,13 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       }
       if ("rmSelection" in b) {
         const cat = await setting("rmCatalogue", DEFAULT_RM_CATALOGUE);
-        if (!Array.isArray(b.rmSelection) || b.rmSelection.length > 200 || b.rmSelection.some((id) => !cat.some((m2) => m2.id === id))) bad("1RM \uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (!Array.isArray(b.rmSelection) || b.rmSelection.length > 200 || b.rmSelection.some((id2) => !cat.some((m2) => m2.id === id2))) bad("1RM \uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p.rmSelection = [...new Set(b.rmSelection)];
       }
       return commit(m.id, "preferences", p);
     }
     if (path === "/api/records/delete") {
-      if (!uuid2(b.id)) bad("\uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid3(b.id)) bad("\uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return result(db2.rpc("onoff_delete_record", { actor: m.id, record_id: b.id }));
     }
     if (path === "/api/records") {
@@ -1037,10 +1145,10 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       if (list.length > 1 && !hasPermission(m, "records.create") && !hasPermission(m, "records.update")) admin(m);
       const cat = await setting("rmCatalogue", DEFAULT_RM_CATALOGUE), cache = /* @__PURE__ */ new Map(), clean = [];
       for (const r of list) {
-        const id = r.id || crypto.randomUUID(), memberId = r.memberId || m.id;
-        if (!uuid2(id) || !uuid2(memberId)) bad("\uD68C\uC6D0\uACFC \uAE30\uB85D ID\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        const id2 = r.id || crypto.randomUUID(), memberId = r.memberId || m.id;
+        if (!uuid3(id2) || !uuid3(memberId)) bad("\uD68C\uC6D0\uACFC \uAE30\uB85D ID\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         if (memberId !== m.id) {
-          const existing = await one("gym_records", "id", id);
+          const existing = await one("gym_records", "id", id2);
           permit(m, existing ? "records.update" : "records.create");
         }
         if (!normalizeDate(r.date) || r.date > kstDate(now()) || !["B/T", "WOD"].includes(r.program) || !/^S[1-9]\d?$/.test(r.section)) bad("\uAE30\uB85D \uB0A0\uC9DC\uC640 \uC218\uC5C5\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
@@ -1049,7 +1157,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
         const w = cache.get(key), sec = w?.body.sections?.[+r.section.slice(1) - 1];
         if (!sec?.record || Date.parse(w.release_at) > +now()) bad("\uACF5\uAC1C\uB41C \uC218\uC5C5\uC758 \uAE30\uB85D \uAD6C\uAC04\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
         if (r.session && !/^([01]\d|2[0-3]):[0-5]\d$/.test(r.session)) bad("\uC218\uC5C5 \uC2DC\uAC04\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-        const movement = sec.kind === "1RM" && (sec.movements?.length ?? (sec.movement ? 1 : 0)) !== 1 ? "" : sec.movement || sec.movements?.[0] || "", rm = findRmMovement(cat, movement), item = { id, memberId, date: r.date, program: r.program, section: r.section, session: r.session || "", kind: sec.kind, movement, movements: sec.movements || [], movementId: rm?.id, note: typeof r.note === "string" ? text(r.note, 0, 150, "\uBA54\uBAA8") : "", writer: m.role };
+        const movement = sec.kind === "1RM" && (sec.movements?.length ?? (sec.movement ? 1 : 0)) !== 1 ? "" : sec.movement || sec.movements?.[0] || "", rm = findRmMovement(cat, movement), item = { id: id2, memberId, date: r.date, program: r.program, section: r.section, session: r.session || "", kind: sec.kind, movement, movements: sec.movements || [], movementId: rm?.id, note: typeof r.note === "string" ? text(r.note, 0, 150, "\uBA54\uBAA8") : "", writer: m.role };
         if (["\uC911\uB7C9", "1RM"].includes(sec.kind)) {
           if (!Number.isFinite(r.lbs) || r.lbs <= 0 || r.lbs > 6614) bad("\uC911\uB7C9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
           item.lbs = r.lbs;
@@ -1062,13 +1170,13 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return commit(m.id, "records", { records: clean });
     }
     if (path === "/api/rms/delete") {
-      if (!uuid2(b.id)) bad("1RM \uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid3(b.id)) bad("1RM \uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const r = await one("gym_rms", "id", b.id);
       if (!r || r.user_id !== m.id) bad("\uBCF8\uC778\uC758 1RM \uAE30\uB85D\uB9CC \uC0AD\uC81C\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
       return commit(m.id, "rm-delete", { id: b.id });
     }
     if (path === "/api/rms") {
-      if (b.id && !uuid2(b.id)) bad("1RM \uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && !uuid3(b.id)) bad("1RM \uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const existing = b.id ? await one("gym_rms", "id", b.id) : null;
       if (b.id && (!existing || existing.user_id !== m.id)) bad("\uBCF8\uC778\uC758 1RM \uAE30\uB85D\uB9CC \uC218\uC815\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
       const cat = await setting("rmCatalogue", DEFAULT_RM_CATALOGUE), mov = findRmMovement(cat, b.movementId || b.movement), oldMov = existing ? findRmMovement(cat, existing.body.movementId || existing.body.movement) : null;
@@ -1079,33 +1187,40 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return commit(m.id, existing ? "rm-update" : "rm", body);
     }
     if (path === "/api/community/read") {
-      if (!uuid2(b.id) || !["post", "notice"].includes(b.kind)) bad("\uC77D\uC740 \uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid3(b.id) || !["post", "notice"].includes(b.kind)) bad("\uC77D\uC740 \uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const item = await one(b.kind === "notice" ? "gym_notices" : "gym_posts", "id", b.id);
       if (!item) bad("\uAC8C\uC2DC\uAE00\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
       return commit(m.id, "community-read", { id: b.id, kind: b.kind });
     }
     if (path === "/api/meetups") {
-      if (!uuid2(b.id) || b.category && b.category !== "\uC6B4\uB3D9 \uBC88\uAC1C" || typeof b.startsAt !== "string" || b.startsAt.length > 40 || !Number.isFinite(Date.parse(b.startsAt)) || new Date(b.startsAt).getUTCFullYear() < 1900 || "bannerPinned" in b && typeof b.bannerPinned !== "boolean" || "sendPush" in b && typeof b.sendPush !== "boolean") bad("\uC6B4\uB3D9 \uC2DC\uC791 \uB0A0\uC9DC\xB7\uC2DC\uAC04\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid3(b.id) || b.category && b.category !== "\uC6B4\uB3D9 \uBC88\uAC1C" || typeof b.startsAt !== "string" || b.startsAt.length > 40 || !Number.isFinite(Date.parse(b.startsAt)) || new Date(b.startsAt).getUTCFullYear() < 1900 || "bannerPinned" in b && typeof b.bannerPinned !== "boolean" || "sendPush" in b && typeof b.sendPush !== "boolean") bad("\uC6B4\uB3D9 \uC2DC\uC791 \uB0A0\uC9DC\xB7\uC2DC\uAC04\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const ids = b.photoIds || [];
-      if (!Array.isArray(ids) || ids.length > 3 || ids.some((id) => !uuid2(id)) || new Set(ids).size !== ids.length) bad("\uCCA8\uBD80 \uC0AC\uC9C4\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!Array.isArray(ids) || ids.length > 3 || ids.some((id2) => !uuid3(id2)) || new Set(ids).size !== ids.length) bad("\uCCA8\uBD80 \uC0AC\uC9C4\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return result(db2.rpc("onoff_meetup_create", { actor: m.id, p: { id: b.id, title: text(b.title, 1, 80, "\uC81C\uBAA9"), body: text(b.body, 1, 3e3, "\uB0B4\uC6A9"), startsAt: new Date(b.startsAt).toISOString(), bannerPinned: b.bannerPinned === true, sendPush: b.sendPush === true, photoIds: ids } }));
     }
     if (path === "/api/meetups/pin") {
-      if (!uuid2(b.id) || typeof b.pinned !== "boolean") bad("\uC6B4\uB3D9 \uBC88\uAC1C \uACE0\uC815 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid3(b.id) || typeof b.pinned !== "boolean") bad("\uC6B4\uB3D9 \uBC88\uAC1C \uACE0\uC815 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return result(db2.rpc("onoff_meetup_pin", { actor: m.id, post_id: b.id, pinned: b.pinned }));
     }
     if (path === "/api/posts") {
       if (b.photoIds?.length) {
-        if (!uuid2(b.id)) bad("\uAC8C\uC2DC\uAE00 ID\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (!uuid3(b.id)) bad("\uAC8C\uC2DC\uAE00 ID\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         return result(db2.rpc("onoff_attach_photos", { actor: m.id, p: { ...b, kind: "community", title: text(b.title, 1, 80, "\uC81C\uBAA9"), body: text(b.body, 1, 3e3, "\uB0B4\uC6A9") } }));
       }
       if (!["\uC6B4\uB3D9 \uBC88\uAC1C", "\uACF5\uB3D9\uAD6C\uB9E4", "\uC790\uC720\uAE00"].includes(b.category)) bad("\uB9D0\uBA38\uB9AC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return commit(m.id, "post", { category: b.category, title: text(b.title, 1, 80, "\uC81C\uBAA9"), body: text(b.body, 1, 3e3, "\uB0B4\uC6A9") });
     }
     if (["/api/posts/delete", "/api/posts/join", "/api/posts/comment"].includes(path)) {
-      if (!uuid2(b.id)) bad("\uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid3(b.id)) bad("\uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!path.endsWith("delete")) {
+        const post = await one("gym_posts", "id", b.id);
+        if (post) {
+          const author = await one("gym_members", "id", post.author_id);
+          if (author?.disclosure_consent === false) bad("\uACF5\uAC1C\uAC00 \uC911\uC9C0\uB41C \uAC8C\uC2DC\uAE00\uC785\uB2C8\uB2E4.", 403);
+        }
+      }
       const comment = path.endsWith("comment");
-      if (b.requestId && !uuid2(b.requestId)) bad("\uB313\uAE00 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.requestId && !uuid3(b.requestId)) bad("\uB313\uAE00 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       if ("joined" in b && typeof b.joined !== "boolean") bad("\uCC38\uC5EC \uC0C1\uD0DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const value = await commit(m.id, path.endsWith("delete") ? "post-delete" : path.endsWith("join") ? "join" : "comment", { id: b.id, ...comment ? { text: text(b.text, 1, 300, "\uB313\uAE00"), commentId: b.requestId || crypto.randomUUID() } : "joined" in b ? { joined: b.joined } : {} });
       if (path.endsWith("delete")) await media.cleanup();
@@ -1164,7 +1279,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return { ok: true, ...await tvSettings() };
     }
     if (path === "/api/member-name" || path === "/api/member-note" || path === "/api/members") {
-      if (!uuid2(b.id) || !await one("gym_members", "id", b.id)) bad("\uD68C\uC6D0\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      if (!uuid3(b.id) || !await one("gym_members", "id", b.id)) bad("\uD68C\uC6D0\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
       if (path.endsWith("member-name")) return commit(m.id, "member-name", { id: b.id, name: text(b.name, 2, 30, "\uC2E4\uBA85") });
       if (path.endsWith("member-note")) return commit(m.id, "member-note", { id: b.id, note: text(b.note, 0, 500, "\uAD6C\uBD84 \uBA54\uBAA8") });
       if (!["admin", "coach", "member"].includes(b.role) || !["approved", "pending", "suspended"].includes(b.status)) bad("\uD68C\uC6D0 \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
@@ -1173,13 +1288,13 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return commit(m.id, "members", { id: b.id, role: b.role, status: b.status, coach_permissions: b.role === "coach" ? [...new Set(permissions)] : [] });
     }
     if (path === "/api/membership/delete") {
-      if (!uuid2(b.id) || !uuid2(b.passId)) bad("\uD68C\uC6D0\uAD8C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid3(b.id) || !uuid3(b.passId)) bad("\uD68C\uC6D0\uAD8C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const old = await one("gym_memberships", "user_id", b.id);
       if (!old || old.id !== b.passId || !Number.isInteger(b.revision) || old.revision !== b.revision) bad("\uD68C\uC6D0\uAD8C\uC774 \uBCC0\uACBD\uB410\uC5B4\uC694. \uB2E4\uC2DC \uD655\uC778\uD574\uC8FC\uC138\uC694.", 409);
       return commit(m.id, "membership-delete", { id: b.id, passId: old.id, revision: old.revision });
     }
     if (path === "/api/membership") {
-      if (!uuid2(b.id)) bad("\uD68C\uC6D0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid3(b.id)) bad("\uD68C\uC6D0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const old = await one("gym_memberships", "user_id", b.id);
       let pass;
       try {
@@ -1190,7 +1305,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return commit(m.id, "membership", { id: b.id, action: b.action, pass, revision: old?.revision ?? -1, reason: String(b.reason || "").slice(0, 200) });
     }
     if (path === "/api/attendance/cancel") {
-      if (!uuid2(b.id) || !normalizeDate(b.date) || b.date > kstDate(now())) bad("\uD68C\uC6D0\uACFC \uCD9C\uC11D \uB0A0\uC9DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid3(b.id) || !normalizeDate(b.date) || b.date > kstDate(now())) bad("\uD68C\uC6D0\uACFC \uCD9C\uC11D \uB0A0\uC9DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return commit(m.id, "attendance-cancel", { id: b.id, date: b.date, reason: text(b.reason, 1, 200, "\uCDE8\uC18C \uC0AC\uC720") });
     }
     if (path === "/api/workouts/delete") {
@@ -1237,7 +1352,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       const name = text(b.name, 2, 80, "\uB3D9\uC791 \uC774\uB984"), videoId = b.url ? youtubeId(b.url) : "";
       if (videoId === null) bad("\uC720\uD29C\uBE0C \uC8FC\uC18C\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const categories = await videoCategories(), categoryId = b.categoryId || resolveVideoCategory(videoCategory(name, await setting("rmCatalogue", DEFAULT_RM_CATALOGUE)), categories, await setting("videoCategoryRedirects", {}));
-      if (!categories.some(([id]) => id === categoryId)) bad("\uBD84\uB958\uB97C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+      if (!categories.some(([id2]) => id2 === categoryId)) bad("\uBD84\uB958\uB97C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
       let originalName = name;
       if (b.originalName) {
         originalName = text(b.originalName, 2, 80, "\uAE30\uC874 \uB3D9\uC791 \uC774\uB984");
@@ -1249,7 +1364,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return result(db2.rpc("onoff_video_save", { actor: m.id, p: { originalName, name, videoId, categoryId, notes: text(b.notes, 0, 1e3, "\uC124\uBA85") } }));
     }
     if (path === "/api/notices") {
-      if (b.id && !uuid2(b.id)) bad("\uACF5\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && !uuid3(b.id)) bad("\uACF5\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       if (b.action === "delete") {
         const value = await commit(m.id, "notices", { action: "delete", id: b.id });
         await media.cleanup();

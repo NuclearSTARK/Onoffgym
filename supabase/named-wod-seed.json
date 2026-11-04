@@ -1,0 +1,454 @@
+{
+  "categories": [
+    {
+      "id": "weights",
+      "name": "웨이트"
+    },
+    {
+      "id": "cardio",
+      "name": "유산소"
+    },
+    {
+      "id": "gymnastics",
+      "name": "짐네스틱"
+    },
+    {
+      "id": "mixed",
+      "name": "혼합"
+    }
+  ],
+  "workouts": [
+    {
+      "name": "DT",
+      "description": "5 rounds for time:\n12 Deadlifts (70/47.5kg)\n9 Hang Power Cleans (70/47.5kg)\n6 Push Jerks (70/47.5kg)",
+      "categoryId": "weights",
+      "isDefault": true,
+      "id": "nw-dt",
+      "recordType": "time"
+    },
+    {
+      "name": "Grace",
+      "description": "30 Clean & Jerks for time (60/42.5kg)",
+      "categoryId": "weights",
+      "isDefault": true,
+      "id": "nw-grace",
+      "recordType": "time"
+    },
+    {
+      "name": "Isabel",
+      "description": "30 Snatches for time (60/42.5kg)",
+      "categoryId": "weights",
+      "isDefault": true,
+      "id": "nw-isabel",
+      "recordType": "time"
+    },
+    {
+      "name": "Jack",
+      "description": "AMRAP 20min:\n10 Push Press (52.5/35kg)\n10 Kettlebell Swings (32/24kg)\n10 Box Jumps (24/20 inch)",
+      "categoryId": "weights",
+      "isDefault": false,
+      "id": "nw-jack",
+      "recordType": "rounds"
+    },
+    {
+      "name": "Josh",
+      "description": "21-15-9 reps for time:\nOverhead Squats (60/42.5kg)\nLeaning Rest",
+      "categoryId": "weights",
+      "isDefault": false,
+      "id": "nw-josh",
+      "recordType": "time"
+    },
+    {
+      "name": "Karen",
+      "description": "150 Wall Balls for time (9/6kg)",
+      "categoryId": "weights",
+      "isDefault": false,
+      "id": "nw-karen",
+      "recordType": "time"
+    },
+    {
+      "name": "Linda",
+      "description": "10-9-8-7-6-5-4-3-2-1 reps for time:\nDeadlift (1.5 BW)\nBench Press (BW)\nClean (0.75 BW)",
+      "categoryId": "weights",
+      "isDefault": false,
+      "id": "nw-linda",
+      "recordType": "time"
+    },
+    {
+      "name": "Randy",
+      "description": "75 Power Snatches for time (35/25kg)",
+      "categoryId": "weights",
+      "isDefault": false,
+      "id": "nw-randy",
+      "recordType": "time"
+    },
+    {
+      "name": "Wittman",
+      "description": "7 rounds for time:\n15 Kettlebell Swings (32/24kg)\n15 Power Cleans (52.5/35kg)\n15 Box Jumps (24/20 inch)",
+      "categoryId": "weights",
+      "isDefault": false,
+      "id": "nw-wittman",
+      "recordType": "time"
+    },
+    {
+      "name": "Griff",
+      "description": "For time:\n800m Run forward\n400m Run backward\n800m Run forward\n400m Run backward",
+      "categoryId": "cardio",
+      "isDefault": false,
+      "id": "nw-griff",
+      "recordType": "time"
+    },
+    {
+      "name": "Abbate",
+      "description": "AMRAP 20min:\n15 GHD Sit-ups\n15 Hip Extensions\n1 Rope Climb",
+      "categoryId": "gymnastics",
+      "isDefault": false,
+      "id": "nw-abbate",
+      "recordType": "rounds"
+    },
+    {
+      "name": "Barbara",
+      "description": "5 rounds for time (3min rest between rounds):\n20 Pull-ups\n30 Push-ups\n40 Sit-ups\n50 Air Squats",
+      "categoryId": "gymnastics",
+      "isDefault": false,
+      "id": "nw-barbara",
+      "recordType": "time"
+    },
+    {
+      "name": "Candy",
+      "description": "For time:\n100 Pull-ups\n100 Push-ups\n100 Sit-ups\n100 Air Squats",
+      "categoryId": "gymnastics",
+      "isDefault": false,
+      "id": "nw-candy",
+      "recordType": "time"
+    },
+    {
+      "name": "Chelsea",
+      "description": "EMOM 30min:\n5 Pull-ups\n10 Push-ups\n15 Air Squats",
+      "categoryId": "gymnastics",
+      "isDefault": false,
+      "id": "nw-chelsea",
+      "recordType": "rounds"
+    },
+    {
+      "name": "Cindy",
+      "description": "AMRAP 20min:\n5 Pull-ups\n10 Push-ups\n15 Air Squats",
+      "categoryId": "gymnastics",
+      "isDefault": true,
+      "id": "nw-cindy",
+      "recordType": "rounds"
+    },
+    {
+      "name": "JT",
+      "description": "21-15-9 reps for time:\nHandstand Push-ups\nRing Dips\nPush-ups",
+      "categoryId": "gymnastics",
+      "isDefault": false,
+      "id": "nw-jt",
+      "recordType": "time"
+    },
+    {
+      "name": "Mary",
+      "description": "AMRAP 20min:\n5 Handstand Push-ups\n10 Pistols\n15 Pull-ups",
+      "categoryId": "gymnastics",
+      "isDefault": false,
+      "id": "nw-mary",
+      "recordType": "rounds"
+    },
+    {
+      "name": "Ryan",
+      "description": "5 rounds for time:\n7 Muscle-ups\n21 Burpees",
+      "categoryId": "gymnastics",
+      "isDefault": false,
+      "id": "nw-ryan",
+      "recordType": "time"
+    },
+    {
+      "name": "Santora",
+      "description": "For time:\n4 rounds:\n10 Muscle-ups\n15 Burpees\nThen:\n100 Pull-ups\n400m Run",
+      "categoryId": "gymnastics",
+      "isDefault": false,
+      "id": "nw-santora",
+      "recordType": "time"
+    },
+    {
+      "name": "Amanda",
+      "description": "9-7-5 reps for time:\nMuscle-ups\nSnatches (60/42.5kg)",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-amanda",
+      "recordType": "time"
+    },
+    {
+      "name": "Annie",
+      "description": "50-40-30-20-10 reps for time:\nDouble-Unders\nSit-ups",
+      "categoryId": "mixed",
+      "isDefault": true,
+      "id": "nw-annie",
+      "recordType": "time"
+    },
+    {
+      "name": "Arnie",
+      "description": "21-15-9 reps for time:\nClean (60/42.5kg)\nRing Dip",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-arnie",
+      "recordType": "time"
+    },
+    {
+      "name": "Badger",
+      "description": "3 rounds for time:\n30 Squat Cleans (42.5/30kg)\n30 Pull-ups\n800m Run",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-badger",
+      "recordType": "time"
+    },
+    {
+      "name": "Blake",
+      "description": "4 rounds for time:\n100ft Walking Lunge\n25 Pull-ups\n50 Box Jumps (24/20 inch)\n25 Ring Dips\n50 Knees-to-Elbows\n25 Deadlifts (60/42.5kg)\n50 Push-ups",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-blake",
+      "recordType": "time"
+    },
+    {
+      "name": "Bull",
+      "description": "AMRAP 20min:\n5 Handstand Push-ups\n10 Deadlifts (102.5/70kg)\n15 Pull-ups",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-bull",
+      "recordType": "rounds"
+    },
+    {
+      "name": "Capoot",
+      "description": "3 rounds for time:\n1000m Row\n50 Burpees\n50 Box Jumps (24/20 inch)",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-capoot",
+      "recordType": "time"
+    },
+    {
+      "name": "Daniel",
+      "description": "For time:\n50 Pull-ups\n400m Run\n21 Thrusters (42.5/30kg)\n800m Run\n21 Thrusters\n400m Run\n50 Pull-ups",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-daniel",
+      "recordType": "time"
+    },
+    {
+      "name": "Diane",
+      "description": "21-15-9 reps for time:\nDeadlift (102.5/70kg)\nHandstand Push-ups",
+      "categoryId": "mixed",
+      "isDefault": true,
+      "id": "nw-diane",
+      "recordType": "time"
+    },
+    {
+      "name": "Elizabeth",
+      "description": "21-15-9 reps for time:\nCleans (60/42.5kg)\nRing Dips",
+      "categoryId": "mixed",
+      "isDefault": true,
+      "id": "nw-elizabeth",
+      "recordType": "time"
+    },
+    {
+      "name": "Eva",
+      "description": "5 rounds for time:\n800m Run\n30 Kettlebell Swings (32/24kg)\n30 Pull-ups",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-eva",
+      "recordType": "time"
+    },
+    {
+      "name": "Fran",
+      "description": "21-15-9 reps for time:\nThrusters (42.5/30kg)\nPull-ups",
+      "categoryId": "mixed",
+      "isDefault": true,
+      "id": "nw-fran",
+      "recordType": "time"
+    },
+    {
+      "name": "Gator",
+      "description": "5 rounds for time:\n20 Deadlifts (102.5/70kg)\n20 Box Jumps (24/20 inch)\n20 Pull-ups",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-gator",
+      "recordType": "time"
+    },
+    {
+      "name": "Glen",
+      "description": "For time:\n30 Clean & Jerks (60/42.5kg)\n1 mile Run\n10 rounds of 3 Weighted Pull-ups (16/8kg), 5 Push-ups, 7 Air Squats\n1 mile Run\n100 Burpees",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-glen",
+      "recordType": "time"
+    },
+    {
+      "name": "Hawk",
+      "description": "5 rounds for time:\n5 Muscle-ups\n10 Handstand Push-ups\n15 Hang Power Cleans (60/42.5kg)",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-hawk",
+      "recordType": "time"
+    },
+    {
+      "name": "Helen",
+      "description": "3 rounds for time:\n400m Run\n21 Kettlebell Swings (24/16kg)\n12 Pull-ups",
+      "categoryId": "mixed",
+      "isDefault": true,
+      "id": "nw-helen",
+      "recordType": "time"
+    },
+    {
+      "name": "Holleyman",
+      "description": "30 rounds for time:\n5 Wall Balls (9/6kg)\n3 Handstand Push-ups\n1 Power Clean (102.5/70kg)",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-holleyman",
+      "recordType": "time"
+    },
+    {
+      "name": "Jackie",
+      "description": "For time:\n1000m Row\n50 Thrusters (20/15kg)\n30 Pull-ups",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-jackie",
+      "recordType": "time"
+    },
+    {
+      "name": "Joshie",
+      "description": "For time:\n21-15-9 reps:\nFront Squat (70/47.5kg)\nBurpee",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-joshie",
+      "recordType": "time"
+    },
+    {
+      "name": "Kelly",
+      "description": "5 rounds for time:\n400m Run\n30 Box Jumps (24/20 inch)\n30 Wall Balls (9/6kg)",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-kelly",
+      "recordType": "time"
+    },
+    {
+      "name": "Klepto",
+      "description": "5 rounds for time:\n10 Handstand Push-ups\n15 Deadlifts (70/47.5kg)\n20 Pull-ups\n25 Box Jumps (24/20 inch)\n30 Double-Unders",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-klepto",
+      "recordType": "time"
+    },
+    {
+      "name": "Loredo",
+      "description": "6 rounds for time:\n24 Air Squats\n24 Push-ups\n24 Walking Lunges\n400m Run",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-loredo",
+      "recordType": "time"
+    },
+    {
+      "name": "Luce",
+      "description": "AMRAP 30min:\n400m Run\n30 Box Jumps (24/20 inch)\n30 Wall Balls (9/6kg)",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-luce",
+      "recordType": "rounds"
+    },
+    {
+      "name": "McGhee",
+      "description": "AMRAP 30min:\n5 Deadlifts (152.5/102.5kg)\n13 Push-ups\n9 Box Jumps (24/20 inch)",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-mcghee",
+      "recordType": "rounds"
+    },
+    {
+      "name": "Michael",
+      "description": "3 rounds for time:\n800m Run\n50 Back Extensions\n50 Sit-ups",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-michael",
+      "recordType": "time"
+    },
+    {
+      "name": "Murph",
+      "description": "For time:\n1 mile Run\n100 Pull-ups\n200 Push-ups\n300 Air Squats\n1 mile Run\n(Partition as needed. With 20lb vest/body armor)",
+      "categoryId": "mixed",
+      "isDefault": true,
+      "id": "nw-murph",
+      "recordType": "time"
+    },
+    {
+      "name": "Nancy",
+      "description": "5 rounds for time:\n400m Run\n15 Overhead Squats (42.5/30kg)",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-nancy",
+      "recordType": "time"
+    },
+    {
+      "name": "Nate",
+      "description": "AMRAP 20min:\n2 Muscle-ups\n4 Handstand Push-ups\n8 Kettlebell Swings (32/24kg)",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-nate",
+      "recordType": "rounds"
+    },
+    {
+      "name": "Nick",
+      "description": "For time:\n1000m Row\n20 One-legged Squats\n20 L-pull-ups",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-nick",
+      "recordType": "time"
+    },
+    {
+      "name": "Nicole",
+      "description": "AMRAP 20min:\n400m Run\nMax Pull-ups",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-nicole",
+      "recordType": "rounds"
+    },
+    {
+      "name": "Rankel",
+      "description": "20min AMRAP:\n6 Deadlifts (102.5/70kg)\n7 Burpee Pull-ups\n10 Kettlebell Swings (32/24kg)\n200m Run",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-rankel",
+      "recordType": "rounds"
+    },
+    {
+      "name": "Severin",
+      "description": "5 rounds for time:\n9 Muscle-ups\n15 Deadlifts (102.5/70kg)\n21 Box Jumps (24/20 inch)",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-severin",
+      "recordType": "time"
+    },
+    {
+      "name": "Spehar",
+      "description": "10 rounds for time:\n10 Deadlifts (70/47.5kg)\n10 Pull-ups\n200m Run",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-spehar",
+      "recordType": "time"
+    },
+    {
+      "name": "Tom",
+      "description": "4 rounds for time:\n10 Handstand Push-ups\n15 Deadlifts (102.5/70kg)\n20 Box Jumps (24/20 inch)\n25 Pull-ups\n50 Double-Unders",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-tom",
+      "recordType": "time"
+    },
+    {
+      "name": "Whitten",
+      "description": "5 rounds for time:\n22 Kettlebell Swings (32/24kg)\n22 Box Jumps (24/20 inch)\n400m Run\n22 Burpees\n22 Wall Balls (9/6kg)",
+      "categoryId": "mixed",
+      "isDefault": false,
+      "id": "nw-whitten",
+      "recordType": "time"
+    }
+  ]
+}

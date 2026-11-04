@@ -1,0 +1,25 @@
+/* Match the responsive content/sidebar instead of assuming a 228px sidebar. */
+:root{--app-sidebar-width:228px}
+.app>.app-header{left:var(--app-header-left,var(--app-sidebar-width));right:0;min-width:0;max-width:none;--header-safe-left:max(0px,calc(var(--safe-left) - var(--app-header-left,0px)))}
+.app-header .topbar{min-width:0;padding-left:max(var(--app-content-inset,28px),var(--header-safe-left));padding-right:max(22px,var(--safe-right));gap:12px}
+.app-header .breadcrumb{min-width:0;flex:1;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app-header .top-actions{flex:0 0 auto;min-width:0}
+.app-header .notice{min-width:0;max-width:100%;box-sizing:border-box}
+.app-header .notice-track{min-width:0;flex:1;overflow:hidden}
+@media(max-width:1200px){:root{--app-sidebar-width:200px}}
+@media(max-width:1000px){:root{--app-sidebar-width:180px}.app-header .profile-summary{display:none}}
+@media(max-width:760px){:root{--app-sidebar-width:0px}.app-header .topbar{padding-left:max(18px,var(--header-safe-left));padding-right:max(18px,var(--safe-right))}}
+.movement-card-main h3{display:flex;align-items:center;flex-wrap:wrap;column-gap:8px;row-gap:5px}
+.movement-card-main .video-connected-badge{display:inline-flex;align-items:center;flex:none;font-size:9px;line-height:1.4;padding:3px 6px;margin:0;white-space:nowrap;border-radius:3px}
+.member-manager .member-row{flex-wrap:nowrap;align-items:center;gap:12px}
+.member-manager .member-identity{flex:1;min-width:0}
+.member-manager .member-identity>div{min-width:0}
+.member-manager .member-identity p{overflow-wrap:anywhere}
+.member-row-actions .member-detail-eye{display:grid;place-items:center;flex:none;width:44px;min-width:44px;height:44px;padding:10px;border:0;color:var(--blue);border-radius:8px}
+.member-detail-eye svg{width:22px;height:22px}
+/* The current startup has a white wordmark with two blue power symbols. */
+.startup-brand>.brand-mark{--logo:#fff;background:#fff}
+.startup-power.startup-power-on,.startup-power.startup-power-off{display:block;background:#88aff7;opacity:0;animation:startup-o-color .9s .25s ease-in-out both}
+.startup-power.startup-power-on{clip-path:polygon(0 0,24% 0,24% 66%,0 66%)}
+.startup-power.startup-power-off{clip-path:polygon(43% 0,65% 0,65% 66%,43% 66%);animation-delay:.4s}
+@media(prefers-reduced-motion:reduce){.startup-power.startup-power-on,.startup-power.startup-power-off{animation:none;opacity:1}}

@@ -10,8 +10,9 @@ await writeFile(out+'/.nojekyll','');
 // Pages caches assets for several minutes. Version the complete module graph,
 // including imported login/TV modules, so a fresh page cannot mix deployments.
 const entries=(await readdir(out)).filter(f=>/\.(js|css)$/.test(f)).sort();
-const fingerprint=createHash('sha256');for(const file of entries)fingerprint.update(await readFile(out+'/'+file));
+const fingerprint=createHash('sha256');for(const file of [...entries,'index.html','tv.html','push-test.html','auth-callback.html'])fingerprint.update(await readFile(out+'/'+file));
 const version=fingerprint.digest('hex').slice(0,12);
+await writeFile(out+'/release.json',JSON.stringify({version}));
 for(const file of entries.filter(f=>f.endsWith('.js'))){let code=await readFile(out+'/'+file,'utf8');code=code.replace(/(from\s*|import\s*\(\s*)(['"])(\.{1,2}\/[^'"?]+\.js)\2/g,(_,prefix,quote,path)=>prefix+quote+path+'?v='+version+quote);await writeFile(out+'/'+file,code);}
-for(const file of ['index.html','tv.html','push-test.html','auth-callback.html']){let markup=await readFile(out+'/'+file,'utf8');markup=markup.replace(/((?:src|href)=["'])([^"':?]+\.(?:js|css))(?:\?[^"']*)?(["'])/g,(_,prefix,path,quote)=>prefix+path+'?v='+version+quote);await writeFile(out+'/'+file,markup);}
+for(const file of ['index.html','tv.html','push-test.html','auth-callback.html']){let markup=await readFile(out+'/'+file,'utf8');markup=markup.replace('</head>',`<meta name="onoff-release" content="${version}"></head>`);markup=markup.replace(/((?:src|href)=["'])([^"':?]+\.(?:js|css))(?:\?[^"']*)?(["'])/g,(_,prefix,path,quote)=>prefix+path+'?v='+version+quote);await writeFile(out+'/'+file,markup);}
 console.log('Built GitHub Pages site in '+out+(demo?' (isolated demo)':' (authenticated Supabase backend)'));

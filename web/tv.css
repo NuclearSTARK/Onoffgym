@@ -13,3 +13,15 @@
 @media(max-width:700px){.tv-gate{padding:18px}.tv-login-layout{grid-template-columns:minmax(0,1fr);min-height:0}.tv-login-art{padding:28px}.tv-login-art .brand-mark{width:220px}.tv-login-art p{margin:16px 0 0;font-size:9px}.tv-login-card{padding:28px}.tv-login-card h1{font-size:24px}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 [data-orientation=landscape] .tv-shell{padding-top:18px;padding-bottom:12px}[data-orientation=landscape] .tv-header{padding-bottom:14px}[data-orientation=landscape] .tv-columns{padding-top:20px;gap:54px}[data-orientation=landscape] .tv-program{padding:20px;margin-bottom:16px}[data-orientation=landscape] .tv-exercise{font-size:48px;font-weight:700;line-height:1.5}[data-orientation=landscape] .tv-section{margin-bottom:20px}
+/* Fill the display vertically; Wednesday landscape flows through three columns. */
+.tv-shell{padding-bottom:6px}
+[data-orientation=landscape] .tv-shell{padding-bottom:6px}
+[data-orientation=portrait] .tv-shell{padding-bottom:10px}
+.tv-columns.single{max-width:none;margin:0}
+.tv-sections{display:grid;grid-template-columns:repeat(var(--tv-flow-columns,1),minmax(0,1fr));column-gap:36px}
+.tv-flow-column{min-width:0;min-height:0;height:100%;overflow:hidden}
+.tv-section:last-child{margin-bottom:0}
+[data-orientation=landscape] .tv-columns.single .tv-flow-column+.tv-flow-column{border-left:1px solid #777f894d;padding-left:36px}
+[data-orientation=landscape] .tv-columns.single .tv-exercise{font-size:44px;line-height:1.5}
+.tv-pagination{padding:4px 0 0;min-height:22px}
+.tv-sections>.tv-rest{grid-column:1/-1}

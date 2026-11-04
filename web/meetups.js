@@ -10,4 +10,5 @@ export function meetupMessage(instant){
  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).map(x=>[x.type,x.value]));
  return `운동 번개 ${parts.month}/${parts.day} ${parts.hour}:${parts.minute} 함께 운동해요`;
 }
-export function pinnedMeetups(posts){return posts.filter(p=>p.category==='운동 번개'&&p.banner_pinned&&meetupMessage(p.starts_at)).sort((a,b)=>Date.parse(a.starts_at)-Date.parse(b.starts_at));}
+export const meetupBannerExpiresAt=post=>Date.parse(post.starts_at)+30*60*1000;
+export function pinnedMeetups(posts,now=Date.now()){return posts.filter(p=>p.category==='운동 번개'&&p.banner_pinned&&meetupMessage(p.starts_at)&&meetupBannerExpiresAt(p)>+now).sort((a,b)=>Date.parse(a.starts_at)-Date.parse(b.starts_at));}

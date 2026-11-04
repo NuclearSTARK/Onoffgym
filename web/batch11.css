@@ -1,4 +1,4 @@
-/* Fade only the stamp; calendar labels and cell backgrounds stay fully opaque. */
+/* Calendar numbers and cells stay opaque; stamp presentation is in polish13.css. */
 .attendance-calendar .calendar-cell .calendar-date-number,.attendance-calendar .attended.today .calendar-date-number{opacity:1;position:relative;z-index:0}.attendance-calendar .attendance-emoji{opacity:.4;transform:none!important;z-index:1}.attendance-calendar .calendar-cell>small{z-index:2;opacity:1}
 /* Keep the colored leading/top rule; remove the leftover rounded border ends. */
 .next-class{border-top:0!important;border-right:0!important;border-bottom:0!important;box-shadow:none!important;outline:0!important}.next-class:before,.next-class:after{display:none!important}

@@ -1,3 +1,4 @@
+import {canonicalRecordPayload} from './record-schema.js';
 import {normalizeDate} from './core.js';
 
 export const LBS_PER_KG=2.2046226218;
@@ -28,24 +29,18 @@ export function prepareBatchRecords({rows,context,records=[],today,overwrite=fal
     if(!value){if(note)errors.push(`${member?.name||'회원'}: 메모와 함께 운동 결과를 입력해주세요.`);continue;}
     if(!member?.id||!member.name||member.status!=='approved'){errors.push('승인된 회원만 기록할 수 있어요.');continue;}
     if(seen.has(member.id)){errors.push(`${member.name}: 회원이 중복되어 있어요.`);continue;}seen.add(member.id);
-    if(value.length>120||note.length>150){errors.push(`${member.name}: 기록 또는 메모가 너무 길어요.`);continue;}
-    let lbs=isWeight?toLbs(value,context.unit):null;
-    if(isWeight&&(!Number.isFinite(lbs)||lbs<=0||lbs>toLbs(3000,context.unit))){errors.push(`${member.name}: 0보다 크고 3,000 이하인 중량을 입력해주세요.`);continue;}
-    // Unit switches may round the displayed value; untouched inputs retain their exact weight.
-    if(isWeight&&Number.isFinite(row.canonicalLbs)&&row.canonicalLbs>0&&row.canonicalLbs<=toLbs(3000,context.unit)&&Math.abs(fromLbs(row.canonicalLbs,context.unit)-Number(value))<=0.050001)lbs=row.canonicalLbs;
-    if(section.kind==='시간'&&!/^\d{1,3}:[0-5]\d$/.test(value)){errors.push(`${member.name}: 시간은 분:초 형식으로 입력해주세요. (예: 09:35)`);continue;}
-    if(['횟수','칼로리'].includes(section.kind)&&!/^\d+$/.test(value)){errors.push(`${member.name}: 0 이상의 정수를 입력해주세요.`);continue;}
+    if((!row.resultInput&&value.length>120)||note.length>150){errors.push(`${member.name}: 기록 또는 메모가 너무 길어요.`);continue;}
     const matches=matchingClassRecords(records,member,context);
     const old=row.recordId?matches.find(r=>r.id===row.recordId&&(context.session===undefined||(r.session||'')===context.session)):findClassRecord(records,member,context);
     if(row.recordId&&!old){errors.push(`${member.name}: 수정할 기존 기록을 다시 확인해주세요.`);continue;}
     if(context.session===undefined&&!old&&matches.length>1){errors.push(`${member.name}: 기존 기록이 여러 개예요. 수정할 기록을 선택해주세요.`);continue;}
-    const unchanged=old&&old.kind===section.kind&&(isWeight?Math.abs(old.lbs-lbs)<0.00001:old.value===value)&&(old.note||'')===note;
+    let payload;try{payload=canonicalRecordPayload(section,row.resultInput?{result:row.resultInput}:isWeight?{lbs:Number.isFinite(row.canonicalLbs)?row.canonicalLbs:toLbs(value,context.unit)}:{value},old);}catch(e){errors.push(`${member.name}: ${e.message}`);continue;}
+    const unchanged=old&&old.kind===section.kind&&(isWeight?Math.abs(old.lbs-payload.lbs)<0.00001:old.value===payload.value)&&(old.note||'')===note&&(old.result?JSON.stringify(old.result)===JSON.stringify(payload.result):!payload.result||payload.result.condition==='unspecified');
     if(unchanged)continue;
     if(old&&!overwrite){errors.push(`${member.name}: 기존 기록 수정 허용을 체크해주세요.`);continue;}
     const movement=section.movement||section.movements?.[0]||'';
     const record={...old,id:old?.id||idFactory(),memberId:member.id,name:member.name,date:context.date,program:context.program,session:context.session===undefined?(old?.session||''):context.session,section:context.section,kind:section.kind,movement,movements:section.movements||[],rank:old?.rank??!!row.rank,note,writer:'admin'};
-    delete record.lbs;delete record.value;
-    if(isWeight)record.lbs=lbs;else record.value=value;
+    delete record.lbs;delete record.value;delete record.result;Object.assign(record,payload);
     changes.push(record);
   }
   return{errors,changes:errors.length?[]:changes};

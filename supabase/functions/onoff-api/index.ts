@@ -1,9 +1,91 @@
 // supabase/functions/onoff-api/entry.js
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
+// web/record-schema.js
+var CONDITIONS = ["rx", "scaled", "unspecified"];
+var complex = (kind) => ["\uC138\uD2B8\uBCC4 \uD69F\uC218\xB7\uCE7C\uB85C\uB9AC", "\uC790\uC720 \uAE30\uB85D"].includes(kind);
+function recordPolicy(section = {}) {
+  const p = section.recordPolicy || {}, ranking = p.ranking ?? (complex(section.kind) ? "none" : "auto");
+  if (!["auto", "none", "metric"].includes(ranking) || complex(section.kind) && ranking === "auto") throw Error("\uBCF5\uD569 \uAE30\uB85D\uC740 \uC21C\uC704 \uAE30\uC900\uC744 \uC9C0\uC815\uD558\uAC70\uB098 \uAE30\uB85D\uB9CC \uB0A8\uAE30\uAE30\uB97C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+  const capUnit = p.capUnit ?? "\uD69F\uC218", metricLabel = String(p.metricLabel ?? "").trim(), metricOrder = p.metricOrder ?? "desc";
+  if (!["\uD69F\uC218", "\uCE7C\uB85C\uB9AC", "\uB77C\uC6B4\uB4DC + \uD69F\uC218"].includes(capUnit) || !["asc", "desc"].includes(metricOrder) || metricLabel.length > 40 || ranking === "metric" && !metricLabel) throw Error("\uAD6C\uAC04\uC758 \uC21C\uC704 \uAE30\uC900\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  return { version: 1, ranking, capUnit, metricLabel: ranking === "metric" ? metricLabel : "", metricOrder };
+}
+var policyKey = (s) => {
+  const p = recordPolicy(s);
+  return JSON.stringify([s.kind, p.ranking, p.capUnit, p.metricLabel, p.metricOrder]);
+};
+var integer = (v, label, max = 1e7) => {
+  if (v === "" || v == null || !/^\d+$/.test(String(v)) || !Number.isSafeInteger(+v) || +v > max) throw Error(label + "\uC740 0 \uC774\uC0C1\uC758 \uC815\uC218\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+  return +v;
+};
+var number = (v, label, max = 1e9) => {
+  if (!["string", "number"].includes(typeof v) || v === "" || v == null || !Number.isFinite(+v) || +v < 0 || +v > max) throw Error(label + "\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  return +v;
+};
+var clock = (seconds) => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+function normalizeRecordResult(section, input) {
+  if (!input || input.version != null && input.version !== 1) throw Error("\uAE30\uB85D \uC591\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  const policy = recordPolicy(section), condition = input?.condition;
+  if (!CONDITIONS.includes(condition)) throw Error("\uC6B4\uB3D9 \uC870\uAC74(RX / Scaled)\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+  const result = { version: 1, condition, policyKey: policyKey(section) }, out = { result }, kind = section.kind;
+  if (["\uC911\uB7C9", "1RM"].includes(kind)) {
+    result.lbs = number(input.lbs, "\uC911\uB7C9", 6614);
+    if (!result.lbs) throw Error("\uC911\uB7C9\uC740 0\uBCF4\uB2E4 \uCEE4\uC57C \uD574\uC694.");
+    out.lbs = result.lbs;
+  } else if (kind === "\uC2DC\uAC04") {
+    if (!["completed", "capped"].includes(input.status)) throw Error("\uC644\uB8CC \uB610\uB294 \uD0C0\uC784\uCEA1\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+    result.status = input.status;
+    if (result.status === "completed") {
+      result.seconds = integer(input.seconds, "\uC2DC\uAC04", 59999);
+      if (!result.seconds) throw Error("\uC644\uB8CC \uC2DC\uAC04\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+      out.value = clock(result.seconds);
+    } else {
+      result.capUnit = policy.capUnit;
+      result.progress = integer(input.progress, policy.capUnit === "\uB77C\uC6B4\uB4DC + \uD69F\uC218" ? "\uB77C\uC6B4\uB4DC" : "\uC218\uD589\uB7C9");
+      result.extra = policy.capUnit === "\uB77C\uC6B4\uB4DC + \uD69F\uC218" ? integer(input.extra, "\uCD94\uAC00 \uD69F\uC218") : 0;
+      out.value = `\uD0C0\uC784\uCEA1 \xB7 ${result.progress}${policy.capUnit === "\uB77C\uC6B4\uB4DC + \uD69F\uC218" ? "R + " + result.extra + "\uD68C" : policy.capUnit === "\uCE7C\uB85C\uB9AC" ? " cal" : "\uD68C"}`;
+    }
+  } else if (["\uD69F\uC218", "\uCE7C\uB85C\uB9AC"].includes(kind)) {
+    result.amount = integer(input.amount, kind);
+    out.value = String(result.amount);
+  } else if (kind === "\uB77C\uC6B4\uB4DC + \uD69F\uC218") {
+    result.rounds = integer(input.rounds, "\uB77C\uC6B4\uB4DC");
+    result.extra = integer(input.extra, "\uCD94\uAC00 \uD69F\uC218");
+    out.value = `${result.rounds}R + ${result.extra}`;
+  } else if (kind === "\uC644\uB8CC \uC5EC\uBD80") {
+    if (typeof input.completed !== "boolean") throw Error("\uC644\uB8CC \uC5EC\uBD80\uB97C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+    result.completed = input.completed;
+    out.value = result.completed ? "\uC644\uB8CC" : "\uBBF8\uC644\uB8CC";
+  } else if (complex(kind)) {
+    result.details = String(input.details ?? "").trim();
+    if (!result.details || result.details.length > 1e3) throw Error("\uC0C1\uC138 \uACB0\uACFC\uB97C 1~1,000\uC790\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    out.value = result.details;
+  } else throw Error("\uAE30\uB85D \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  if (policy.ranking === "metric") result.rankingValue = number(input.rankingValue, policy.metricLabel);
+  return out;
+}
+var recordCondition = (r) => r.result?.condition || "unspecified";
+function canonicalRecordPayload(section, record, old) {
+  if (record.result) {
+    if (record.result.condition === "unspecified" && (!old || recordCondition(old) !== "unspecified")) throw Error("\uC6B4\uB3D9 \uC870\uAC74(RX / Scaled)\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+    return normalizeRecordResult(section, record.result);
+  }
+  if (old && !old.result && old.kind === section.kind && (old.value ?? null) === (record.value ?? null) && (old.lbs ?? null) === (record.lbs ?? null)) return old.lbs != null ? { lbs: old.lbs } : { value: old.value };
+  if (record.lbs != null) {
+    if (!["\uC911\uB7C9", "1RM"].includes(section.kind) || !Number.isFinite(record.lbs) || record.lbs <= 0 || record.lbs > 6614) throw Error("\uC911\uB7C9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    return { lbs: record.lbs };
+  }
+  if (["\uC911\uB7C9", "1RM"].includes(section.kind)) throw Error("\uC911\uB7C9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  const value = String(record.value ?? "").trim();
+  if (!value || value.length > 120) throw Error("\uC6B4\uB3D9 \uACB0\uACFC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  if (section.kind === "\uC2DC\uAC04" && !/^\d{1,3}:[0-5]\d$/.test(value) || ["\uD69F\uC218", "\uCE7C\uB85C\uB9AC"].includes(section.kind) && !/^\d+$/.test(value)) throw Error("\uC6B4\uB3D9 \uACB0\uACFC \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  return { value };
+}
+
 // web/core.js
 var MOVEMENTS = ["Front Squat", "Back Squat", "Deadlift", "Clean", "Clean & Jerk", "Snatch", "Power Snatch", "Squat Snatch", "Strict Press", "Push Press", "Split Jerk", "Row", "Box Step Over", "Pull-up", "Ring Dip", "Burpee"];
-var KINDS = ["\uC5C6\uC74C", "\uC911\uB7C9", "1RM", "\uC2DC\uAC04", "\uD69F\uC218", "\uB77C\uC6B4\uB4DC + \uD69F\uC218", "\uCE7C\uB85C\uB9AC", "\uC138\uD2B8\uBCC4 \uD69F\uC218\xB7\uCE7C\uB85C\uB9AC", "\uC644\uB8CC \uC5EC\uBD80"];
+var KINDS = ["\uC5C6\uC74C", "\uC911\uB7C9", "1RM", "\uC2DC\uAC04", "\uD69F\uC218", "\uB77C\uC6B4\uB4DC + \uD69F\uC218", "\uCE7C\uB85C\uB9AC", "\uC138\uD2B8\uBCC4 \uD69F\uC218\xB7\uCE7C\uB85C\uB9AC", "\uC644\uB8CC \uC5EC\uBD80", "\uC790\uC720 \uAE30\uB85D"];
 var DEFAULT_BANNER = { enabled: true, text: "ONOFF\uC640 \uD568\uAED8, \uC624\uB298\uC758 \uB098\uB97C \uCF1C\uBCF4\uC138\uC694! \xB7 \uC6B4\uB3D9 \uD6C4 \uB098\uC758 \uAE30\uB85D\uC744 \uB0A8\uACA8\uC8FC\uC138\uC694.", color: "blue" };
 function validBanner(b) {
   return !!b && typeof b.enabled === "boolean" && typeof b.text === "string" && b.text.trim().length > 0 && b.text.length <= 500 && ["blue", "mint", "amber"].includes(b.color);
@@ -131,7 +213,22 @@ function validateWorkouts(workouts, library = MOVEMENTS, holidays = {}) {
     if (!Array.isArray(w.sections) || !w.sections.length) return { errors: ["\uC218\uC5C5 \uAD6C\uAC04\uC774 \uBE44\uC5B4 \uC788\uC5B4\uC694."], workouts: [] };
     w.sections.forEach((s, i) => rows.push({ "\uB0A0\uC9DC": w.date, "\uC218\uC5C5": w.program, "\uAD6C\uAC04": "S" + (i + 1), "\uC81C\uBAA9": s.title || "S" + (i + 1), "\uC6B4\uB3D9 \uB0B4\uC6A9": s.text, "\uAE30\uB85D \uC885\uB958": s.record ? s.kind : "\uC5C6\uC74C", "\uAD00\uB828 \uB3D9\uC791": (s.movements?.length ? s.movements : s.movement ? [s.movement] : []).join("; "), "\uC624\uB298 \uC6B4\uB3D9 \uC124\uBA85 \uC601\uC0C1": w.overviewId ? "https://youtu.be/" + w.overviewId : "", "\uC218\uC5C5 \uC2DC\uAC04(\uACF5\uD734\uC77C)": (w.sessions || []).join(", ") }));
   }
-  return normalizeRows(rows, library, holidays);
+  const result = normalizeRows(rows, library, holidays);
+  if (!result.errors.length) {
+    for (const w of result.workouts) {
+      const source = workouts.find((x) => normalizeDate(x.date) === w.date && x.program.toUpperCase() === w.program);
+      w.sections.forEach((s, i) => {
+        if (s.record && source?.sections[i]?.recordPolicy) {
+          try {
+            s.recordPolicy = recordPolicy({ ...s, recordPolicy: source.sections[i].recordPolicy });
+          } catch (e) {
+            result.errors.push(e.message);
+          }
+        }
+      });
+    }
+  }
+  return result;
 }
 
 // web/membership.js
@@ -273,7 +370,7 @@ var fail2 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 var uuid2 = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
-var integer = (n, min, max) => Number.isSafeInteger(n) && n >= min && n <= max;
+var integer2 = (n, min, max) => Number.isSafeInteger(n) && n >= min && n <= max;
 function createPointsService(db2, { now = () => /* @__PURE__ */ new Date() } = {}) {
   const read = async (q) => {
     const { data, error } = await q;
@@ -314,15 +411,15 @@ function createPointsService(db2, { now = () => /* @__PURE__ */ new Date() } = {
       if (typeof b.enabled !== "boolean" || b.pin && (typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin))) fail2("\uC801\uB9BD \uC124\uC815\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "settings", enabled: b.enabled, pin: b.pin || "" };
       for (const key of ["attendancePoints", "recordPoints"]) if (key in b) {
-        if (!integer(b[key], 0, 1e6)) fail2("\uC801\uB9BD\uC561\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (!integer2(b[key], 0, 1e6)) fail2("\uC801\uB9BD\uC561\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p[key] = b[key];
       }
       if ("maxBalance" in b) {
-        if (b.maxBalance !== null && !integer(b.maxBalance, 1, 9e12)) fail2("\uCD1D \uBCF4\uC720 \uD3EC\uC778\uD2B8 \uC0C1\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (b.maxBalance !== null && !integer2(b.maxBalance, 1, 9e12)) fail2("\uCD1D \uBCF4\uC720 \uD3EC\uC778\uD2B8 \uC0C1\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p.maxBalance = b.maxBalance;
       }
     } else if (path === "/api/points/rule") {
-      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !b.methodId && !["attendance", "record", "manual"].includes(b.kind) || b.methodId && (typeof b.methodId !== "string" || b.methodId.length > 80) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || !integer(b.amount, 0, 1e6)) fail2("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !b.methodId && !["attendance", "record", "manual"].includes(b.kind) || b.methodId && (typeof b.methodId !== "string" || b.methodId.length > 80) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || !integer2(b.amount, 0, 1e6)) fail2("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "rule-save", id: b.id || "", ...b.methodId ? { methodId: b.methodId } : { kind: b.kind }, name: b.name.trim(), amount: b.amount };
     } else if (path === "/api/points/rule/delete") {
       if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail2("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
@@ -334,19 +431,19 @@ function createPointsService(db2, { now = () => /* @__PURE__ */ new Date() } = {
       if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail2("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "method-delete", id: b.id };
     } else if (path === "/api/points/deduct") {
-      if (!uuid2(b.memberId) || !uuid2(b.requestId) || !integer(b.amount, 1, 1e6) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200) fail2("\uCC28\uAC10 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.memberId) || !uuid2(b.requestId) || !integer2(b.amount, 1, 1e6) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200) fail2("\uCC28\uAC10 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "deduct", memberId: b.memberId, requestId: b.requestId, amount: b.amount, reason: b.reason.trim() };
     } else if (path === "/api/points/grant") {
-      if (!uuid2(b.memberId) || !uuid2(b.requestId) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200 || b.ruleId && (typeof b.ruleId !== "string" || b.ruleId.length > 80) || !b.ruleId && !integer(b.amount, 1, 1e6)) fail2("\uC9C0\uAE09 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.memberId) || !uuid2(b.requestId) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200 || b.ruleId && (typeof b.ruleId !== "string" || b.ruleId.length > 80) || !b.ruleId && !integer2(b.amount, 1, 1e6)) fail2("\uC9C0\uAE09 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "grant", memberId: b.memberId, requestId: b.requestId, ruleId: b.ruleId || null, reason: b.reason.trim(), ...!b.ruleId ? { amount: b.amount } : {} };
     } else if (path === "/api/points/product") {
-      if (b.id && !uuid2(b.id) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || typeof b.description !== "string" || b.description.length > 300 || !integer(b.price, 1, 1e9) || !integer(b.uses, 1, 1e3)) fail2("\uC0C1\uD488 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && !uuid2(b.id) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || typeof b.description !== "string" || b.description.length > 300 || !integer2(b.price, 1, 1e9) || !integer2(b.uses, 1, 1e3)) fail2("\uC0C1\uD488 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "product-save", id: b.id || "", name: b.name.trim(), description: b.description, price: b.price, uses: b.uses };
     } else if (path === "/api/points/product/delete") {
       if (!uuid2(b.id)) fail2("\uC0C1\uD488\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "product-delete", id: b.id };
     } else if (path === "/api/points/exchange") {
-      if (!uuid2(b.productId) || !uuid2(b.requestId) || !integer(b.expectedPrice, 1, 1e9) || !integer(b.expectedUses, 1, 1e3)) fail2("\uAD50\uD658 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid2(b.productId) || !uuid2(b.requestId) || !integer2(b.expectedPrice, 1, 1e9) || !integer2(b.expectedUses, 1, 1e3)) fail2("\uAD50\uD658 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "exchange", productId: b.productId, requestId: b.requestId, expectedPrice: b.expectedPrice, expectedUses: b.expectedUses };
     } else if (path === "/api/points/use") {
       if (!uuid2(b.couponId) || !uuid2(b.requestId) || typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin)) fail2("\uCFE0\uD3F0\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
@@ -989,8 +1086,8 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     }
   }
   async function revision(m) {
-    const rt = await setting("releaseTime", "22:00"), clock = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now());
-    return { revision: [await setting("revision", 0), kstDate(now()), clock >= rt ? 1 : 0, m.status, m.role].join(":"), serverNow: now().toISOString() };
+    const rt = await setting("releaseTime", "22:00"), clock2 = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now());
+    return { revision: [await setting("revision", 0), kstDate(now()), clock2 >= rt ? 1 : 0, m.status, m.role].join(":"), serverNow: now().toISOString() };
   }
   async function tvSettings() {
     const [pin, prefs, devices] = await Promise.all([setting("tvPassword", null), setting("tvDisplay", {}), rows("gym_tv_sessions", (q) => q.gt("expires", now().toISOString()).order("last_seen", { ascending: false, nullsFirst: false }).limit(20))]);
@@ -1204,9 +1301,10 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       for (const r of list) {
         const id2 = r.id || crypto.randomUUID(), memberId = r.memberId || m.id;
         if (!uuid3(id2) || !uuid3(memberId)) bad("\uD68C\uC6D0\uACFC \uAE30\uB85D ID\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        let prior;
         if (memberId !== m.id) {
-          const existing = await one("gym_records", "id", id2);
-          permit(m, existing ? "records.update" : "records.create");
+          prior = await one("gym_records", "id", id2);
+          permit(m, prior ? "records.update" : "records.create");
         }
         if (!normalizeDate(r.date) || r.date > kstDate(now()) || !["B/T", "WOD"].includes(r.program) || !/^S[1-9]\d?$/.test(r.section)) bad("\uAE30\uB85D \uB0A0\uC9DC\uC640 \uC218\uC5C5\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         const key = r.date + "_" + r.program;
@@ -1215,12 +1313,11 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
         if (!sec?.record || Date.parse(w.release_at) > +now()) bad("\uACF5\uAC1C\uB41C \uC218\uC5C5\uC758 \uAE30\uB85D \uAD6C\uAC04\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
         if (r.session && !/^([01]\d|2[0-3]):[0-5]\d$/.test(r.session)) bad("\uC218\uC5C5 \uC2DC\uAC04\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         const movement = sec.kind === "1RM" && (sec.movements?.length ?? (sec.movement ? 1 : 0)) !== 1 ? "" : sec.movement || sec.movements?.[0] || "", rm = findRmMovement(cat, movement), item = { id: id2, memberId, date: r.date, program: r.program, section: r.section, session: r.session || "", kind: sec.kind, movement, movements: sec.movements || [], movementId: rm?.id, note: typeof r.note === "string" ? text(r.note, 0, 150, "\uBA54\uBAA8") : "", writer: m.role };
-        if (["\uC911\uB7C9", "1RM"].includes(sec.kind)) {
-          if (!Number.isFinite(r.lbs) || r.lbs <= 0 || r.lbs > 6614) bad("\uC911\uB7C9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-          item.lbs = r.lbs;
-        } else {
-          item.value = text(r.value, 1, 120, "\uC6B4\uB3D9 \uACB0\uACFC");
-          if (sec.kind === "\uC2DC\uAC04" && !/^\d{1,3}:[0-5]\d$/.test(item.value) || ["\uD69F\uC218", "\uCE7C\uB85C\uB9AC"].includes(sec.kind) && !/^\d+$/.test(item.value)) bad("\uC6B4\uB3D9 \uACB0\uACFC \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (prior === void 0 && (!r.result || r.result.condition === "unspecified")) prior = await one("gym_records", "id", id2);
+        try {
+          Object.assign(item, canonicalRecordPayload(sec, r, prior?.user_id === memberId && prior.date === r.date && prior.program === r.program && prior.section === r.section ? prior.body : null));
+        } catch (e) {
+          bad(e.message);
         }
         clean.push(item);
       }

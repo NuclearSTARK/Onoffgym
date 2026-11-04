@@ -1,3 +1,4 @@
+import {canonicalRecordPayload} from '../../../web/record-schema.js';
 import {participationAccess} from '../../../web/participation-access.js';
 import {createNamedService} from './named-service.js';
 import {PRIVACY_VERSION} from '../../../web/privacy-version.js';
@@ -121,14 +122,13 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
    const list=b.records;if(!Array.isArray(list)||list.length<1||list.length>200)bad('기록 목록을 확인해주세요.');if(list.length>1&&!hasPermission(m,'records.create')&&!hasPermission(m,'records.update'))admin(m);
    const cat=await setting('rmCatalogue',DEFAULT_RM_CATALOGUE),cache=new Map(),clean=[];
    for(const r of list){
-    const id=r.id||crypto.randomUUID(),memberId=r.memberId||m.id;if(!uuid(id)||!uuid(memberId))bad('회원과 기록 ID를 확인해주세요.');if(memberId!==m.id){const existing=await one('gym_records','id',id);permit(m,existing?'records.update':'records.create');}
+    const id=r.id||crypto.randomUUID(),memberId=r.memberId||m.id;if(!uuid(id)||!uuid(memberId))bad('회원과 기록 ID를 확인해주세요.');let prior;if(memberId!==m.id){prior=await one('gym_records','id',id);permit(m,prior?'records.update':'records.create');}
     if(!normalizeDate(r.date)||r.date>kstDate(now())||!['B/T','WOD'].includes(r.program)||!/^S[1-9]\d?$/.test(r.section))bad('기록 날짜와 수업을 확인해주세요.');
     const key=r.date+'_'+r.program;if(!cache.has(key))cache.set(key,await one('gym_workouts','key',key));const w=cache.get(key),sec=w?.body.sections?.[+r.section.slice(1)-1];
     if(!sec?.record||Date.parse(w.release_at)>+now())bad('공개된 수업의 기록 구간을 선택해주세요.');
     if(r.session&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(r.session))bad('수업 시간을 확인해주세요.');
     const movement=sec.kind==='1RM'&&(sec.movements?.length??(sec.movement?1:0))!==1?'':sec.movement||sec.movements?.[0]||'',rm=findRmMovement(cat,movement),item={id,memberId,date:r.date,program:r.program,section:r.section,session:r.session||'',kind:sec.kind,movement,movements:sec.movements||[],movementId:rm?.id,note:typeof r.note==='string'?text(r.note,0,150,'메모'):'',writer:m.role};
-    if(['중량','1RM'].includes(sec.kind)){if(!Number.isFinite(r.lbs)||r.lbs<=0||r.lbs>6614)bad('중량을 확인해주세요.');item.lbs=r.lbs;}
-    else {item.value=text(r.value,1,120,'운동 결과');if(sec.kind==='시간'&&!/^\d{1,3}:[0-5]\d$/.test(item.value)||['횟수','칼로리'].includes(sec.kind)&&!/^\d+$/.test(item.value))bad('운동 결과 형식을 확인해주세요.');}
+    if(prior===undefined&&(!r.result||r.result.condition==='unspecified'))prior=await one('gym_records','id',id);try{Object.assign(item,canonicalRecordPayload(sec,r,prior?.user_id===memberId&&prior.date===r.date&&prior.program===r.program&&prior.section===r.section?prior.body:null));}catch(e){bad(e.message);}
     clean.push(item);
    }
    return commit(m.id,'records',{records:clean});

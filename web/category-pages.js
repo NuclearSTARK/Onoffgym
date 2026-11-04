@@ -1,0 +1,4 @@
+import {pagerMarkup,mountSwipePages} from './swipe-pages.js';
+export function categoryMarkup(groups,render,escape){if(!groups.length)return '<div class="panel empty" role="status">검색 결과가 없어요.</div>';return `<div class="category-pages" data-category-ids="${escape(JSON.stringify(groups.map(g=>g.id)))}">${pagerMarkup(groups.map(render),'대분류')}</div>`;}
+const mounted=new WeakMap();
+export function mountCategoryPages(root,{selected='',onCategory=()=>{}}={}){if(!root)return;const ids=JSON.parse(root.dataset.categoryIds||'[]');if(!ids.length)return;const prior=mounted.get(root);if(prior){prior.select(Math.max(0,ids.indexOf(selected)),false);return prior;}const controller=mountSwipePages(root,{page:Math.max(0,ids.indexOf(selected)),onPage:index=>onCategory(ids[index])});mounted.set(root,controller);return controller;}

@@ -16,6 +16,10 @@ function createNamedService(db2) {
   }
   return { snapshot: (m) => rpc("onoff_named_snapshot", { actor: m.id }), async route(m, path, b) {
     if (m.status !== "approved") fail("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (path === "/api/named-wods/comparison") {
+      if (!id(b.wodId)) fail("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      return rpc("onoff_named_comparison", { actor: m.id, wod_id: b.wodId });
+    }
     let p;
     if (path === "/api/named-wods/selection") {
       if (!Array.isArray(b.ids) || b.ids.length > 250 || b.ids.some((x) => !id(x))) fail("\uC885\uBAA9 \uC120\uD0DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
@@ -42,7 +46,7 @@ function createNamedService(db2) {
       } else if (path === "/api/named-wods/category/delete") {
         if (!id(b.id) || !id(b.targetId) || b.id === b.targetId) fail("\uC62E\uAE38 \uBD84\uB958\uB97C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
         p = { action: "category-delete", id: b.id, targetId: b.targetId };
-      } else fail("Named WOD \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      } else fail("NAMED WOD \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
     }
     return rpc("onoff_named_mutate", { actor: m.id, p });
   } };
@@ -1093,7 +1097,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     if (path === "/api/bootstrap") return bootstrap(m, url);
     if (path === "/api/profile") return commit(m.id, "profile", { name: text(b.name, 2, 30, "\uC2E4\uBA85") });
     approved(m);
-    if ((path === "/api/posts" || path === "/api/meetups" || ["/api/posts/comment", "/api/posts/join"].includes(path)) && m.disclosure_consent === false) bad("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC774\uC6A9\uD574\uC8FC\uC138\uC694.", 403);
+    if ((path === "/api/posts" || path === "/api/meetups" || (path === "/api/posts/comment" || path === "/api/posts/join" && b.joined !== false)) && m.disclosure_consent === false) bad("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC774\uC6A9\uD574\uC8FC\uC138\uC694.", 403);
     if (path.startsWith("/api/named-wods/")) return named.route(m, path, b);
     if (path === "/api/rm/comparison") {
       if (typeof b.movementId !== "string" || b.movementId.length > 100) bad("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
@@ -1210,6 +1214,10 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       if (!["\uC6B4\uB3D9 \uBC88\uAC1C", "\uACF5\uB3D9\uAD6C\uB9E4", "\uC790\uC720\uAE00"].includes(b.category)) bad("\uB9D0\uBA38\uB9AC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return commit(m.id, "post", { category: b.category, title: text(b.title, 1, 80, "\uC81C\uBAA9"), body: text(b.body, 1, 3e3, "\uB0B4\uC6A9") });
     }
+    if (path === "/api/posts/join") {
+      if (!uuid3(b.id) || typeof b.joined !== "boolean") bad("\uAC8C\uC2DC\uAE00\uACFC \uCC38\uC5EC \uC0C1\uD0DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      return result(db2.rpc("onoff_post_participation", { actor: m.id, target_post: b.id, joined: b.joined }));
+    }
     if (["/api/posts/delete", "/api/posts/join", "/api/posts/comment"].includes(path)) {
       if (!uuid3(b.id)) bad("\uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       if (!path.endsWith("delete")) {
@@ -1286,6 +1294,10 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       const permissions = b.coach_permissions || [];
       if (!Array.isArray(permissions) || permissions.some((k) => !COACH_PERMISSIONS.some(([key]) => key === k))) bad("\uCF54\uCE58 \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return commit(m.id, "members", { id: b.id, role: b.role, status: b.status, coach_permissions: b.role === "coach" ? [...new Set(permissions)] : [] });
+    }
+    if (path === "/api/membership/history/delete") {
+      if (!uuid3(b.id) || !uuid3(b.eventId) || b.confirmed !== true) bad("\uD68C\uC6D0\uACFC \uAD00\uB9AC \uC774\uB825 \uC0AD\uC81C\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      return result(db2.rpc("onoff_membership_history_delete", { actor: m.id, target_member: b.id, event_id: b.eventId }));
     }
     if (path === "/api/membership/delete") {
       if (!uuid3(b.id) || !uuid3(b.passId)) bad("\uD68C\uC6D0\uAD8C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");

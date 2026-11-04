@@ -6,6 +6,7 @@ export function createNamedService(db){
  async function rpc(name,p){const {data,error}=await db.rpc(name,p);if(error)fail(error.code==='42501'?'이 기능의 권한이 없어요.':error.code==='23505'?'이미 등록된 종목 또는 분류예요.':'요청을 확인한 뒤 다시 시도해주세요.',error.code==='42501'?403:error.code==='23505'?409:400);return data;}
  return {snapshot:m=>rpc('onoff_named_snapshot',{actor:m.id}),async route(m,path,b){
   if(m.status!=='approved')fail('관리자 승인 후 이용할 수 있어요.',403);
+  if(path==='/api/named-wods/comparison'){if(!id(b.wodId))fail('종목을 확인해주세요.');return rpc('onoff_named_comparison',{actor:m.id,wod_id:b.wodId});}
   let p;
   if(path==='/api/named-wods/selection'){
    if(!Array.isArray(b.ids)||b.ids.length>250||b.ids.some(x=>!id(x)))fail('종목 선택을 확인해주세요.');p={action:'selection',ids:[...new Set(b.ids)]};
@@ -25,7 +26,7 @@ export function createNamedService(db){
     if(b.id&&!id(b.id)||!validText(b.label,1,40))fail('분류를 확인해주세요.');p={action:'category',...(b.id?{id:b.id}:{}),label:b.label.trim()};
    }else if(path==='/api/named-wods/category/delete'){
     if(!id(b.id)||!id(b.targetId)||b.id===b.targetId)fail('옮길 분류를 선택해주세요.');p={action:'category-delete',id:b.id,targetId:b.targetId};
-   }else fail('Named WOD 요청을 찾을 수 없어요.',404);
+   }else fail('NAMED WOD 요청을 찾을 수 없어요.',404);
   }
   return rpc('onoff_named_mutate',{actor:m.id,p});
  }};

@@ -1,3 +1,4 @@
+import {purgePhotoStorage} from './photo-storage.js';
 import {createEmailAuth} from './email-auth.js';
 import {createClient} from './assets/supabase-js-2.118.0.js';
 // backend-config.js is generated only for the public Pages deployment.
@@ -16,18 +17,18 @@ if(client)client.auth.onAuthStateChange(event=>{if(event==='SIGNED_OUT')setTimeo
 export const authReady=client?client.auth.getSession():Promise.resolve({data:{session:null}});
 let cache=null,cacheKey='',revision='',cacheGeneration=0;
 export const resetBackendCache=()=>{cacheGeneration++;cache=null;cacheKey='';revision='';};
-export async function backendRequest(path,body){
+export async function backendRequest(path,body,options={}){
  const {data:{session}}=await client.auth.getSession();
  const headers={apikey:config.publishableKey};if(session?.access_token)headers.Authorization='Bearer '+session.access_token;
  const url=config.url+'/functions/v1/onoff-api'+path;
- const send=async (u,b)=>{const r=await fetch(u,{method:b?'POST':'GET',headers:{...headers,...(b?{'Content-Type':'application/json'}:{})},body:b?JSON.stringify(b):undefined});let value;try{value=await r.json();}catch{throw Error('서버 응답을 확인할 수 없어요.');}if(!r.ok)throw Object.assign(Error(value.error||'연결을 확인해주세요.'),{status:r.status,...(value.joinAccess?{joinAccess:value.joinAccess}:{})});return value;};
+ const send=async (u,b)=>{const r=await fetch(u,{signal:options.signal,method:b?'POST':'GET',headers:{...headers,...(b?{'Content-Type':'application/json'}:{})},body:b?JSON.stringify(b):undefined});let value;try{value=await r.json();}catch{throw Error('서버 응답을 확인할 수 없어요.');}if(!r.ok)throw Object.assign(Error(value.error||'연결을 확인해주세요.'),{status:r.status,...(value.joinAccess?{joinAccess:value.joinAccess}:{})});return value;};
  if(!body&&path.startsWith('/api/bootstrap')){
   if(!session){resetBackendCache();return {viewer:null,workouts:{},members:[],library:[],serverNow:new Date().toISOString(),shared:true};}
   const key=session.user.id+path,generation=cacheGeneration,cached=cacheKey===key?cache:null,cachedRevision=revision;
   if(cached){const check=await send(config.url+'/functions/v1/onoff-api/api/revision');if(generation===cacheGeneration&&check.revision===cachedRevision)return {...cached,serverNow:check.serverNow};}
   const value=await send(url);if(generation===cacheGeneration){cache=value;cacheKey=key;revision=value.revision;}return value;
  }
- const value=await send(url,body);if(body&&!['/api/photos/url','/api/photos/urls','/api/posts/access'].includes(path))resetBackendCache();return value;
+ const value=await send(url,body);if(body&&!['/api/photos/url','/api/photos/urls','/api/photos/preview','/api/posts/access'].includes(path))resetBackendCache();return value;
 }
 export async function backendTvRequest(path,body){
  const key='onoff-tv-session-'+config.projectId,token=localStorage.getItem(key),headers={apikey:config.publishableKey};
@@ -36,4 +37,4 @@ export async function backendTvRequest(path,body){
  if(!r.ok){if(r.status===401&&path!=='/api/tv/login')localStorage.removeItem(key);throw Object.assign(Error(data.error||'TV 연결을 확인해주세요.'),{status:r.status});}
  if(data.token)localStorage.setItem(key,data.token);if(path==='/api/tv/logout')localStorage.removeItem(key);return data;
 }
-export async function signOut(){history.scrollRestoration='manual';window.scrollTo(0,0);if(client)await client.auth.signOut();resetBackendCache();location.href=location.pathname+'#login';location.reload();}
+export async function signOut(){history.scrollRestoration='manual';window.scrollTo(0,0);if(client)await client.auth.signOut();await purgePhotoStorage();resetBackendCache();location.href=location.pathname+'#login';location.reload();}

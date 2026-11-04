@@ -412,6 +412,7 @@ function updateRmCatalogue(catalogue, body, idFactory = () => crypto.randomUUID(
   const movement = { id: old?.id || "custom-" + idFactory(), name, category: body.category, active: body.active, isDefault: body.active && body.isDefault, aliases };
   return { movement, catalogue: old ? catalogue.map((m) => m.id === old.id ? movement : m) : [...catalogue, movement] };
 }
+var ATTENDANCE_STAMPS = Object.freeze(["\u{1F525}", "\u26A1", "\u{1F3C6}", "\u{1F4AA}", "\u{1F3CB}\uFE0F", "\u{1F3AF}", "\u{1F680}", "\u2B50", "\u{1F947}", "\u{1F44A}", "\u{1F9BE}", "\u{1F94A}", "\u{1F3C5}", "\u{1F389}", "\u2728", "\u{1F64C}", "\u{1F44F}", "\u{1F4A5}", "\u{1F91C}", "\u{1F6E1}\uFE0F", "\u{1F3C3}", "\u{1F938}", "\u{1F9D7}", "\u{1F93E}", "\u{1F6B4}", "\u{1F3CA}", "\u{1F981}", "\u{1F42F}", "\u{1F432}", "\u2600\uFE0F"]);
 
 // web/video-library.js
 var VIDEO_CATEGORIES = [...RM_CATEGORIES, ["cardio", "\uC720\uC0B0\uC18C"], ["gymnastics", "\uB9E8\uBAB8\xB7\uCCB4\uC870"], ["other", "\uAE30\uD0C0 \uB3D9\uC791"]];
@@ -473,6 +474,18 @@ function cleanJpeg(bytes) {
   }
   fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
 }
+var photoPreviewPath = (path) => path.replace(/\.jpg$/, ".preview.jpg");
+function decodeJpeg(data, limit) {
+  if (typeof data !== "string" || data.length > Math.ceil(limit / 3) * 4) fail3("\uC555\uCD95\uB41C \uC0AC\uC9C4 \uD06C\uAE30\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  let bytes;
+  try {
+    bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  } catch {
+    fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  }
+  if (bytes.length > limit) fail3("\uC0AC\uC9C4 \uD06C\uAE30\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
+  return cleanJpeg(bytes);
+}
 function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}) {
   const bucket = db2.storage?.from("onoff-private-photos");
   async function result(q) {
@@ -505,37 +518,56 @@ function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}
     if (path === "/api/photos/upload") {
       if (m.disclosure_consent === false) fail3("\uC0AC\uC9C4 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC774\uC6A9\uD574\uC8FC\uC138\uC694.", 403);
       if (!["community", "daily", "notice"].includes(b.kind) || b.kind === "daily" && !hasPermission(m, "photos") || b.kind === "notice" && !hasPermission(m, "notices")) fail3("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
-      if (typeof b.data !== "string" || b.data.length > 82e4) fail3("\uC555\uCD95\uB41C \uC0AC\uC9C4\uC740 600KB \uC774\uD558\uC5EC\uC57C \uD574\uC694.");
-      let bytes;
-      try {
-        bytes = Uint8Array.from(atob(b.data), (c) => c.charCodeAt(0));
-      } catch {
-        fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      }
-      bytes = cleanJpeg(bytes);
-      if (bytes.length > 614400) fail3("\uC0AC\uC9C4 \uD06C\uAE30\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
+      const bytes = decodeJpeg(b.data, 614400), preview = b.previewData === void 0 ? null : decodeJpeg(b.previewData, 65536);
       await cleanup();
       const pending = await result(db2.from("gym_photos").select("id").eq("owner_id", m.id).eq("active", false).limit(10));
       if (pending.length >= 10) fail3("\uBBF8\uC0AC\uC6A9 \uC0AC\uC9C4\uC774 \uB9CE\uC544\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 429);
-      const id2 = crypto.randomUUID(), storagePath = m.id + "/" + id2 + ".jpg";
-      await result(db2.from("gym_photos").insert({ id: id2, owner_id: m.id, kind: b.kind, path: storagePath }));
-      const { error } = await bucket.upload(storagePath, bytes, { contentType: "image/jpeg", cacheControl: "60", upsert: false });
-      if (error) {
+      const id2 = crypto.randomUUID(), storagePath = m.id + "/" + id2 + ".jpg", previewPath = preview ? photoPreviewPath(storagePath) : null;
+      await result(db2.from("gym_photos").insert({ id: id2, owner_id: m.id, kind: b.kind, path: storagePath, preview_path: previewPath }));
+      const uploads = await Promise.allSettled([[storagePath, bytes], ...preview ? [[previewPath, preview]] : []].map(([path2, data]) => bucket.upload(path2, data, { contentType: "image/jpeg", cacheControl: "3600", upsert: false })));
+      if (uploads.some((r) => r.status === "rejected" || r.value.error)) {
         await result(db2.from("gym_photos").delete().eq("id", id2).eq("owner_id", m.id));
+        await cleanup();
         fail3("\uC0AC\uC9C4 \uC5C5\uB85C\uB4DC \uC2E4\uD328 \xB7 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uBA74 \uC7AC\uC5C5\uB85C\uB4DC\uD569\uB2C8\uB2E4.", 503);
       }
-      await result(db2.from("gym_photos").update({ uploaded: true }).eq("id", id2).eq("owner_id", m.id));
+      try {
+        await result(db2.from("gym_photos").update({ uploaded: true }).eq("id", id2).eq("owner_id", m.id));
+      } catch (e) {
+        await result(db2.from("gym_photos").delete().eq("id", id2).eq("owner_id", m.id));
+        await cleanup();
+        throw e;
+      }
       return { id: id2 };
+    }
+    if (path === "/api/photos/preview") {
+      const preview = decodeJpeg(b.previewData, 65536), photo = await result(db2.from("gym_photos").select("id,path,preview_path,owner_id").eq("id", b.id).eq("active", true).eq("uploaded", true).maybeSingle());
+      if (!photo) fail3("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      if (photo.owner_id !== m.id && m.role !== "admin") fail3("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (photo.preview_path) return { ok: true };
+      const previewPath = photoPreviewPath(photo.path);
+      if (previewPath === photo.path) fail3("\uC0AC\uC9C4 \uACBD\uB85C\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      const { error } = await bucket.upload(previewPath, preview, { contentType: "image/jpeg", cacheControl: "3600", upsert: false });
+      if (error && !["409", "Duplicate"].includes(String(error.statusCode || error.status || error.error))) fail3("\uBBF8\uB9AC\uBCF4\uAE30\uB97C \uC900\uBE44\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+      const updated = await result(db2.from("gym_photos").update({ preview_path: previewPath }).eq("id", photo.id).eq("active", true).is("preview_path", null).select("id"));
+      if (!updated?.length) {
+        const current = await result(db2.from("gym_photos").select("id,preview_path").eq("id", photo.id).maybeSingle());
+        if (!current) {
+          await result(db2.from("gym_photo_cleanup").upsert({ path: previewPath }, { onConflict: "path" }));
+          await cleanup();
+        }
+      }
+      return { ok: true };
     }
     if (path === "/api/photos/urls") {
       if (!Array.isArray(b.ids) || b.ids.length < 1 || b.ids.length > 12 || b.ids.some((id2) => typeof id2 !== "string" || !/^[-a-f0-9]{36}$/i.test(id2))) fail3("\uC0AC\uC9C4 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      const photos = await visiblePhotos(m, await result(db2.from("gym_photos").select("id,path,owner_id").eq("active", true).in("id", [...new Set(b.ids)])));
+      const photos = await visiblePhotos(m, await result(db2.from("gym_photos").select("id,path,preview_path,owner_id").eq("active", true).in("id", [...new Set(b.ids)])));
       if (!photos.length) return { urls: [] };
-      const { data, error } = await bucket.createSignedUrls(photos.map((p) => p.path), 60);
+      const source = (p) => b.variant === "preview" && p.preview_path ? p.preview_path : p.path;
+      const { data, error } = await bucket.createSignedUrls(photos.map(source), 60);
       if (error) fail3("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
       return { urls: photos.flatMap((p) => {
-        const signed = data.find((x) => x.path === p.path);
-        return signed?.signedUrl ? [{ id: p.id, url: signed.signedUrl }] : [];
+        const signed = data.find((x) => x.path === source(p));
+        return signed?.signedUrl ? [{ id: p.id, url: signed.signedUrl, variant: source(p) === p.preview_path ? "preview" : "full" }] : [];
       }), expiresIn: 60 };
     }
     if (path === "/api/photos/program") {
@@ -545,9 +577,9 @@ function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}
     if (path === "/api/photos/url") {
       const photo = await result(db2.from("gym_photos").select("*").eq("id", b.id).eq("active", true).maybeSingle());
       if (!photo || !(await visiblePhotos(m, [photo])).length) fail3("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
-      const { data, error } = await bucket.createSignedUrl(photo.path, 60);
+      const { data, error } = await bucket.createSignedUrl(b.variant === "preview" && photo.preview_path ? photo.preview_path : photo.path, 60);
       if (error) fail3("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
-      return { url: data.signedUrl, expiresIn: 60 };
+      return { url: data.signedUrl, variant: b.variant === "preview" && photo.preview_path ? "preview" : "full", expiresIn: 60 };
     }
     if (path === "/api/photos/attach") {
       if (b.kind !== "daily") fail3("\uC0AC\uC9C4 \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
@@ -566,9 +598,9 @@ function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}
   }
   async function list(date, postIds, noticeIds = [], member) {
     if (!bucket) return [];
-    const fields = "id,kind,post_id,notice_id,date,program,session,owner_id";
+    const fields = "id,kind,post_id,notice_id,date,program,session,owner_id,preview_path";
     const [daily, community, notices] = await Promise.all([result(db2.from("gym_photos").select(fields).eq("active", true).eq("kind", "daily").eq("date", date)), postIds.length ? result(db2.from("gym_photos").select(fields).eq("active", true).in("post_id", postIds)) : [], noticeIds.length ? result(db2.from("gym_photos").select(fields).eq("active", true).in("notice_id", noticeIds)) : []]);
-    return (await visiblePhotos(member, [...daily, ...community, ...notices])).map(({ owner_id, ...photo }) => photo);
+    return (await visiblePhotos(member, [...daily, ...community, ...notices])).map(({ owner_id, preview_path, ...photo }) => ({ ...photo, hasPreview: !!preview_path, canPreparePreview: owner_id === member?.id || member?.role === "admin" }));
   }
   return { route, list, cleanup };
 }
@@ -579,6 +611,7 @@ var validAvatar = (value) => AVATAR_EMOJIS.includes(value);
 var avatarEmoji = (value) => validAvatar(value) ? value : "\u{1F3CB}\uFE0F";
 
 // supabase/functions/onoff-api/account-service.js
+var photoPaths = (paths) => [...new Set(paths.flatMap((path) => [path, photoPreviewPath(path)]))];
 var fail4 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
@@ -589,7 +622,7 @@ function createAccountService(db2, { reauthenticate } = {}) {
     const prepared = await db2.rpc("onoff_account_delete_prepare", { ...args, confirmed_name: b.confirmedName });
     if (prepared.error) fail4(prepared.error.code === "42501" ? "\uACC4\uC815 \uC0AD\uC81C \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uC0AD\uC81C\uD560 \uC218 \uC5C6\uC5B4\uC694." : "\uD68C\uC6D0 \uC774\uB984\uACFC \uC0AD\uC81C \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", prepared.error.code === "42501" ? 403 : 409);
     if (!prepared.data?.already) {
-      const paths = prepared.data?.paths || [];
+      const paths = photoPaths(prepared.data?.paths || []);
       if (paths.length) {
         const bucket = db2.storage?.from("onoff-private-photos");
         if (!bucket) fail4("\uC0AC\uC9C4 \uC0AD\uC81C \uC5F0\uACB0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 503);
@@ -614,7 +647,7 @@ function createAccountService(db2, { reauthenticate } = {}) {
     if (db2.storage?.from) {
       const photos = await db2.from("gym_photos").select("path").eq("owner_id", member.id);
       if (photos.error) fail4("\uC0AC\uC9C4 \uC0AD\uC81C \uC900\uBE44\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
-      const paths = (photos.data || []).map((x) => x.path);
+      const paths = photoPaths((photos.data || []).map((x) => x.path));
       for (let i = 0; i < paths.length; i += 100) {
         const removed2 = await db2.storage.from("onoff-private-photos").remove(paths.slice(i, i + 100));
         if (removed2.error) fail4("\uC0AC\uC9C4 \uC0AD\uC81C\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);

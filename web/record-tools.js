@@ -8,16 +8,18 @@ export function percentageWeight(lbs,percent,unit='lbs'){
   return fromLbs(lbs*percent/100,unit);
 }
 
+export function matchingClassRecords(records,member,context){return records.filter(r=>r.date===context.date&&r.program===context.program&&r.section===context.section&&r.memberId===member.id);}
 export function findClassRecord(records,member,context){
-  return records.find(r=>r.date===context.date&&r.program===context.program&&r.session===context.session&&r.section===context.section&&
-    r.memberId===member.id);
+ const matches=matchingClassRecords(records,member,context);
+ if(context.session!==undefined)return matches.find(r=>(r.session||'')===context.session);
+ return matches.find(r=>!r.session)||(matches.length===1?matches[0]:undefined);
 }
 
 // Validate the complete batch before returning changes. Empty rows never delete records.
 export function prepareBatchRecords({rows,context,records=[],today,overwrite=false,idFactory=()=>crypto.randomUUID()}){
   const errors=[],changes=[],seen=new Set(),section=context.sectionData;
   if(!normalizeDate(context.date)||context.date>today)errors.push('오늘 또는 지난 수업의 날짜를 선택해주세요.');
-  if(!['WOD','B/T'].includes(context.program)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(context.session)||!/^S[1-9]\d?$/.test(context.section)||!section?.record)errors.push('기록할 수업과 구간을 선택해주세요.');
+  if(!['WOD','B/T'].includes(context.program)||context.session!==undefined&&context.session!==''&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(context.session)||!/^S[1-9]\d?$/.test(context.section)||!section?.record)errors.push('기록할 수업과 구간을 선택해주세요.');
   if(!['lbs','kg'].includes(context.unit))errors.push('중량 단위를 확인해주세요.');
   if(errors.length)return{errors,changes:[]};
   const isWeight=['중량','1RM'].includes(section.kind);
@@ -33,12 +35,15 @@ export function prepareBatchRecords({rows,context,records=[],today,overwrite=fal
     if(isWeight&&Number.isFinite(row.canonicalLbs)&&row.canonicalLbs>0&&row.canonicalLbs<=toLbs(3000,context.unit)&&Math.abs(fromLbs(row.canonicalLbs,context.unit)-Number(value))<=0.050001)lbs=row.canonicalLbs;
     if(section.kind==='시간'&&!/^\d{1,3}:[0-5]\d$/.test(value)){errors.push(`${member.name}: 시간은 분:초 형식으로 입력해주세요. (예: 09:35)`);continue;}
     if(['횟수','칼로리'].includes(section.kind)&&!/^\d+$/.test(value)){errors.push(`${member.name}: 0 이상의 정수를 입력해주세요.`);continue;}
-    const old=findClassRecord(records,member,context);
+    const matches=matchingClassRecords(records,member,context);
+    const old=row.recordId?matches.find(r=>r.id===row.recordId&&(context.session===undefined||(r.session||'')===context.session)):findClassRecord(records,member,context);
+    if(row.recordId&&!old){errors.push(`${member.name}: 수정할 기존 기록을 다시 확인해주세요.`);continue;}
+    if(context.session===undefined&&!old&&matches.length>1){errors.push(`${member.name}: 기존 기록이 여러 개예요. 수정할 기록을 선택해주세요.`);continue;}
     const unchanged=old&&old.kind===section.kind&&(isWeight?Math.abs(old.lbs-lbs)<0.00001:old.value===value)&&(old.note||'')===note;
     if(unchanged)continue;
     if(old&&!overwrite){errors.push(`${member.name}: 기존 기록 수정 허용을 체크해주세요.`);continue;}
     const movement=section.movement||section.movements?.[0]||'';
-    const record={...old,id:old?.id||idFactory(),memberId:member.id,name:member.name,date:context.date,program:context.program,session:context.session,section:context.section,kind:section.kind,movement,movements:section.movements||[],rank:old?.rank??!!row.rank,note,writer:'admin'};
+    const record={...old,id:old?.id||idFactory(),memberId:member.id,name:member.name,date:context.date,program:context.program,session:context.session===undefined?(old?.session||''):context.session,section:context.section,kind:section.kind,movement,movements:section.movements||[],rank:old?.rank??!!row.rank,note,writer:'admin'};
     delete record.lbs;delete record.value;
     if(isWeight)record.lbs=lbs;else record.value=value;
     changes.push(record);

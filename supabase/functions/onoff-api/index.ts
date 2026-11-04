@@ -1086,6 +1086,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       }));
     }
     const pointBalances = staff ? await rows("gym_point_accounts") : [];
+    const rankingOwners = new Set(memberRows.filter((x) => x.status === "approved" && x.disclosure_consent === true).map((x) => x.id));
     const records = [...new Map([...ownRecords, ...selectedRecords].map((r) => [r.id, r])).values()], names = new Map(memberRows.map((x) => [x.id, x.name])), rank = /* @__PURE__ */ new Map(), avatars = /* @__PURE__ */ new Map();
     if (canRead) {
       for (const p of await rows("gym_preferences", (q) => q.limit(1e3))) {
@@ -1124,7 +1125,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       workouts: Object.fromEntries(ws.map((w) => [w.key, w.body])),
       publishedDates: [...new Set(ws.filter((w) => Date.parse(w.release_at) <= +now()).map((w) => w.date))],
       notices: canRead ? noticeRows.map((n) => ({ ...n, category: "\uACF5\uC9C0\uC0AC\uD56D", author: names.get(n.author_id) || "\uC6B4\uC601\uC790", serverNotice: true, date: kstDate(new Date(n.created_at)), comments: [], joined: [] })) : [],
-      records: records.filter((r) => staff || r.user_id === m.id || memberRows.find((x) => x.id === r.user_id)?.disclosure_consent !== false).map((r) => ({ ...r.body, id: r.id, memberId: r.user_id, name: names.get(r.user_id) || "\uD68C\uC6D0", avatarEmoji: avatars.get(r.user_id) || avatarEmoji(), rank: rank.get(r.user_id) !== false })),
+      records: records.filter((r) => staff || r.user_id === m.id || memberRows.find((x) => x.id === r.user_id)?.disclosure_consent !== false).map((r) => ({ ...r.body, id: r.id, memberId: r.user_id, name: names.get(r.user_id) || "\uD68C\uC6D0", avatarEmoji: avatars.get(r.user_id) || avatarEmoji(), rank: rank.get(r.user_id) !== false && rankingOwners.has(r.user_id) })),
       photos: canRead ? await media.list(viewDate, posts.map((p) => p.id), noticeRows.map((n) => n.id), m) : [],
       rms: rms.map((r) => ({ ...r.body, id: r.id, memberId: r.user_id })),
       preferences: prefs?.body || {},

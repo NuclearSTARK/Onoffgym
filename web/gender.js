@@ -1,0 +1,2 @@
+export const validGender=value=>value==='male'||value==='female';
+export function genderField(value){return `<fieldset class="gender-field"><legend>성별 <span>필수</span></legend><div class="gender-choices">${[['male','남자'],['female','여자']].map(([key,label])=>`<label><input type="radio" name="gender" value="${key}" required ${value===key?'checked':''}><span>${label}</span></label>`).join('')}</div><p class="field-hint">1RM·NAMED WOD의 체육관 내 기록을 같은 성별끼리 비교합니다.</p></fieldset>`;}

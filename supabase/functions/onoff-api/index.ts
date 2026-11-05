@@ -363,8 +363,11 @@ function createNamedService(db2) {
   } };
 }
 
+// web/gender.js
+var validGender = (value) => value === "male" || value === "female";
+
 // web/privacy-version.js
-var PRIVACY_VERSION = "privacy-2026-11-04";
+var PRIVACY_VERSION = "privacy-2026-11-05";
 
 // supabase/functions/onoff-api/points-service.js
 var fail2 = (message, status = 400) => {
@@ -510,7 +513,104 @@ function updateRmCatalogue(catalogue, body, idFactory = () => crypto.randomUUID(
   const movement = { id: old?.id || "custom-" + idFactory(), name, category: body.category, active: body.active, isDefault: body.active && body.isDefault, aliases };
   return { movement, catalogue: old ? catalogue.map((m) => m.id === old.id ? movement : m) : [...catalogue, movement] };
 }
-var ATTENDANCE_STAMPS = Object.freeze(["\u{1F525}", "\u26A1", "\u{1F3C6}", "\u{1F4AA}", "\u{1F3CB}\uFE0F", "\u{1F3AF}", "\u{1F680}", "\u2B50", "\u{1F947}", "\u{1F44A}", "\u{1F9BE}", "\u{1F94A}", "\u{1F3C5}", "\u{1F389}", "\u2728", "\u{1F64C}", "\u{1F44F}", "\u{1F4A5}", "\u{1F91C}", "\u{1F6E1}\uFE0F", "\u{1F3C3}", "\u{1F938}", "\u{1F9D7}", "\u{1F93E}", "\u{1F6B4}", "\u{1F3CA}", "\u{1F981}", "\u{1F42F}", "\u{1F432}", "\u2600\uFE0F"]);
+var ATTENDANCE_STAMPS = Object.freeze([
+  "\u{1F600}",
+  "\u{1F603}",
+  "\u{1F604}",
+  "\u{1F601}",
+  "\u{1F606}",
+  "\u{1F605}",
+  "\u{1F602}",
+  "\u{1F642}",
+  "\u{1F643}",
+  "\u{1F609}",
+  "\u{1F60A}",
+  "\u{1F60D}",
+  "\u{1F929}",
+  "\u{1F618}",
+  "\u{1F617}",
+  "\u263A\uFE0F",
+  "\u{1F61A}",
+  "\u{1F619}",
+  "\u{1F60B}",
+  "\u{1F61B}",
+  "\u{1F61C}",
+  "\u{1F92A}",
+  "\u{1F61D}",
+  "\u{1F911}",
+  "\u{1F928}",
+  "\u{1F610}",
+  "\u{1F611}",
+  "\u{1F636}",
+  "\u{1F60F}",
+  "\u{1F612}",
+  "\u{1F644}",
+  "\u{1F62C}",
+  "\u{1F60C}",
+  "\u{1F614}",
+  "\u{1F62A}",
+  "\u{1F924}",
+  "\u{1F634}",
+  "\u{1F637}",
+  "\u{1F912}",
+  "\u{1F915}",
+  "\u{1F922}",
+  "\u{1F975}",
+  "\u{1F976}",
+  "\u{1F974}",
+  "\u{1F635}",
+  "\u{1F60E}",
+  "\u{1F913}",
+  "\u{1F9D0}",
+  "\u{1F615}",
+  "\u{1FAE4}",
+  "\u{1F61F}",
+  "\u{1F641}",
+  "\u2639\uFE0F",
+  "\u{1F62E}",
+  "\u{1F62F}",
+  "\u{1F632}",
+  "\u{1F633}",
+  "\u{1F97A}",
+  "\u{1F979}",
+  "\u{1F626}",
+  "\u{1F627}",
+  "\u{1F628}",
+  "\u{1F630}",
+  "\u{1F625}",
+  "\u{1F622}",
+  "\u{1F62D}",
+  "\u{1F616}",
+  "\u{1F623}",
+  "\u{1F61E}",
+  "\u{1F613}",
+  "\u{1F629}",
+  "\u{1F62B}",
+  "\u{1F624}",
+  "\u{1F620}",
+  "\u{1F621}",
+  "\u{1F92C}",
+  "\u26BD",
+  "\u{1F3C0}",
+  "\u{1F3D0}",
+  "\u26BE",
+  "\u{1F94E}",
+  "\u{1F3BE}",
+  "\u{1F3B1}",
+  "\u{1F315}",
+  "\u{1F311}",
+  "\u{1F31D}",
+  "\u{1F31A}",
+  "\u{1F534}",
+  "\u{1F7E0}",
+  "\u{1F7E1}",
+  "\u{1F7E2}",
+  "\u{1F535}",
+  "\u{1F7E3}",
+  "\u{1F7E4}",
+  "\u26AB",
+  "\u26AA"
+]);
 
 // web/video-library.js
 var VIDEO_CATEGORIES = [...RM_CATEGORIES, ["cardio", "\uC720\uC0B0\uC18C"], ["gymnastics", "\uB9E8\uBAB8\xB7\uCCB4\uC870"], ["other", "\uAE30\uD0C0 \uB3D9\uC791"]];
@@ -1030,7 +1130,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     const { data, error } = await q;
     if (error) {
       const code = error.code;
-      if (code === "23514") bad(error.message?.includes("14\uC138") ? "\uD68C\uC6D0\uC774 \uBA3C\uC800 \uB9CC 14\uC138 \uC774\uC0C1 \uD655\uC778\uACFC \uAC1C\uC778\uC815\uBCF4 \uC548\uB0B4 \uB3D9\uC758\uB97C \uC644\uB8CC\uD574\uC57C \uC2B9\uC778\uD560 \uC218 \uC788\uC5B4\uC694." : "\uBCC0\uACBD\uD560 \uC218 \uC5C6\uB294 \uACC4\uC815 \uC0C1\uD0DC\uC785\uB2C8\uB2E4.", 409);
+      if (code === "23514") bad(error.message?.includes("14\uC138") ? "\uD68C\uC6D0\uC774 \uBA3C\uC800 \uC131\uBCC4\xB7\uB9CC 14\uC138 \uC774\uC0C1 \uD655\uC778\uACFC \uAC1C\uC778\uC815\uBCF4 \uC548\uB0B4 \uB3D9\uC758\uB97C \uC644\uB8CC\uD574\uC57C \uC2B9\uC778\uD560 \uC218 \uC788\uC5B4\uC694." : "\uBCC0\uACBD\uD560 \uC218 \uC5C6\uB294 \uACC4\uC815 \uC0C1\uD0DC\uC785\uB2C8\uB2E4.", 409);
       bad(code === "42501" ? "\uC774 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD560 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : code === "23505" ? "\uC774\uBBF8 \uB4F1\uB85D\uB41C \uD56D\uBAA9\uC774 \uC788\uC5B4\uC694. \uC0C8\uB85C \uBD88\uB7EC\uC628 \uB4A4 \uD655\uC778\uD574\uC8FC\uC138\uC694." : code === "40001" ? "\uB2E4\uB978 \uAE30\uAE30\uC5D0\uC11C \uBCC0\uACBD\uB410\uC5B4\uC694. \uB2E4\uC2DC \uBD88\uB7EC\uC640 \uC8FC\uC138\uC694." : "\uC800\uC7A5 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", code === "42501" ? 403 : ["23505", "40001"].includes(code) ? 409 : 503);
     }
     return data;
@@ -1133,7 +1233,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
   }
   async function bootstrap(m, url) {
     const rev = await revision(m);
-    if (m.status !== "approved") return { viewer: m, privacyReviewRequired: m.privacy_version !== PRIVACY_VERSION, workouts: {}, library: [], members: [], ...rev };
+    if (m.status !== "approved") return { viewer: m, privacyReviewRequired: m.privacy_version !== PRIVACY_VERSION || !validGender(m.gender), workouts: {}, library: [], members: [], ...rev };
     const staff = m.role === "admin", all = hasPermission(m, "workouts.read") && url.searchParams.get("view") !== "member", day = kstDate(now()), viewDate = normalizeDate(url.searchParams.get("date")) || day;
     const [pass, att, memberRows, prefs, cal, noticeRows, cat, lib, pointData] = await Promise.all([
       one("gym_memberships", "user_id", m.id),
@@ -1198,7 +1298,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     }) : [];
     return {
       named: await named.snapshot(m),
-      privacyReviewRequired: m.privacy_version !== PRIVACY_VERSION,
+      privacyReviewRequired: m.privacy_version !== PRIVACY_VERSION || !validGender(m.gender),
       points: pointData,
       accWorkouts: Object.fromEntries(accRows.map((w) => [w.date, w.body])),
       videoCategories: await videoCategories(),
@@ -1241,13 +1341,15 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     if (path === "/api/bootstrap" && m.status === "approved") await media.cleanup();
     if (path === "/api/account/delete") return account.withdraw(m, b);
     if (path === "/api/privacy/accept") {
+      if (!validGender(b.gender)) bad("\uC131\uBCC4\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
       if (b.version !== PRIVACY_VERSION || b.ageOver14 !== true || typeof b.disclosure !== "boolean") bad("\uB9CC 14\uC138 \uC774\uC0C1 \uD655\uC778\uACFC \uAC1C\uC778\uC815\uBCF4 \uC548\uB0B4 \uB3D9\uC758\uAC00 \uD544\uC694\uD574\uC694.");
-      return result(db2.rpc("onoff_privacy_accept", { actor: m.id, p: { version: PRIVACY_VERSION, ageOver14: true, disclosure: b.disclosure } }));
+      return result(db2.rpc("onoff_privacy_accept", { actor: m.id, p: { version: PRIVACY_VERSION, gender: b.gender, ageOver14: true, disclosure: b.disclosure } }));
     }
     if (path === "/api/revision") return revision(m);
     if (path === "/api/bootstrap") return bootstrap(m, url);
     if (path === "/api/profile") return commit(m.id, "profile", { name: text(b.name, 2, 30, "\uC2E4\uBA85") });
     approved(m);
+    if (["/api/rm/comparison", "/api/named-wods/comparison"].includes(path) && !validGender(m.gender)) bad("\uC131\uBCC4\uC744 \uBA3C\uC800 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.", 409);
     if ((path === "/api/posts" || path === "/api/meetups" || path === "/api/posts/comment") && m.disclosure_consent === false) bad("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC774\uC6A9\uD574\uC8FC\uC138\uC694.", 403);
     if (path.startsWith("/api/named-wods/")) return named.route(m, path, b);
     if (path === "/api/rm/comparison") {

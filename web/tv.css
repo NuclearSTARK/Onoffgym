@@ -25,3 +25,60 @@
 [data-orientation=landscape] .tv-columns.single .tv-exercise{font-size:44px;line-height:1.5}
 .tv-pagination{padding:4px 0 0;min-height:22px}
 .tv-sections>.tv-rest{grid-column:1/-1}
+/* The registration screen stays visible until the TV operator switches back. */
+.tv-registration-open{display:block;width:100%;margin:20px 0 26px;background:#315586;border-color:#608bc7;color:#fff;font-weight:700}
+.tv-header-actions{display:flex;align-items:center;justify-self:end;gap:24px;min-width:0}
+.tv-registration-return{flex:none;min-height:48px;padding:10px 16px;font-size:21px;background:#28374d;border-color:#526b8d;color:#e9f2ff}
+#tv-controls button:disabled{opacity:.4;cursor:default}
+.tv-registration{display:grid;grid-template-columns:590px minmax(0,1fr);gap:54px;flex:1;min-height:0;padding:34px 0 28px}
+.tv-registration-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;min-width:0;text-align:center}
+.tv-registration-code{order:2;flex:none;margin:0;width:560px;height:560px;border:10px solid #4b7dff;border-radius:12px;background:#fff;overflow:hidden}
+.tv-registration-code img{display:block;width:100%;height:100%;background:#fff}
+.tv-registration-copy{display:contents}
+.tv-registration-eyebrow{display:none}
+.tv-registration-copy h1{order:1;font-size:56px;font-weight:800;line-height:1.4;letter-spacing:-1.5px;margin:0}
+.tv-registration-copy>p{order:3;font-size:31px;line-height:1.5;color:#d6dce5;margin:0}
+.tv-registration-copy>p br{display:none}
+.tv-registration-copy>p.tv-registration-approval{order:4;font-size:26px;color:#adb9ca;line-height:1.55}
+.tv-registration-copy>.tv-registration-approval br{display:block}
+.tv-registration-approval strong{color:#fff}
+.tv-registration-guide{display:flex;flex-direction:column;justify-content:center;gap:12px;min-width:0;min-height:0}
+.tv-registration-guide>*{flex-shrink:0}
+.tv-registration-guide>h2{margin:0;font-size:39px;line-height:1.4;font-weight:700;letter-spacing:-1px;word-break:keep-all}
+.tv-install-platforms{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:22px}
+.tv-install-platform{min-width:0;padding:22px;border:1px solid #3d506a;border-radius:16px;background:#202c3d}
+.tv-install-platform h3{font-size:34px;line-height:1.4;letter-spacing:-.8px;margin:0 0 16px;color:#aacaff}
+.tv-install-platform h3>span{font-size:25px;display:block;letter-spacing:0;font-weight:500}
+.tv-install-platform ol{list-style:none;display:flex;flex-direction:column;gap:16px;margin:0;padding:0}
+.tv-install-platform li{display:flex;align-items:flex-start;gap:13px;font-size:27px;line-height:1.6;letter-spacing:-.6px;color:#d2dbe9;word-break:keep-all}
+.tv-install-platform li>div{min-width:0}
+.tv-install-platform strong{color:#fff;font-weight:700}
+.tv-install-number{display:grid;place-items:center;width:33px;height:33px;flex:0 0 33px;border-radius:50%;background:#365684;color:#e4efff;font-size:22px;font-weight:700;line-height:1;margin-top:6px}
+.tv-install-share{display:inline-flex;align-items:center;gap:8px}
+.tv-install-share svg{width:31px;height:31px;color:#aacaff}
+.tv-install-dots{font-size:36px;line-height:1;vertical-align:middle}
+.tv-install-android{background:#213330;border-color:#3c6255}
+.tv-install-android h3{color:#a8e3cc}
+.tv-install-android .tv-install-number{background:#346b59;color:#d6f3e7}
+.tv-install-notifications{background:#27332c;border:1px solid #4e6956;border-radius:16px;padding:20px 28px}
+.tv-install-notifications h3{font-size:34px;line-height:1.4;color:#c2e5c8;margin:0 0 12px;letter-spacing:-.6px}
+.tv-install-notifications p{font-size:25px;line-height:1.6;color:#d2dacf;letter-spacing:-.4px;margin:9px 0 0;word-break:keep-all}
+.tv-install-notifications .tv-install-notification-route{font-size:31px;line-height:1.5;margin:0;color:#f3f6f0}
+.tv-install-notifications .tv-install-notification-note{color:#b9c7b9;font-size:22px;margin-top:12px}
+.tv-install-browser-note{margin:0;color:#b9c4d3;font-size:24px;line-height:1.6;letter-spacing:-.5px;word-break:keep-all}
+.tv-install-browser-note strong{color:#e8eef7}
+.tv-install-browser-note>span{display:block;color:#99a8bd;font-size:21px;line-height:1.5;margin-top:8px}
+[data-orientation=portrait] .tv-registration{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:36px;padding:36px 0 30px}
+[data-orientation=portrait] .tv-registration-qr{display:grid;grid-template-columns:470px minmax(0,1fr);gap:35px;text-align:left}
+[data-orientation=portrait] .tv-registration-code{order:initial;width:470px;height:470px}
+[data-orientation=portrait] .tv-registration-copy{display:flex;flex-direction:column;gap:25px}
+[data-orientation=portrait] .tv-registration-eyebrow{display:block;font-size:20px;letter-spacing:2px;color:#a8c5f3}
+[data-orientation=portrait] .tv-registration-copy h1{order:initial;font-size:49px}
+[data-orientation=portrait] .tv-registration-copy>p{order:initial;font-size:29px}
+[data-orientation=portrait] .tv-registration-copy>p br{display:block}
+[data-orientation=portrait] .tv-registration-copy>p.tv-registration-approval{font-size:25px}
+[data-orientation=portrait] .tv-registration-guide{gap:30px}
+[data-orientation=portrait] .tv-registration-guide>h2{font-size:38px}
+[data-orientation=portrait] .tv-install-platform{padding:30px 24px}
+[data-orientation=portrait] .tv-install-platform ol{gap:30px}
+[data-orientation=portrait] .tv-install-notifications{padding:30px}

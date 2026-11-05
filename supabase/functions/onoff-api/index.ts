@@ -1271,6 +1271,11 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     }
     if (path === "/api/preferences") {
       const p = {};
+      if ("showMembershipWallet" in b) {
+        if (!["admin", "coach"].includes(m.role)) bad("\uC6B4\uC601\uC790\xB7\uCF54\uCE58\uB9CC \uD68C\uC6D0\uCE74\uB4DC \uD45C\uC2DC\uB97C \uC124\uC815\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+        if (typeof b.showMembershipWallet !== "boolean") bad("\uD68C\uC6D0\uCE74\uB4DC\xB7\uCFE0\uD3F0 \uD45C\uC2DC \uC124\uC815\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        p.showMembershipWallet = b.showMembershipWallet;
+      }
       if ("pushOnboardingSeen" in b) {
         if (b.pushOnboardingSeen !== true) bad("\uC54C\uB9BC \uC548\uB0B4 \uC0C1\uD0DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p.pushOnboardingSeen = true;

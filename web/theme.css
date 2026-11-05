@@ -4,7 +4,7 @@
 .brand-mark{display:inline-block;background:var(--logo);-webkit-mask:url('./assets/onoff-logo-v4.svg?v=4') center/contain no-repeat;mask:url('./assets/onoff-logo-v4.svg?v=4') center/contain no-repeat;vertical-align:middle;aspect-ratio:620/236}
 .brand-mark>img{width:100%;height:100%;object-fit:contain;visibility:hidden}
 @supports not (mask-image:url('')){.brand-mark{background:none}.brand-mark>img{visibility:visible}}
-.sidebar{background:var(--sidebar)}.brand>.brand-mark{width:100%;height:88px}.mobile-brand>.brand-mark{width:108px;height:49px}.login-logo.brand-mark{height:105px;-webkit-mask-position:left center;mask-position:left center}
+.sidebar{background:var(--sidebar)}.brand>.brand-mark{--logo:#fff;width:100%;height:88px}.mobile-brand>.brand-mark{--logo:#fff;width:108px;height:49px}.login-logo.brand-mark{height:105px;-webkit-mask-position:left center;mask-position:left center}
 .sidebar nav button.active,.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .workout-hero{background:var(--hero)}.login-art{background:linear-gradient(145deg,var(--sidebar),var(--hero))}
 .hero-title p,.hero-top>span,.hero-bottom{color:var(--ink);opacity:.8}.hero-title .time>span{color:var(--blue)!important}
@@ -14,7 +14,10 @@
 .theme-choice{border:1px solid var(--line);border-radius:9px;padding:14px 8px;display:grid;place-items:center;gap:10px;text-align:center;font-size:12px;min-width:0;background:var(--bg)}
 .theme-choice[aria-pressed=true]{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue)}
 .theme-swatch{width:100%;height:35px;border-radius:5px;display:flex;align-items:center;justify-content:center;background:var(--swatch-bg);color:var(--swatch-accent);font-size:12px;font-weight:800}
-.settings-stack{display:grid;gap:20px;max-width:900px}.settings-stack>.panel{padding:25px}.settings-stack h2{font-size:17px}.settings-stack .field-hint{font-size:12px;line-height:1.8}
+.settings-stack{display:grid;gap:20px;max-width:900px}
+/* Personal settings keep the membership wallet and every panel on one shared column. */
+.settings-stack.personal-settings{width:100%;max-width:520px}.settings-stack.personal-settings>*{min-width:0;max-width:100%}.settings-stack.personal-settings .member-card-wallet .swipe-page{padding:0}
+.settings-stack>.panel{padding:25px}.settings-stack h2{font-size:17px}.settings-stack .field-hint{font-size:12px;line-height:1.8}
 .notification-details>summary{cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;list-style:none;font-size:15px;font-weight:600;min-height:44px}.notification-details>summary::-webkit-details-marker{display:none}.notification-details .push-settings{margin-top:12px}
 .pass-summary{padding:18px 0;display:grid;gap:10px}.pass-summary strong{font-size:24px}.pass-summary p{font-size:13px;color:var(--muted);margin:0}.pass-status{display:inline-block;width:max-content;border:1px solid var(--line);border-radius:5px;padding:4px 9px;font-size:12px;color:var(--blue)}
 .pass-status.paused,.pass-status.expired{color:#ffc495}.membership-section{border-top:1px solid var(--line);padding-top:22px;margin-top:22px}.membership-section>summary{cursor:pointer;font-size:15px;font-weight:700;min-height:44px}.membership-section form{margin-top:18px}.membership-buttons{display:flex;flex-wrap:wrap;gap:9px;margin:15px 0}

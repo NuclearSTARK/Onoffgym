@@ -151,3 +151,8 @@ test('the API preserves old unparseable results without changing owners and reje
  assert.equal((await f.request('/api/records',{body:{records:[{...body,note:'메모만 수정'}]}})).status,200);assert.equal(f.writes[0].p.records[0].value,body.value);assert.equal(f.writes[0].p.records[0].result,undefined);
  assert.equal((await f.request('/api/records',{body:{records:[{...body,id:crypto.randomUUID(),result:{condition:'unspecified',rounds:2,extra:20}}]}})).status,400);
 });
+
+test('wallet visibility is a strict staff-only preference scoped to the verified account',async()=>{
+ for(const role of ['admin','coach']){const f=fixture({role});for(const visible of [false,true]){assert.equal((await f.request('/api/preferences',{body:{showMembershipWallet:visible,userId:ADMIN}})).status,200);const saved=f.writes.at(-1);assert.equal(saved.actor,MEMBER);assert.deepEqual(saved.p,{showMembershipWallet:visible});}for(const invalid of ['true',1,null])assert.equal((await f.request('/api/preferences',{body:{showMembershipWallet:invalid}})).status,400);assert.equal(f.writes.length,2);}
+ const member=fixture();assert.equal((await member.request('/api/preferences',{body:{showMembershipWallet:false}})).status,403);assert.equal(member.writes.length,0);
+});

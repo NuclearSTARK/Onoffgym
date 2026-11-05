@@ -1,0 +1,36 @@
+/* Match the two-line title space and align card actions to the content edges. */
+.rm-card .rm-card-content>h3{min-height:3.1em;line-height:1.55;padding-right:0}
+.named-card-main>h3{padding-right:0}
+.rm-card .rm-bottom{display:flex;align-items:center;justify-content:space-between!important;flex-wrap:nowrap;gap:8px}
+.rm-card .rm-bottom>.rm-calculator-hint,.rm-card .rm-bottom>.link{font-size:12px;line-height:1.5;margin:0;white-space:nowrap}
+.rm-card .rm-bottom>.link{text-align:left}
+.rm-card .rm-bottom>:last-child{margin-left:auto;text-align:right}
+.named-card-main .named-record-kind{min-height:1.5em}
+
+/* Expand the Today hit area leftwards without changing height or the right edge. */
+.home-datebar .date-picker-direct>.date-today,body[data-page=members] .date-picker-direct>.date-today,.acc-editor .date-picker-direct>.date-today,.class-entry-panel .date-picker-direct>.date-today{flex:0 0 64px}
+
+/* Keep the date circle as the anchor and compensate for the emoji font baseline.
+   A non-shrinking glyph also stays centered in narrow calendar columns. */
+.attendance-calendar .attendance-emoji{display:flex!important;align-items:center;justify-content:center}
+.attendance-calendar .attendance-emoji>.attendance-stamp-glyph{display:block;flex:0 0 auto;width:1.3em;height:1em;font:inherit;font-size:inherit!important;line-height:1;white-space:nowrap;text-align:center;position:relative;top:-2px;padding:0!important;margin:0!important;border-radius:0}
+
+/* Use document scrolling below the device notch, even with expanded details. */
+body.push-onboarding:has(.privacy-compact) #main{align-items:start;align-content:start;padding-top:calc(max(44px,var(--safe-top,0px)) + 20px);padding-bottom:calc(20px + var(--safe-bottom,0px));padding-left:max(18px,var(--safe-left,0px));padding-right:max(18px,var(--safe-right,0px))}
+
+/* Compact identity beside the title; the wallet remains the first settings panel. */
+.settings-intro{width:100%;max-width:520px}
+.settings-intro>.intro{flex-wrap:nowrap;align-items:flex-start}
+.settings-intro .intro>div:first-child{flex:1;min-width:0}
+.settings-identity{display:flex;align-items:center;gap:7px;align-self:flex-start;max-width:46%;min-width:0;margin-top:5px}
+.settings-identity>.settings-avatar{display:grid;place-items:center;flex:0 0 32px;width:32px;min-width:32px;height:32px;min-height:32px;padding:0;border:0;font-size:21px;line-height:1}
+.settings-identity>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600}
+.settings-account .account-info{display:grid;gap:4px;margin:0 0 16px;color:var(--muted);font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+.settings-account .account-info>p{margin:0}
+@media(orientation:landscape){
+ .settings-stack.personal-settings,.settings-stack.personal-settings .member-card-wallet,.settings-intro{max-width:none}
+}
+@media(max-width:360px){
+ .named-card.rm-card{padding-inline:14px!important}
+ .named-card .rm-bottom{gap:4px}
+}

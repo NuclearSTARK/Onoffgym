@@ -23,16 +23,12 @@ export function updateRmCatalogue(catalogue,body,idFactory=()=>crypto.randomUUID
 }
 export function synchronizeRmMovements(state,catalogue){let changed=false;for(const r of [...state.records,...state.rms]){const m=findRmMovement(catalogue,r.movementId||r.movement);if(m&&(r.movementId!==m.id||r.movement!==m.name)){r.movementId=m.id;r.movement=m.name;changed=true;}}return changed;}
 export function rmPercentages(lbs){return Number.isFinite(lbs)&&lbs>0?[50,60,70,80,90].map(percent=>({percent,lbs:lbs*percent/100})):[];}
-// Round faces, balls, moons and circles only; keep day/member selection stable.
+// Positive faces and the exact workout/celebration additions selected by the user.
 export const ATTENDANCE_STAMPS=Object.freeze([
- '😀','😃','😄','😁','😆','😅','😂','🙂','🙃','😉','😊','😍',
- '🤩','😘','😗','☺️','😚','😙','😋','😛','😜','🤪','😝','🤑',
- '🤨','😐','😑','😶','😏','😒','🙄','😬','😌','😔','😪','🤤',
- '😴','😷','🤒','🤕','🤢','🥵','🥶','🥴','😵','😎','🤓','🧐',
- '😕','🫤','😟','🙁','☹️','😮','😯','😲','😳','🥺','🥹','😦',
- '😧','😨','😰','😥','😢','😭','😖','😣','😞','😓','😩','😫',
- '😤','😠','😡','🤬','⚽','🏀','🏐','⚾','🥎','🎾','🎱',
- '🌕','🌑','🌝','🌚','🔴','🟠','🟡','🟢','🔵','🟣','🟤','⚫',
- '⚪'
+ '😀','😃','😄','😁','😆','😅','🙂','🙃',
+ '😉','😊','😍','🤩','😘','😗','☺️','😚',
+ '😙','😋','😛','😜','🤪','😝','😎','🤓',
+ '👏','👊','💪','🔥','🏋️‍♂️','🏋️','🏋️‍♀️','🏅',
+ '✌️','🤡','🤠','🫠','🫡','🏃‍♂️','🏃🏻','🏆'
 ]);
 export function attendanceEmoji(date,memberId=''){let hash=2166136261;for(const c of memberId+':'+String(date))hash=Math.imul(hash^c.charCodeAt(0),16777619);hash^=hash>>>16;hash=Math.imul(hash,0x85ebca6b);hash^=hash>>>13;return ATTENDANCE_STAMPS[(hash>>>0)%ATTENDANCE_STAMPS.length];}

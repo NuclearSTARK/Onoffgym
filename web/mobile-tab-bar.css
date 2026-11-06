@@ -2,7 +2,7 @@
 .nav-selection{display:none}
 @media(max-width:760px){
  /* Keep both radii equal even when five tabs must fit a 320px screen. */
- :root{--tab-bar-height:60px;--tab-bar-bottom-inset:max(0px,calc(var(--safe-bottom) - 8px));--mobile-nav-height:calc(var(--tab-bar-height) + var(--tab-bar-bottom-inset) + 10px);--tab-bar-radius:min(22px,calc((100vw - 80px - var(--safe-left) - var(--safe-right))/10))}
+ :root{--tab-bar-height:63px;--tab-bar-bottom-inset:max(0px,calc(var(--safe-bottom) - 8px));--mobile-nav-height:calc(var(--tab-bar-height) + var(--tab-bar-bottom-inset) + 10px);--tab-bar-radius:min(22px,calc((100vw - 80px - var(--safe-left) - var(--safe-right))/10))}
  body:not(.login-mode):not(.push-onboarding) #mobile-nav.mobile-nav{
   top:auto!important;bottom:var(--tab-bar-bottom-inset)!important;
   left:calc(24px + var(--safe-left));right:calc(24px + var(--safe-right));width:auto!important;
@@ -28,7 +28,7 @@
  #mobile-nav .nav-icon{width:27px;height:27px;position:relative;display:grid;place-items:center}
  #mobile-nav .nav-icon svg{width:26px;height:26px;stroke-width:1.9}
  #mobile-nav .nav-selection{
-  display:block;position:absolute;z-index:0;top:7px;height:44px;border-radius:var(--tab-bar-radius);
+  display:block;position:absolute;z-index:0;top:7px;height:47px;border-radius:var(--tab-bar-radius);
   background:linear-gradient(180deg,#eff5ff36,#dce8fc1f 48%,#dce8fc2b);border:1px solid #f1f7ff2b;
   pointer-events:none;
  }

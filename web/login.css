@@ -42,3 +42,12 @@
  .login-final .login-approval{font-size:9px}
 }
 @media(max-width:360px){.login-final .login-card{padding-left:max(22px,var(--safe-left));padding-right:max(22px,var(--safe-right))}.login-final .login-feature-line{font-size:10px;gap:10px}.login-final .login-feature-line span+span{padding-left:10px}.login-final h1{font-size:24px}}
+
+/* Signup labels use the existing real-name field typography. */
+#email-auth-form[data-mode=signup]{--signup-label-size:11px}
+#email-auth-form[data-mode=signup]>.field{font-size:var(--signup-label-size);font-weight:600;text-align:left}
+#email-auth-form[data-mode=signup] .signup-field-title{display:inline-flex;align-items:baseline;gap:4px;margin-left:0;font:inherit;color:var(--ink);text-align:left}
+#email-auth-form[data-mode=signup] .gender-field{margin-bottom:13px;text-align:left}
+#email-auth-form[data-mode=signup] .gender-field legend{width:100%;margin-bottom:7px;font-size:var(--signup-label-size);font-weight:600;line-height:1.6;text-align:left}
+#email-auth-form[data-mode=signup] .signup-required{margin-left:0;color:#ff6b7d;font:inherit}
+#email-auth-form[data-mode=signup] .checkbox-label .signup-required{margin-left:4px}

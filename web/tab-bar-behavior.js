@@ -1,8 +1,7 @@
-// Only a deliberate, mostly horizontal drag selects an adjacent tab; ends do not wrap.
-export function swipeTab({index,count,dx,dy,slot}){
- const distance=Math.max(24,Math.min(40,slot*.4));
- if(index<0||!Number.isFinite(dx)||!Number.isFinite(dy)||Math.abs(dx)<distance||Math.abs(dx)<Math.abs(dy)*1.25)return index;
- return Math.max(0,Math.min(count-1,index+Math.sign(dx)));
+// A deliberate bar drag lands on the nearest visible tab; ends never wrap.
+export function swipeTab({index,count,dx,dy,slot,position=index+dx/slot}){
+ if(index<0||count<1||!Number.isFinite(slot)||slot<=0||!Number.isFinite(position)||!Number.isFinite(dx)||!Number.isFinite(dy)||Math.abs(dx)<8||Math.abs(dx)<Math.abs(dy)*1.25)return index;
+ return Math.max(0,Math.min(count-1,Math.round(position)));
 }
 // Directional travel accumulates across scroll events, with a smaller reveal threshold.
 export function createTabScrollVisibility(){

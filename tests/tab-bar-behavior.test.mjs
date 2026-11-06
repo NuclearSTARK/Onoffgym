@@ -1,10 +1,13 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {swipeTab,createTabScrollVisibility} from '../web/tab-bar-behavior.js';
-test('a deliberate bar drag moves one tab in its direction and never wraps',()=>{
+test('a bar drag moves by distance across multiple tabs and never wraps',()=>{
  const gesture={index:1,count:5,dx:80,dy:3,slot:68};
  assert.equal(swipeTab(gesture),2);assert.equal(swipeTab({...gesture,dx:-80}),0);
- assert.equal(swipeTab({...gesture,dx:500}),2);
+ assert.equal(swipeTab({...gesture,dx:500}),4);
+ assert.equal(swipeTab({...gesture,index:4,dx:-500}),0);
+ assert.equal(swipeTab({...gesture,index:0,dx:135}),2);
+ assert.equal(swipeTab({...gesture,index:0,count:4,dx:205}),3);
  assert.equal(swipeTab({...gesture,index:0,dx:-80}),0);
  assert.equal(swipeTab({...gesture,index:3,count:4}),3);
  assert.equal(swipeTab({...gesture,index:4}),4);
@@ -30,4 +33,12 @@ test('navigation, keyboard and gesture pauses reset travel so stale scroll canno
  assert.equal(state.sample({top:620,max:1500}),false);
  state.reveal(800);assert.equal(state.sample({top:820,max:1500}),false);
  assert.equal(state.sample({top:841,max:1500}),true);
+});
+
+test('release selects the nearest pane position, including interrupted motion and reversal',()=>{
+ const gesture={index:0,count:5,dx:80,dy:0,slot:60};
+ assert.equal(swipeTab({...gesture,dx:29}),0);assert.equal(swipeTab({...gesture,dx:31}),1);
+ assert.equal(swipeTab({...gesture,dx:149}),2);assert.equal(swipeTab({...gesture,dx:151}),3);
+ assert.equal(swipeTab({...gesture,position:2.6}),3);assert.equal(swipeTab({...gesture,position:1.4}),1);
+ for(const slot of [0,-1,NaN,Infinity])assert.equal(swipeTab({...gesture,slot}),0);
 });

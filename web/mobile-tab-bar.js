@@ -30,8 +30,10 @@ export function createMobileTabBar(nav,{navigate}={}){
  window.addEventListener('scroll',e=>{if(e.target!==document&&e.target!==window)return;if(!scrollFrame)scrollFrame=requestAnimationFrame(updateScroll);},{passive:true});
  function savePane(){if(!geometry||pane.hidden)return;edges={left:{position:parseFloat(pane.style.left),velocity:0},right:{position:parseFloat(pane.style.left)+parseFloat(pane.style.width),velocity:0}};}
  function finishPointer(cancelled=false,event){const current=pointer;if(!current)return;pointer=null;nav.removeAttribute('data-dragging');if(nav.hasPointerCapture?.(current.id))nav.releasePointerCapture(current.id);if(!current.dragging)return;
+  const dx=event?.clientX-current.x||0,dy=event?.clientY-current.y||0;if(!cancelled)paint(current.left+dx,current.right+dx);
   suppressClickUntil=performance.now()+500;savePane();reveal();
-  const next=cancelled?current.index:swipeTab({index:current.index,count:buttons.length,dx:event?.clientX-current.x||0,dy:event?.clientY-current.y||0,slot:geometry.slot});
+  const position=((edges.left.position+edges.right.position)/2-geometry.inset)/geometry.slot-.5;
+  const next=cancelled?current.index:swipeTab({index:current.index,count:buttons.length,dx,dy,slot:geometry.slot,position});
   if(next!==current.index){if(navigate)navigate(buttons[next].dataset.page);else buttons[next].click();}
   // Navigation may be rejected by an unsaved form. Return to the confirmed tab.
   if(selected===current.selected)move();
@@ -48,7 +50,7 @@ export function createMobileTabBar(nav,{navigate}={}){
   if(!p.dragging){if(Math.max(Math.abs(dx),Math.abs(dy))<8)return;if(Math.abs(dy)>=Math.abs(dx)){pointer=null;return;}if(Math.abs(dx)<Math.abs(dy)*1.25)return;
    geometry=measure();if(!geometry){pointer=null;return;}cancel();p.left=parseFloat(pane.style.left);p.right=p.left+parseFloat(pane.style.width);p.dragging=true;nav.dataset.dragging='';nav.setPointerCapture(e.pointerId);
   }
-  if(e.cancelable)e.preventDefault();const min=p.index===0?0:-geometry.slot,max=p.index===buttons.length-1?0:geometry.slot,shift=Math.max(min,Math.min(max,dx));paint(p.left+shift,p.right+shift);
+  if(e.cancelable)e.preventDefault();paint(p.left+dx,p.right+dx);
  });
  nav.addEventListener('pointerup',e=>{if(pointer?.id===e.pointerId)finishPointer(false,e);});
  nav.addEventListener('pointercancel',e=>{if(pointer?.id===e.pointerId)finishPointer(true);});

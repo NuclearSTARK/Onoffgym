@@ -173,3 +173,14 @@ test('gender completion rejects omissions and invented options; identity always 
  for(const gender of ['male','female'])assert.equal((await f.request('/api/privacy/accept',{body:{...base,gender,id:ADMIN,actor:ADMIN}})).status,200);
  assert.deepEqual(f.writes.map(x=>[x.actor,x.p.gender]),[[MEMBER,'male'],[MEMBER,'female']]);
 });
+
+test('meetup deadlines use server time: closed joins reject, cancellation remains, expired posts disappear',async()=>{
+ const f=fixture(),closed=crypto.randomUUID(),expired=crypto.randomUUID(),ordinary=crypto.randomUUID();
+ f.tables.gym_posts=[{id:closed,author_id:ADMIN,category:'운동 번개',starts_at:'2026-11-02T00:30:00Z',created_at:'2026-11-01T00:00:00Z'},{id:expired,author_id:ADMIN,category:'운동 번개',starts_at:'2026-11-01T01:00:00Z',created_at:'2026-11-01T00:00:00Z'},{id:ordinary,author_id:ADMIN,category:'자유글',starts_at:'2026-11-01T01:00:00Z',created_at:'2026-11-01T00:00:00Z'}];
+ const access=await f.request('/api/posts/access',{body:{id:closed}});assert.equal(access.value.code,'meetup_closed');
+ assert.equal((await f.request('/api/posts/join',{body:{id:closed,joined:true,now:'2020-01-01'}})).status,403);assert.equal(f.writes.length,0);
+ assert.equal((await f.request('/api/posts/join',{body:{id:closed,joined:false}})).status,200);
+ assert.equal((await f.request('/api/posts/comment',{body:{id:expired,text:'too late'}})).status,404);
+ assert.equal((await f.request('/api/community/read',{body:{id:expired,kind:'post'}})).status,404);
+ const bootstrap=await f.request('/api/bootstrap');assert.equal(bootstrap.status,200);assert.deepEqual(bootstrap.value.posts.map(p=>p.id).sort(),[closed,ordinary].sort());assert.equal(bootstrap.value.posts.find(p=>p.id===closed).joinAccess.code,'meetup_closed');
+});

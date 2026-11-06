@@ -1,9 +1,9 @@
-import {meetupMessage} from '../../../web/meetups.js';
+import {meetupMessage,meetupLifecycle} from '../../../web/meetups.js';
 import {hasPermission} from '../../../web/permissions.js';
 import {base64,encryptPush,pushDigest,validateSubscription,vapidAuthorization} from '../../../worker/push.js';
 const fail=(message,status=400)=>{throw Object.assign(Error(message),{status});};
 const same=(a,b)=>{a=String(a||'');b=String(b||'');let diff=a.length^b.length;for(let i=0;i<a.length;i++)diff|=a.charCodeAt(i)^(b.charCodeAt(i)||0);return diff===0;};
-export function createPushService(db,{now=()=>new Date(),pushFetch=fetch}={}){
+export function createPushService(db,{now=()=>new Date(),pushFetch=fetch,maintenance=async()=>{}}={}){
  async function result(q){const {data,error}=await q;if(error)fail(error.code==='42501'?'알림 요청 권한을 확인해주세요.':'알림 요청을 저장하지 못했어요.',error.code==='42501'?403:400);return data;}
  const one=(table,key,value)=>result(db.from(table).select('*').eq(key,value).maybeSingle());
  const setting=async(key,fallback=null)=>(await one('gym_settings','key',key))?.value??fallback;
@@ -16,7 +16,7 @@ export function createPushService(db,{now=()=>new Date(),pushFetch=fetch}={}){
   await Promise.all(Array.from({length:Math.min(8,jobs.length)},async()=>{for(;;){const job=jobs[cursor++];if(!job)return;let state='failed',reason=null;try{
    const current=await one('gym_push_subscriptions','id',job.subscriptionId);if(!current)continue;
    let allowed=false;if(current.user_id){const member=await one('gym_members','id',current.user_id);allowed=member?.status==='approved'&&(job.kind==='test'||current.preferences?.[job.kind]!==false);if(job.kind==='approvals'){const pending=await one('gym_members','id',job.subjectId);allowed=allowed&&member?.role==='admin'&&(pending?.status==='pending'||pending?.status==='approved'&&job.payload?.signupEvent===true);}}else if(current.test_hash){const test=await one('gym_push_tests','hash',current.test_hash);allowed=job.kind==='test'&&current.test_hash===job.testHash&&Date.parse(test?.expires)>+now();}
-   let meetup=null;if(job.payload?.meetupId){meetup=await one('gym_posts','id',job.payload.meetupId);const writer=meetup?await one('gym_members','id',meetup.author_id):null;allowed=allowed&&meetup?.category==='운동 번개'&&writer?.status==='approved'&&writer?.disclosure_consent!==false&&!!meetupMessage(meetup.starts_at);}
+   let meetup=null;if(job.payload?.meetupId){meetup=await one('gym_posts','id',job.payload.meetupId);const writer=meetup?await one('gym_members','id',meetup.author_id):null;allowed=allowed&&meetup?.category==='운동 번개'&&writer?.status==='approved'&&writer?.disclosure_consent!==false&&!!meetupMessage(meetup.starts_at)&&!meetupLifecycle(meetup,now()).closed;}
    if(!allowed){state='skipped';reason=job.kind==='approvals'?'가입 알림 대상 조건이 변경되어 발송 제외':'알림 수신 조건이 변경되어 발송 제외';}else {
     const subscription=validateSubscription(current.body);if(!subscription)throw Error('Invalid subscription');
     const payload=meetup?{title:'운동 번개',body:meetupMessage(meetup.starts_at),url:'/Onoffgym/?post='+encodeURIComponent(meetup.id)+'#community',tag:'meetup:'+meetup.id}:job.kind==='approvals'?{...job.payload,url:'/Onoffgym/?approval='+encodeURIComponent(job.subjectId)+'#admin/members'}:job.payload;
@@ -31,7 +31,7 @@ export function createPushService(db,{now=()=>new Date(),pushFetch=fetch}={}){
  async function status(member){const config=await setting('pushVapid'),sub=await result(db.from('gym_push_subscriptions').select('id').eq('user_id',member.id).limit(1));return {configured:!!config,publicKey:config?.publicKey||'',schedulerConfigured:await setting('pushCronEnabled',false),subscribed:sub.length>0};}
  async function testStatus(hash){const jobs=await result(db.from('gym_push_jobs').select('id,due_at,created_at,payload').eq('test_hash',hash).order('created_at',{ascending:false}).limit(10)),ids=jobs.map(j=>j.id);const deliveries=ids.length?await result(db.from('gym_push_deliveries').select('job_id,status').in('job_id',ids)):[];return jobs.map(j=>({...j,status:deliveries.find(d=>d.job_id===j.id)?.status||'pending'}));}
  async function publicRoute(req,path,b){
-  if(path==='/api/push/dispatch'){const secret=await setting('pushCronSecret');if(!secret||!same(req.headers.get('X-OnOff-Worker'),secret))fail('알림 발송 권한이 없어요.',401);return dispatch();}
+  if(path==='/api/push/dispatch'){const secret=await setting('pushCronSecret');if(!secret||!same(req.headers.get('X-OnOff-Worker'),secret))fail('알림 발송 권한이 없어요.',401);await maintenance();return dispatch();}
   const {hash,test}=await access(req);
   if(path==='/api/push/test-access/config')return {publicKey:(await keys()).publicKey,expires:test.expires,schedulerConfigured:await setting('pushCronEnabled',false)};
   if(path==='/api/push/test-access/status')return {jobs:await testStatus(hash)};

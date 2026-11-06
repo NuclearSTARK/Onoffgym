@@ -1,6 +1,19 @@
 // supabase/functions/onoff-api/entry.js
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
+// web/meetups.js
+function meetupMessage(instant) {
+  const date = new Date(instant);
+  if (!instant || !Number.isFinite(+date)) return "";
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date).map((x) => [x.type, x.value]));
+  return `\uC6B4\uB3D9 \uBC88\uAC1C ${parts.month}/${parts.day} ${parts.hour}:${parts.minute} \uD568\uAED8 \uC6B4\uB3D9\uD574\uC694`;
+}
+function meetupLifecycle(post, now = Date.now()) {
+  const start = post?.category === "\uC6B4\uB3D9 \uBC88\uAC1C" ? Date.parse(post.starts_at) : NaN;
+  const valid = Number.isFinite(start), closesAt = start + 30 * 60 * 1e3, deletesAt = start + 24 * 60 * 60 * 1e3;
+  return { closed: valid && +now >= closesAt, expired: valid && +now >= deletesAt, closesAt: valid ? closesAt : null, deletesAt: valid ? deletesAt : null };
+}
+
 // web/record-schema.js
 var CONDITIONS = ["rx", "scaled", "unspecified"];
 var RX_LABEL = "Rx'd";
@@ -299,10 +312,13 @@ function changeMembership(old, b, today) {
 }
 
 // web/participation-access.js
-function participationAccess({ viewer, author, post, pass, today, attendedToday = false }) {
+function participationAccess({ viewer, author, post, pass, today, attendedToday = false, now = Date.now() }) {
   const deny = (code, message, action = "") => ({ allowed: false, code, message, action });
   if (viewer?.status !== "approved") return deny("approval_required", "\uAC00\uC785 \uC2B9\uC778 \uD6C4 \uCC38\uC5EC\uD560 \uC218 \uC788\uC5B4\uC694.");
   if (!post) return deny("post_missing", "\uC0AD\uC81C\uB418\uC5C8\uAC70\uB098 \uD655\uC778\uD560 \uC218 \uC5C6\uB294 \uAC8C\uC2DC\uAE00\uC774\uC5D0\uC694.");
+  const lifecycle = meetupLifecycle(post, now);
+  if (lifecycle.expired) return deny("post_expired", "\uBCF4\uAD00 \uAE30\uAC04\uC774 \uC9C0\uB098 \uC0AD\uC81C\uB41C \uC6B4\uB3D9 \uBC88\uAC1C\uC608\uC694.");
+  if (lifecycle.closed) return deny("meetup_closed", "\uB9C8\uAC10\uB41C \uC6B4\uB3D9 \uBC88\uAC1C\uC5D0\uB294 \uC0C8\uB85C \uCC38\uC5EC\uD560 \uC218 \uC5C6\uC5B4\uC694.");
   if (post.category === "\uC790\uC720\uAE00") return deny("not_joinable", "\uC774 \uAC8C\uC2DC\uAE00\uC740 \uCC38\uC5EC \uC2E0\uCCAD\uC744 \uBC1B\uC9C0 \uC54A\uC544\uC694.");
   if (viewer.disclosure_consent === false) return deny("sharing_required", "\uCC38\uC5EC\uC790 \uC774\uB984 \uACF5\uAC1C\uB97C \uC704\uD574 \uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C \uB3D9\uC758\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.", "privacy-settings");
   if (!author || author.status !== "approved") return deny("author_unavailable", "\uC791\uC131\uC790 \uACC4\uC815 \uC0C1\uD0DC\uB97C \uD655\uC778\uD558\uB294 \uB3D9\uC548\uC5D0\uB294 \uC0C8\uB85C \uCC38\uC5EC\uD560 \uC218 \uC5C6\uC5B4\uC694.");
@@ -520,7 +536,6 @@ var ATTENDANCE_STAMPS = Object.freeze([
   "\u{1F601}",
   "\u{1F606}",
   "\u{1F605}",
-  "\u{1F602}",
   "\u{1F642}",
   "\u{1F643}",
   "\u{1F609}",
@@ -537,79 +552,24 @@ var ATTENDANCE_STAMPS = Object.freeze([
   "\u{1F61C}",
   "\u{1F92A}",
   "\u{1F61D}",
-  "\u{1F911}",
-  "\u{1F928}",
-  "\u{1F610}",
-  "\u{1F611}",
-  "\u{1F636}",
-  "\u{1F60F}",
-  "\u{1F612}",
-  "\u{1F644}",
-  "\u{1F62C}",
-  "\u{1F60C}",
-  "\u{1F614}",
-  "\u{1F62A}",
-  "\u{1F924}",
-  "\u{1F634}",
-  "\u{1F637}",
-  "\u{1F912}",
-  "\u{1F915}",
-  "\u{1F922}",
-  "\u{1F975}",
-  "\u{1F976}",
-  "\u{1F974}",
-  "\u{1F635}",
   "\u{1F60E}",
   "\u{1F913}",
-  "\u{1F9D0}",
-  "\u{1F615}",
-  "\u{1FAE4}",
-  "\u{1F61F}",
-  "\u{1F641}",
-  "\u2639\uFE0F",
-  "\u{1F62E}",
-  "\u{1F62F}",
-  "\u{1F632}",
-  "\u{1F633}",
-  "\u{1F97A}",
-  "\u{1F979}",
-  "\u{1F626}",
-  "\u{1F627}",
-  "\u{1F628}",
-  "\u{1F630}",
-  "\u{1F625}",
-  "\u{1F622}",
-  "\u{1F62D}",
-  "\u{1F616}",
-  "\u{1F623}",
-  "\u{1F61E}",
-  "\u{1F613}",
-  "\u{1F629}",
-  "\u{1F62B}",
-  "\u{1F624}",
-  "\u{1F620}",
-  "\u{1F621}",
-  "\u{1F92C}",
-  "\u26BD",
-  "\u{1F3C0}",
-  "\u{1F3D0}",
-  "\u26BE",
-  "\u{1F94E}",
-  "\u{1F3BE}",
-  "\u{1F3B1}",
-  "\u{1F315}",
-  "\u{1F311}",
-  "\u{1F31D}",
-  "\u{1F31A}",
-  "\u{1F534}",
-  "\u{1F7E0}",
-  "\u{1F7E1}",
-  "\u{1F7E2}",
-  "\u{1F535}",
-  "\u{1F7E3}",
-  "\u{1F7E4}",
-  "\u26AB",
-  "\u26AA"
+  "\u{1F44F}",
+  "\u{1F44A}",
+  "\u{1F4AA}",
+  "\u{1F525}",
+  "\u{1F3CB}\uFE0F\u200D\u2642\uFE0F",
+  "\u{1F3CB}\uFE0F",
+  "\u{1F3CB}\uFE0F\u200D\u2640\uFE0F",
+  "\u{1F3C5}",
+  "\u270C\uFE0F",
+  "\u{1F921}",
+  "\u{1F920}",
+  "\u{1FAE0}",
+  "\u{1FAE1}",
+  "\u{1F3C3}\u200D\u2642\uFE0F",
+  "\u{1F3C3}\u{1F3FB}",
+  "\u{1F3C6}"
 ]);
 
 // web/video-library.js
@@ -903,14 +863,6 @@ async function tvPassword(password, salt) {
   return tvHex(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(salt), iterations: 1e5 }, key, 256));
 }
 
-// web/meetups.js
-function meetupMessage(instant) {
-  const date = new Date(instant);
-  if (!instant || !Number.isFinite(+date)) return "";
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date).map((x) => [x.type, x.value]));
-  return `\uC6B4\uB3D9 \uBC88\uAC1C ${parts.month}/${parts.day} ${parts.hour}:${parts.minute} \uD568\uAED8 \uC6B4\uB3D9\uD574\uC694`;
-}
-
 // worker/push.js
 function unbase64(s) {
   return Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
@@ -972,7 +924,8 @@ var same = (a, b) => {
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ (b.charCodeAt(i) || 0);
   return diff === 0;
 };
-function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFetch = fetch } = {}) {
+function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFetch = fetch, maintenance = async () => {
+} } = {}) {
   async function result(q) {
     const { data, error } = await q;
     if (error) fail5(error.code === "42501" ? "\uC54C\uB9BC \uC694\uCCAD \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : "\uC54C\uB9BC \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : 400);
@@ -1030,7 +983,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
           if (job.payload?.meetupId) {
             meetup = await one("gym_posts", "id", job.payload.meetupId);
             const writer = meetup ? await one("gym_members", "id", meetup.author_id) : null;
-            allowed = allowed && meetup?.category === "\uC6B4\uB3D9 \uBC88\uAC1C" && writer?.status === "approved" && writer?.disclosure_consent !== false && !!meetupMessage(meetup.starts_at);
+            allowed = allowed && meetup?.category === "\uC6B4\uB3D9 \uBC88\uAC1C" && writer?.status === "approved" && writer?.disclosure_consent !== false && !!meetupMessage(meetup.starts_at) && !meetupLifecycle(meetup, now()).closed;
           }
           if (!allowed) {
             state = "skipped";
@@ -1072,6 +1025,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
     if (path === "/api/push/dispatch") {
       const secret = await setting("pushCronSecret");
       if (!secret || !same(req.headers.get("X-OnOff-Worker"), secret)) fail5("\uC54C\uB9BC \uBC1C\uC1A1 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 401);
+      await maintenance();
       return dispatch();
     }
     const { hash, test } = await access(req);
@@ -1125,7 +1079,7 @@ var text = (v, min, max, label) => {
 };
 function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch, now = () => /* @__PURE__ */ new Date() } = {}) {
   const media = createMediaService(db2, { now }), points = createPointsService(db2, { now });
-  const push = createPushService(db2, { now }), account = createAccountService(db2, { reauthenticate }), named = createNamedService(db2);
+  const push = createPushService(db2, { now, maintenance: () => media.cleanup() }), account = createAccountService(db2, { reauthenticate }), named = createNamedService(db2);
   async function result(q) {
     const { data, error } = await q;
     if (error) {
@@ -1229,7 +1183,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
   async function joinAccess(m, id2) {
     const [post, pass] = await Promise.all([one("gym_posts", "id", id2), one("gym_memberships", "user_id", m.id)]), author = post ? await one("gym_members", "id", post.author_id) : null, day = kstDate(now());
     const attendance = pass?.kind === "visits" && pass.remaining_visits === 0 ? await rows("gym_attendance", (q) => q.eq("user_id", m.id).eq("date", day).eq("membership_id", pass.id)) : [];
-    return participationAccess({ viewer: m, author, post, pass, today: day, attendedToday: attendance.length > 0 });
+    return participationAccess({ viewer: m, author, post, pass, today: day, attendedToday: attendance.length > 0, now: now() });
   }
   async function bootstrap(m, url) {
     const rev = await revision(m);
@@ -1280,7 +1234,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       const merged = [...new Map([...posts, ...extras].map((p) => [p.id, p])).values()];
       posts.splice(0, posts.length, ...merged.filter((p) => {
         const author = memberRows.find((m2) => m2.id === p.author_id);
-        return staff || author?.disclosure_consent !== false || p.author_id === m.id;
+        return !meetupLifecycle(p, now()).expired && (staff || author?.disclosure_consent !== false || p.author_id === m.id);
       }));
     }
     const pointBalances = staff ? await rows("gym_point_accounts") : [];
@@ -1327,7 +1281,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       photos: canRead ? await media.list(viewDate, posts.map((p) => p.id), noticeRows.map((n) => n.id), m) : [],
       rms: rms.map((r) => ({ ...r.body, id: r.id, memberId: r.user_id })),
       preferences: prefs?.body || {},
-      posts: posts.map((p) => ({ ...p, viewerJoined: joins.some((j) => j.post_id === p.id && j.user_id === m.id), joinAccess: participationAccess({ viewer: m, author: memberRows.find((x) => x.id === p.author_id), post: p, pass, today: day, attendedToday: att.some((a) => a.date === day && a.membership_id === pass?.id) }), authorId: p.author_id, author: names.get(p.author_id) || "\uD68C\uC6D0", date: kstDate(new Date(p.created_at)), joined: [], joinedIds: joins.filter((j) => j.post_id === p.id && memberRows.find((x) => x.id === j.user_id)?.disclosure_consent !== false).map((j) => j.user_id), joinedNames: Object.fromEntries(joins.filter((j) => j.post_id === p.id && memberRows.find((x) => x.id === j.user_id)?.disclosure_consent !== false).map((j) => [j.user_id, names.get(j.user_id) || "\uD68C\uC6D0"])), comments: comments.filter((c) => c.post_id === p.id && memberRows.find((x) => x.id === c.author_id)?.disclosure_consent !== false).map((c) => ({ ...c, authorId: c.author_id, author: names.get(c.author_id) || "\uD68C\uC6D0" })) })),
+      posts: posts.map((p) => ({ ...p, viewerJoined: joins.some((j) => j.post_id === p.id && j.user_id === m.id), joinAccess: participationAccess({ viewer: m, author: memberRows.find((x) => x.id === p.author_id), post: p, pass, today: day, attendedToday: att.some((a) => a.date === day && a.membership_id === pass?.id), now: now() }), authorId: p.author_id, author: names.get(p.author_id) || "\uD68C\uC6D0", date: kstDate(new Date(p.created_at)), joined: [], joinedIds: joins.filter((j) => j.post_id === p.id && memberRows.find((x) => x.id === j.user_id)?.disclosure_consent !== false).map((j) => j.user_id), joinedNames: Object.fromEntries(joins.filter((j) => j.post_id === p.id && memberRows.find((x) => x.id === j.user_id)?.disclosure_consent !== false).map((j) => [j.user_id, names.get(j.user_id) || "\uD68C\uC6D0"])), comments: comments.filter((c) => c.post_id === p.id && memberRows.find((x) => x.id === c.author_id)?.disclosure_consent !== false).map((c) => ({ ...c, authorId: c.author_id, author: names.get(c.author_id) || "\uD68C\uC6D0" })) })),
       tv: hasPermission(m, "tv") ? await tvSettings() : void 0,
       push: await push.status(m),
       historyLimit: 1e3
@@ -1451,7 +1405,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     if (path === "/api/community/read") {
       if (!uuid3(b.id) || !["post", "notice"].includes(b.kind)) bad("\uC77D\uC740 \uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const item = await one(b.kind === "notice" ? "gym_notices" : "gym_posts", "id", b.id);
-      if (!item) bad("\uAC8C\uC2DC\uAE00\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      if (!item || meetupLifecycle(item, now()).expired) bad("\uAC8C\uC2DC\uAE00\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
       return commit(m.id, "community-read", { id: b.id, kind: b.kind });
     }
     if (path === "/api/meetups") {
@@ -1498,6 +1452,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       if (!path.endsWith("delete")) {
         const post = await one("gym_posts", "id", b.id);
         if (post) {
+          if (meetupLifecycle(post, now()).expired) bad("\uBCF4\uAD00 \uAE30\uAC04\uC774 \uC9C0\uB098 \uC0AD\uC81C\uB41C \uC6B4\uB3D9 \uBC88\uAC1C\uC608\uC694.", 404);
           const author = await one("gym_members", "id", post.author_id);
           if (author?.disclosure_consent === false) bad("\uACF5\uAC1C\uAC00 \uC911\uC9C0\uB41C \uAC8C\uC2DC\uAE00\uC785\uB2C8\uB2E4.", 403);
         }

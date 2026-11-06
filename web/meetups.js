@@ -12,3 +12,10 @@ export function meetupMessage(instant){
 }
 export const meetupBannerExpiresAt=post=>Date.parse(post.starts_at)+30*60*1000;
 export function pinnedMeetups(posts,now=Date.now()){return posts.filter(p=>p.category==='운동 번개'&&p.banner_pinned&&meetupMessage(p.starts_at)&&meetupBannerExpiresAt(p)>+now).sort((a,b)=>Date.parse(a.starts_at)-Date.parse(b.starts_at));}
+
+// A meetup closes with its 30-minute banner; retention is measured from its start.
+export function meetupLifecycle(post,now=Date.now()){
+ const start=post?.category==='운동 번개'?Date.parse(post.starts_at):NaN;
+ const valid=Number.isFinite(start),closesAt=start+30*60*1000,deletesAt=start+24*60*60*1000;
+ return {closed:valid&&+now>=closesAt,expired:valid&&+now>=deletesAt,closesAt:valid?closesAt:null,deletesAt:valid?deletesAt:null};
+}

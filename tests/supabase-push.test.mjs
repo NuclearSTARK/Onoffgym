@@ -46,3 +46,14 @@ test('meetup delivery rebuilds its fixed dated message and deep link, and skips 
   await push.dispatch();assert.equal(sent,expected);assert.equal(f.updates[0].value.status,expected?'sent':'skipped');
  }
 });
+
+test('scheduled media cleanup runs only after the existing private scheduler check',async()=>{
+ const f=fixture({gym_settings:[{key:'pushCronSecret',value:'fixture-secret'},{key:'pushVapid',value:{publicKey:'fixture'}}]});let cleaned=0;
+ const push=createPushService(f.db,{now:()=>time,maintenance:async()=>{cleaned++;},pushFetch:()=>{throw Error('must not send')}});
+ await assert.rejects(push.publicRoute(new Request('https://example.invalid'),'/api/push/dispatch',{}),e=>e.status===401);assert.equal(cleaned,0);
+ const value=await push.publicRoute(new Request('https://example.invalid',{headers:{'X-OnOff-Worker':'fixture-secret'}}),'/api/push/dispatch',{});assert.equal(cleaned,1);assert.equal(value.processed,0);
+});
+test('delayed meetup notifications are skipped after the same 30-minute close boundary',async()=>{
+ const tables={gym_settings:[{key:'pushVapid',value:{publicKey:'fixture'}}],gym_members:[{id:'member',status:'approved'},{id:'author',status:'approved',disclosure_consent:true}],gym_posts:[{id:'closed',author_id:'author',category:'운동 번개',starts_at:'2026-11-02T00:30:00Z'}],gym_push_subscriptions:[{id:'sub',user_id:'member',preferences:{notices:true},body:{}}]},f=fixture(tables,[{jobId:'job',subscriptionId:'sub',kind:'notices',payload:{meetupId:'closed'}}]);
+ const push=createPushService(f.db,{now:()=>time,pushFetch:()=>{throw Error('closed notification must not send')}});await push.dispatch();assert.equal(f.updates.at(-1).value.status,'skipped');
+});

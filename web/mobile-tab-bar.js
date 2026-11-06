@@ -48,7 +48,7 @@ export function createMobileTabBar(nav,{navigate}={}){
  document.addEventListener('pointerdown',e=>{if(pointer&&e.pointerId!==pointer.id)finishPointer(true);},{capture:true,passive:true});
  nav.addEventListener('pointermove',e=>{const p=pointer;if(!p||p.id!==e.pointerId)return;const dx=e.clientX-p.x,dy=e.clientY-p.y;
   if(!p.dragging){if(Math.max(Math.abs(dx),Math.abs(dy))<8)return;if(Math.abs(dy)>=Math.abs(dx)){pointer=null;return;}if(Math.abs(dx)<Math.abs(dy)*1.25)return;
-   geometry=measure();if(!geometry){pointer=null;return;}cancel();p.left=parseFloat(pane.style.left);p.right=p.left+parseFloat(pane.style.width);p.dragging=true;nav.dataset.dragging='';nav.setPointerCapture(e.pointerId);
+   geometry=measure();if(!geometry){pointer=null;return;}cancel();const middle=parseFloat(pane.style.left)+parseFloat(pane.style.width)/2,half=(geometry.slot-2)/2;p.left=middle-half;p.right=middle+half;p.dragging=true;nav.dataset.dragging='';nav.setPointerCapture(e.pointerId);
   }
   if(e.cancelable)e.preventDefault();paint(p.left+dx,p.right+dx);
  });

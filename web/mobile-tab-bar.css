@@ -2,23 +2,23 @@
 .nav-selection{display:none}
 @media(max-width:760px){
  /* Keep both radii equal even when five tabs must fit a 320px screen. */
- :root{--mobile-nav-height:calc(100px + var(--safe-bottom));--tab-bar-height:80px;--tab-bar-radius:min(30px,calc((100vw - 56px - var(--safe-left) - var(--safe-right))/10))}
+ :root{--tab-bar-height:68px;--tab-bar-bottom-gap:0px;--mobile-nav-height:calc(var(--tab-bar-height) + var(--tab-bar-bottom-gap) + 10px + var(--safe-bottom));--tab-bar-radius:min(26px,calc((100vw - 56px - var(--safe-left) - var(--safe-right))/10))}
  body:not(.login-mode):not(.push-onboarding) #mobile-nav.mobile-nav{
-  top:auto!important;bottom:calc(10px + var(--safe-bottom))!important;
+  top:auto!important;bottom:calc(var(--tab-bar-bottom-gap) + var(--safe-bottom))!important;
   left:calc(12px + var(--safe-left));right:calc(12px + var(--safe-right));width:auto!important;
   height:var(--tab-bar-height);min-height:var(--tab-bar-height);margin:0;
-  padding:10px!important;gap:0!important;align-items:stretch;
+  padding:8px 10px!important;gap:0!important;align-items:stretch;
   border:1px solid color-mix(in srgb,var(--line) 80%,#fff 20%);border-radius:var(--tab-bar-radius);
   background:linear-gradient(180deg,#ffffff08,transparent 60%),color-mix(in srgb,var(--surface) 88%,transparent);
   box-shadow:0 6px 18px #0006;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
   isolation:isolate;
  }
  html.nav-viewport-anchored body:not(.login-mode):not(.push-onboarding) #mobile-nav.mobile-nav{
-  top:calc(var(--mobile-nav-viewport-bottom) - var(--tab-bar-height) - 10px - var(--safe-bottom))!important;bottom:auto!important;
+  top:calc(var(--mobile-nav-viewport-bottom) - var(--tab-bar-height) - var(--tab-bar-bottom-gap) - var(--safe-bottom))!important;bottom:auto!important;
  }
  #mobile-nav.mobile-nav>button{
   position:relative;z-index:1;flex:1 1 0;min-width:0!important;width:0!important;
-  margin:0;padding:4px 0!important;gap:3px;justify-content:center;align-items:center;
+  margin:0;padding:3px 0!important;gap:3px;justify-content:center;align-items:center;
   border-radius:var(--tab-bar-radius);background:transparent;color:var(--muted);font-size:10px;line-height:1.3;
  }
  #mobile-nav.mobile-nav>button.active{color:var(--ink)}
@@ -28,7 +28,7 @@
  #mobile-nav .nav-icon{width:27px;height:27px;position:relative;display:grid;place-items:center}
  #mobile-nav .nav-icon svg{width:26px;height:26px;stroke-width:1.9}
  #mobile-nav .nav-selection{
-  display:block;position:absolute;z-index:0;top:9px;height:60px;border-radius:var(--tab-bar-radius);
+  display:block;position:absolute;z-index:0;top:7px;height:52px;border-radius:var(--tab-bar-radius);
   background:linear-gradient(180deg,#eff5ff36,#dce8fc1f 48%,#dce8fc2b);border:1px solid #f1f7ff2b;
   pointer-events:none;
  }

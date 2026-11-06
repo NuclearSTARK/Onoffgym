@@ -11,11 +11,13 @@
   border:1px solid color-mix(in srgb,var(--line) 80%,#fff 20%);border-radius:var(--tab-bar-radius);
   background:linear-gradient(180deg,#ffffff08,transparent 60%),color-mix(in srgb,var(--surface) 88%,transparent);
   box-shadow:0 6px 18px #0006;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
-  isolation:isolate;
+  isolation:isolate;touch-action:pan-y pinch-zoom;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+  transform:translateY(0)!important;transition:transform .22s cubic-bezier(.22,.61,.36,1),opacity .18s;
  }
  html.nav-viewport-anchored body:not(.login-mode):not(.push-onboarding) #mobile-nav.mobile-nav{
   top:calc(var(--mobile-nav-viewport-bottom) - var(--tab-bar-height) - var(--tab-bar-bottom-inset))!important;bottom:auto!important;
  }
+ body:not(.login-mode):not(.push-onboarding) #mobile-nav.mobile-nav[data-scroll-hidden]{transform:translateY(calc(100% + var(--tab-bar-bottom-inset) + 18px))!important;opacity:0;pointer-events:none}
  #mobile-nav.mobile-nav>button{
   position:relative;z-index:1;flex:1 1 0;min-width:0!important;width:0!important;
   margin:0;padding:2px 0!important;gap:2px;justify-content:center;align-items:center;
@@ -36,3 +38,5 @@
  .scroll-top{bottom:calc(var(--mobile-nav-height) + 10px)}
  .toast{bottom:calc(var(--mobile-nav-height) + 10px)}
 }
+
+@media(prefers-reduced-motion:reduce){body:not(.login-mode):not(.push-onboarding) #mobile-nav.mobile-nav{transition:none}}

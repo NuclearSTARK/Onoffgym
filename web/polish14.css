@@ -35,8 +35,13 @@ body.push-onboarding:has(.privacy-compact) #main{align-items:start;align-content
  .named-card .rm-bottom{gap:4px}
 }
 
-/* Meetups close 30 minutes after their start; titles and time stay legible. */
-.meetup-closed-badge{display:inline-flex;align-items:center;float:right;margin-left:8px;padding:2px 8px;border:1px solid var(--line);border-radius:6px;color:var(--muted);background:var(--bg);font-size:11px;font-weight:600;line-height:1.6;white-space:nowrap}
-.post-title .meetup-closed-badge{float:none;vertical-align:middle}
-.post-card.is-meetup-closed>p,.post-card.is-meetup-closed>.post-cover,.post-thread.is-meetup-closed>.meetup-content{filter:blur(4px);opacity:.55;user-select:none;-webkit-user-select:none}
+/* Closed meetup badges stay clear while the title, body and photos blur. */
+.post-card-badges{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.post-card-badges>.tag,.post-card-badges>.meetup-closed-badge{display:inline-flex;align-items:center;flex:none;height:24px;margin:0}
+.meetup-closed-badge{display:inline-flex;align-items:center;flex-shrink:0;margin:0;padding:2px 8px;border:1px solid #ff8d9d;border-radius:6px;color:#fff;background:#c92d43;font-size:11px;font-weight:700;line-height:1.6;white-space:nowrap}
+.post-thread>.post-title{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.post-title-text{flex:1;min-width:0}
+.post-title>[data-meetup-status]{flex:none}
+.post-title>[data-meetup-status]:empty{display:none}
+.post-card.is-meetup-closed>h3,.post-card.is-meetup-closed>p,.post-card.is-meetup-closed>.post-cover,.post-thread.is-meetup-closed .post-title-text,.post-thread.is-meetup-closed>.meetup-content{filter:blur(4px);opacity:.55;user-select:none;-webkit-user-select:none}
 .post-thread.is-meetup-closed>.meetup-content{pointer-events:none}

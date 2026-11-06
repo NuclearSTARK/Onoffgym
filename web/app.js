@@ -1,3 +1,4 @@
+import {createMobileTabBar} from './mobile-tab-bar.js';
 import {unitSelector} from './unit-selector.js';
 import {canToggleMembershipWallet,showMembershipWallet} from './wallet-preferences.js';
 import {recordPolicy,recordCondition,conditionLabel} from './record-schema.js';
@@ -106,13 +107,14 @@ const namedUI=createNamedUI({escape:esc,icon,request,modal,close,reload:()=>load
 const unsaved=createUnsavedGuard({root:document,extraDirty:()=>page==='admin/entry'&&batchHasUnsaved(),onDiscard:()=>{if(page==='admin/entry')batchDrafts.clear()}});
 const save=()=>{try{if(shared){localStorage.setItem('onoff-display',JSON.stringify({unit:state.unit}));return;}synchronizeRmMovements(state,rmCatalogue);localStorage.setItem(globalThis.ONOFF_DEMO?'onoffgym-pages-records-v1':'onoff-v1',JSON.stringify(Object.fromEntries(Object.entries(state).filter(([k])=>!['workouts','members','attendance'].includes(k)))))}catch{toast('저장 공간이 부족해요. 브라우저 저장 공간을 확인해주세요.');throw new Error('Storage unavailable')}};
 let toastTimer;function toast(t){$('#toast').textContent=t;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),3500)}
+const mobileTabBar=createMobileTabBar($('#mobile-nav'));
 const navItems=[['home','home','오늘의 운동'],['members','users','회원 기록'],['records','chart','나의 기록'],['community','chat','커뮤니티']];
 function nav(){
   const authPage=page==='login'||!viewer||viewer.status!=='approved'||['push-setup','privacy-setup'].includes(page);$('#mobile-nav').hidden=authPage;
   const root=page.split('/')[0],items=[...navItems];
   if(staff())items.push(['admin','shield','운영 관리']);
   $('#nav').innerHTML=items.map(([id,ic,title])=>`<button data-page="${id}" class="${root===id?'active':''}">${icon(ic)}${id==='home'?'홈':title}${id==='admin'?approvalBadge():id==='community'?communityBadge():''}</button>`).join('')+'<div class="nav-separator"></div><button data-action="settings">'+icon('settings')+'개인설정</button>';
-  $('#mobile-nav').innerHTML=items.map(([id,ic,title])=>`<button data-page="${id}" class="${root===id?'active':''}" ${root===id?'aria-current="page"':''}><span class="nav-icon">${icon(ic)}${id==='admin'?approvalBadge():id==='community'?communityBadge():''}</span><span>${id==='home'?'홈':id==='admin'?'운영':title}</span></button>`).join('');
+  mobileTabBar.render({items:items.map(([id,ic,title])=>({id,label:id==='home'?'홈':id==='admin'?'운영':title,icon:icon(ic)+(id==='admin'?approvalBadge():id==='community'?communityBadge():'')})),active:root,hidden:authPage});
   document.querySelectorAll('.header-tool').forEach(b=>b.hidden=page==='login'||viewer?.status!=='approved'||b.dataset.page==='shop'&&!pointsEnabled());
   $('#page-label').textContent=root==='admin'?'운영 관리':root==='library'?(coach&&!memberPreview?'운동 영상 관리':'운동 영상'):root==='timer'?'타이머':root==='shop'?'포인트 상점':navItems.find(x=>x[0]===root)?.[2]||'개인설정';
   document.title=page==='login'?'ONOFF CROSSFIT':`ONOFF · ${$('#page-label').textContent}`;

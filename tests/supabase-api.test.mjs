@@ -23,6 +23,20 @@ test('API rejects disallowed origins, unexpected methods and JSON role escalatio
  assert.equal((await f.request('/api/attendance')).status,405);
  assert.equal((await f.request('/api/members',{body:{id:ADMIN,role:'admin',status:'approved'}})).status,403);assert.equal(f.writes.length,0);
 });
+test('Cloudflare production origin can connect while authentication and exact origin restrictions remain enforced',async()=>{
+ const f=fixture(),origin='https://onoffgym.pages.dev';
+ const member=await f.request('/api/bootstrap',{origin});
+ assert.equal(member.status,200);assert.equal(member.headers.get('Access-Control-Allow-Origin'),origin);
+ const writesAfterMember=f.writes.length;
+ const unauthenticated=await f.request('/api/bootstrap',{origin,token:null});
+ assert.equal(unauthenticated.status,401);assert.equal(unauthenticated.headers.get('Access-Control-Allow-Origin'),origin);assert.equal(unauthenticated.value.viewer,undefined);
+ const handle=createHandler(f.db,{verifyUser:async()=>null});
+ const preflight=await handle(new Request('https://project.supabase.co/functions/v1/onoff-api/api/bootstrap',{method:'OPTIONS',headers:{Origin:origin,'Access-Control-Request-Method':'GET','Access-Control-Request-Headers':'authorization,apikey'}}));
+ assert.equal(preflight.status,204);assert.equal(preflight.headers.get('Access-Control-Allow-Origin'),origin);
+ for(const other of ['https://another-app.pages.dev','https://onoffgym.pages.dev.evil.example','https://preview.onoffgym.pages.dev','http://onoffgym.pages.dev'])assert.equal((await f.request('/api/bootstrap',{origin:other})).status,403);
+ assert.equal(f.writes.length,writesAfterMember);
+ assert.equal((await f.request('/api/bootstrap',{origin:'https://nuclearstark.github.io'})).status,200);
+});
 test('pending and suspended members get only their approval state, without workouts or shared records',async()=>{
  for(const status of ['pending','suspended']){const f=fixture({status}),r=await f.request('/api/bootstrap');assert.equal(r.status,200);assert.deepEqual(r.value.workouts,{});assert.deepEqual(r.value.members,[]);assert.equal(r.value.records,undefined);assert.equal((await f.request('/api/attendance',{body:{}})).status,403);}
 });

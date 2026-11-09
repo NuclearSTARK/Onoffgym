@@ -1068,7 +1068,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
 }
 
 // supabase/functions/onoff-api/server.js
-var ORIGINS = /* @__PURE__ */ new Set(["https://nuclearstark.github.io", "https://onoff-crossfit-gym.powerloding.chatgpt.site"]);
+var ORIGINS = /* @__PURE__ */ new Set(["https://nuclearstark.github.io", "https://onoffgym.pages.dev", "https://onoff-crossfit-gym.powerloding.chatgpt.site"]);
 var bad = (message, status = 400, extra = {}) => {
   throw Object.assign(Error(message), { status, ...extra });
 };

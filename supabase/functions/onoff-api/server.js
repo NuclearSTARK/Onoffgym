@@ -18,7 +18,7 @@ import {normalizeTvPreferences} from '../../../web/tv-colors.js';
 import {tvDigest,tvPassword} from '../../../worker/tv-service.js';
 import {createPushService} from './push-service.js';
 
-const ORIGINS=new Set(['https://nuclearstark.github.io','https://onoff-crossfit-gym.powerloding.chatgpt.site']);
+const ORIGINS=new Set(['https://nuclearstark.github.io','https://onoffgym.pages.dev','https://onoff-crossfit-gym.powerloding.chatgpt.site']);
 const bad=(message,status=400,extra={})=>{throw Object.assign(Error(message),{status,...extra});};
 const uuid=v=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const text=(v,min,max,label)=>{if(typeof v!=='string'||v.trim().length<min||v.length>max)bad(label+'을 확인해주세요.');return v.trim();};

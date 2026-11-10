@@ -5,7 +5,7 @@ import {createHandler} from '../supabase/functions/onoff-api/server.js';
 const ADMIN='10000000-0000-4000-8000-000000000001',MEMBER='10000000-0000-4000-8000-000000000002';
 const fixture=({role='member',status='approved',anonymous=false,valid=true,coach_permissions=[],approved_at=null,rejected_at=null,delete_requested_at=null}={})=>{
  const writes=[],tables={gym_members:[{id:MEMBER,name:'테스트 회원',gender:'male',privacy_version:'privacy-2026-11-05',role,status,coach_permissions,approved_at,rejected_at,delete_requested_at},{id:ADMIN,name:'운영자',role:'admin',status:'approved'}],gym_settings:[{key:'releaseTime',value:'22:00'},{key:'revision',value:0},{key:'tvPassword',value:{salt:'private',hash:'private'}}],gym_member_notes:[{user_id:MEMBER,note:'운영자 비공개 메모'}],gym_records:[],gym_holiday_cache:[{key:'KR',updated_at:'2026-11-02T00:00:00Z',body:{dates:{},source:'fixture'}}],gym_workouts:[{key:'2026-11-02_WOD',date:'2026-11-02',program:'WOD',release_at:'2026-11-01T13:00:00Z',body:{date:'2026-11-02',program:'WOD',sections:[{title:'Front Squat',text:'5 reps',record:true,kind:'중량',movements:['Front Squat']}]}},{key:'2026-11-03_WOD',date:'2026-11-03',program:'WOD',release_at:'2026-11-02T13:00:00Z',body:{date:'2026-11-03',program:'WOD',sections:[{title:'비공개 미래 운동',text:'secret'}]}}]};
- const db={from(name){let data=structuredClone(tables[name]||[]),single=false;const q={select(){return q},eq(k,v){data=data.filter(x=>x[k]===v);return q},gt(k,v){data=data.filter(x=>x[k]>v);return q},lte(k,v){data=data.filter(x=>x[k]<=v);return q},or(){return q},order(){return q},limit(n){data=data.slice(0,n);return q},maybeSingle(){single=true;return q},then(resolve,reject){return Promise.resolve({data:single?data[0]||null:data,error:null}).then(resolve,reject)}};return q;},rpc(name,p){writes.push(p);return Promise.resolve({data:{ok:true},error:null})}};
+ const db={from(name){let data=structuredClone(tables[name]||[]),single=false;const q={select(){return q},contains(){return q},eq(k,v){data=data.filter(x=>x[k]===v);return q},gt(k,v){data=data.filter(x=>x[k]>v);return q},lte(k,v){data=data.filter(x=>x[k]<=v);return q},or(){return q},order(){return q},limit(n){data=data.slice(0,n);return q},maybeSingle(){single=true;return q},then(resolve,reject){return Promise.resolve({data:single?data[0]||null:data,error:null}).then(resolve,reject)}};return q;},rpc(name,p){writes.push(p);return Promise.resolve({data:{ok:true},error:null})}};
  const handle=createHandler(db,{verifyUser:async()=>valid?{id:MEMBER,is_anonymous:anonymous,user_metadata:{role:'admin'}}:null,now:()=>new Date('2026-11-02T01:00:00Z')});
  async function request(path,{body,token='valid',method=body?'POST':'GET',origin='https://nuclearstark.github.io'}={}){const headers={Origin:origin};if(token)headers.Authorization='Bearer '+token;if(body)headers['Content-Type']='application/json';const res=await handle(new Request('https://project.supabase.co/functions/v1/onoff-api'+path,{method,headers,body:body?JSON.stringify(body):undefined}));return {status:res.status,value:await res.json(),headers:res.headers};}
  return {tables,writes,request,db};
@@ -219,4 +219,14 @@ test('meetup deadlines use server time: closed joins reject, cancellation remain
  assert.equal((await f.request('/api/posts/comment',{body:{id:expired,text:'too late'}})).status,404);
  assert.equal((await f.request('/api/community/read',{body:{id:expired,kind:'post'}})).status,404);
  const bootstrap=await f.request('/api/bootstrap');assert.equal(bootstrap.status,200);assert.deepEqual(bootstrap.value.posts.map(p=>p.id).sort(),[closed,ordinary].sort());assert.equal(bootstrap.value.posts.find(p=>p.id===closed).joinAccess.code,'meetup_closed');
+});
+
+test('GPS attendance is enforced by the authenticated server before any deduction',async()=>{
+ const f=fixture();f.tables.gym_settings.push({key:'recordTools',value:{attendance:{enabled:true,latitude:35.3,longitude:129.2,radius:200}}});
+ for(const position of [undefined,{latitude:36,longitude:129.2,accuracy:10,timestamp:Date.parse('2026-11-02T01:00:00Z')},{latitude:35.3,longitude:129.2,accuracy:10,timestamp:0}])assert.equal((await f.request('/api/attendance',{body:{position}})).status,403);
+ assert.equal(f.writes.length,0);
+ const r=await f.request('/api/attendance',{body:{position:{latitude:35.3,longitude:129.2,accuracy:15,timestamp:Date.parse('2026-11-02T01:00:00Z')}}});assert.equal(r.status,200);assert.equal(f.writes.at(-1).op,'attendance');
+});
+test('members cannot disable GPS, override attendance, or read whiteboard drafts',async()=>{
+ const f=fixture();for(const path of ['/api/record-tools','/api/attendance/override','/api/board/open'])assert.equal((await f.request(path,{body:{}})).status,403);assert.equal(f.writes.length,0);
 });

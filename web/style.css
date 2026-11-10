@@ -231,3 +231,8 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}.settings-grid>*{min-wi
   .member-row-actions .btn{min-width:80px}
   .member-heading .field-hint{font-size:12px}
 }
+
+/* Photo-derived records retain their own provenance and team grouping. */
+.board-editor .panel{margin:16px 0}.board-editor .field-row>*{min-width:0;flex:1}.board-editor select{max-width:100%}.board-editor input[type=checkbox]{width:18px;height:18px;vertical-align:middle;accent-color:var(--accent,#82aaf5)}.board-controls{display:grid;gap:10px;margin-top:18px}.board-history-row{padding:18px 0;border-bottom:1px solid var(--line,#30415a)}.board-history-row:last-child{border-bottom:0}.board-history-row p{overflow-wrap:anywhere}.board-editor [data-board-person]{padding:12px 0;border-bottom:1px solid var(--line,#30415a)}
+
+.board-record-detail>summary{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;cursor:pointer;overflow-wrap:anywhere}.board-record-detail>summary small{grid-column:1/-1;color:var(--muted,#9daac0)}.board-record-detail[open]>summary{margin-bottom:18px}.board-editor .board-record-detail{padding:18px}

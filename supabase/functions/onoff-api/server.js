@@ -10,6 +10,7 @@ import {createMediaService} from './media-service.js';
 import {hasPermission,COACH_PERMISSIONS} from '../../../web/permissions.js';
 import {validAvatar,avatarEmoji} from '../../../web/avatars.js';
 import {createAccountService} from './account-service.js';
+import {DEFAULT_REJECTION_REASON,isRejectedMember} from '../../../web/member-approval.js';
 import {MOVEMENTS,DEFAULT_BANNER,KINDS,kstDate,normalizeDate,validateWorkouts,workoutSchedule,youtubeId,validBanner,tvWorkoutDate,workoutDayState,addDays} from '../../../web/core.js';
 import {HOLIDAY_FALLBACK,HOLIDAY_SOURCE,parseHolidayCalendar} from '../../../web/holidays.js';
 import {RM_CATEGORIES,DEFAULT_RM_CATALOGUE,updateRmCatalogue,findRmMovement} from '../../../web/rm-catalogue.js';
@@ -104,6 +105,10 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   const m=await member(req);
   if(path==='/api/bootstrap'&&m.status==='approved')await media.cleanup();
   if(path==='/api/account/delete')return account.withdraw(m,b);
+  if(path==='/api/signup/reapply'){
+   if(m.delete_requested_at||m.approved_at||!isRejectedMember(m)&&m.status!=='pending')bad('재승인 요청이 가능한 계정이 아니에요.',403);
+   return result(db.rpc('onoff_signup_reapply',{actor:m.id,member_name:text(b.name,2,30,'실명')}));
+  }
   if(path==='/api/privacy/accept'){if(!validGender(b.gender))bad('성별을 선택해주세요.');if(b.version!==PRIVACY_VERSION||b.ageOver14!==true||typeof b.disclosure!=='boolean')bad('만 14세 이상 확인과 개인정보 안내 동의가 필요해요.');return result(db.rpc('onoff_privacy_accept',{actor:m.id,p:{version:PRIVACY_VERSION,gender:b.gender,ageOver14:true,disclosure:b.disclosure}}));}
   if(path==='/api/revision')return revision(m);
   if(path==='/api/bootstrap')return bootstrap(m,url);
@@ -165,7 +170,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   if(path==='/api/storage-usage')return result(db.rpc('onoff_storage_usage',{actor:m.id}));
   if(path==='/api/tv/status')return tvSettings();
   if(path==='/api/tv/admin'){if(m.role!=='admin'&&(b.password||b.revoke))bad('TV 인증 관리는 운영자만 할 수 있어요.',403);let preferences;try{preferences=normalizeTvPreferences(b);}catch(e){bad(e.message);}const p={preferences,revoke:b.revoke===true};if(b.password){if(!/^\d{4}$/.test(b.password))bad('TV 암호는 숫자 4자리예요.');const salt=crypto.randomUUID();p.password={salt,hash:await tvPassword(b.password,salt),format:'pin4'};}await commit(m.id,'tv-admin',p);return {ok:true,...await tvSettings()};}
-  if(path==='/api/member-name'||path==='/api/member-note'||path==='/api/members'){if(!uuid(b.id)||!await one('gym_members','id',b.id))bad('회원을 찾을 수 없어요.',404);if(path.endsWith('member-name'))return commit(m.id,'member-name',{id:b.id,name:text(b.name,2,30,'실명')});if(path.endsWith('member-note'))return commit(m.id,'member-note',{id:b.id,note:text(b.note,0,500,'구분 메모')});if(!['admin','coach','member'].includes(b.role)||!['approved','pending','suspended'].includes(b.status))bad('회원 권한을 확인해주세요.');const permissions=b.coach_permissions||[];if(!Array.isArray(permissions)||permissions.some(k=>!COACH_PERMISSIONS.some(([key])=>key===k)))bad('코치 권한을 확인해주세요.');return commit(m.id,'members',{id:b.id,role:b.role,status:b.status,coach_permissions:b.role==='coach'?[...new Set(permissions)]:[]});}
+  if(path==='/api/member-name'||path==='/api/member-note'||path==='/api/members'){const target=uuid(b.id)?await one('gym_members','id',b.id):null;if(!target)bad('회원을 찾을 수 없어요.',404);if(path.endsWith('member-name'))return commit(m.id,'member-name',{id:b.id,name:text(b.name,2,30,'실명')});if(path.endsWith('member-note'))return commit(m.id,'member-note',{id:b.id,note:text(b.note,0,500,'구분 메모')});if(!['admin','coach','member'].includes(b.role)||!['approved','pending','suspended','rejected'].includes(b.status))bad('회원 권한을 확인해주세요.');const permissions=b.coach_permissions||[];if(!Array.isArray(permissions)||permissions.some(k=>!COACH_PERMISSIONS.some(([key])=>key===k)))bad('코치 권한을 확인해주세요.');const payload={id:b.id,role:b.role,status:b.status,coach_permissions:b.role==='coach'?[...new Set(permissions)]:[]};if(b.status==='rejected'||b.status==='suspended'&&!target.approved_at){if(target.approved_at||target.delete_requested_at||!['pending','suspended'].includes(target.status))bad('가입 승인 전 계정만 거절할 수 있어요.',409);const reason=text(b.reason??'',0,500,'거절 사유')||DEFAULT_REJECTION_REASON;return result(db.rpc('onoff_signup_reject',{actor:m.id,p:{...payload,status:'suspended',reason}}));}return commit(m.id,'members',payload);}
   if(path==='/api/membership/history/delete'){if(!uuid(b.id)||!uuid(b.eventId)||b.confirmed!==true)bad('회원과 관리 이력 삭제를 확인해주세요.');return result(db.rpc('onoff_membership_history_delete',{actor:m.id,target_member:b.id,event_id:b.eventId}));}
   if(path==='/api/membership/delete'){if(!uuid(b.id)||!uuid(b.passId))bad('회원권을 확인해주세요.');const old=await one('gym_memberships','user_id',b.id);if(!old||old.id!==b.passId||!Number.isInteger(b.revision)||old.revision!==b.revision)bad('회원권이 변경됐어요. 다시 확인해주세요.',409);return commit(m.id,'membership-delete',{id:b.id,passId:old.id,revision:old.revision});}
   if(path==='/api/membership'){if(!uuid(b.id))bad('회원을 확인해주세요.');const old=await one('gym_memberships','user_id',b.id);let pass;try{pass=changeMembership(old,b,kstDate(now()));}catch(e){bad(e.message);}return commit(m.id,'membership',{id:b.id,action:b.action,pass,revision:old?.revision??-1,reason:String(b.reason||'').slice(0,200)});}

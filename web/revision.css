@@ -10,3 +10,6 @@ body[data-page=admin] .workout-row-actions .icon-btn{border:0!important;box-shad
 @media(prefers-reduced-motion:reduce){#home-header-banner .notice-text{transform:none!important;will-change:auto}}
 /* Status sits above the prominent time; the course badge spans both rows. */
 .next-class{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 14px}.next-class-label{grid-column:1;grid-row:1}.next-class-detail{display:contents}.next-class-detail>strong{grid-column:1;grid-row:2}.next-class-kind{grid-column:2;grid-row:1 / span 2;align-self:center;justify-self:end}
+.signup-rejection-reason{margin:20px 0;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--bg);text-align:left}
+.signup-rejection-reason strong{font-size:13px}.signup-rejection-reason p{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.8;margin:8px 0 0}
+#signup-reapply-form{text-align:left;margin:20px 0}

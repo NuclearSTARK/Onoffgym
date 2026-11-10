@@ -135,7 +135,7 @@ function workoutSchedule(date, workouts = {}, holidays = {}) {
   if (day === 6) return [...special, { time: "10:00", end: "20:00", type: "OPEN GYM" }].sort((a, b) => a.time.localeCompare(b.time));
   const alternate = day === 2 || day === 5;
   let slots = [["09:30", alternate ? "WOD" : "B/T"], ["11:00", alternate ? "B/T" : "WOD"], ["12:00", "OPEN GYM"], ["17:00", alternate ? "WOD" : "B/T"], ["18:00", alternate ? "B/T" : "WOD"], ["19:10", alternate ? "WOD" : "B/T"], ["20:30", alternate ? "B/T" : "WOD"]];
-  if (day === 3) slots = slots.filter(([time]) => !["17:00", "20:30"].includes(time)).map(([t, p]) => [t, p === "OPEN GYM" ? p : "WOD"]);
+  if (day === 3) slots = slots.filter(([time]) => !["12:00", "17:00", "20:30"].includes(time)).map(([t]) => [t, t === "11:00" ? "OPEN GYM" : "WOD"]);
   return slots.map(([time, type]) => ({ time, type, end: type === "OPEN GYM" ? "16:30" : end(time) }));
 }
 function normalizeDate(v) {

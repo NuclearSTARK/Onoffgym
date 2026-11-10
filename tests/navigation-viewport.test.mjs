@@ -1,6 +1,19 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {navigationViewportBottom} from '../web/app-viewport.js';
-test('navigation uses expanded visual height even when layout still has keyboard-era dimensions',()=>{assert.equal(navigationViewportBottom({height:844,layoutHeight:544}),844);assert.equal(navigationViewportBottom({height:544,layoutHeight:844}),544);assert.equal(navigationViewportBottom({height:844,layoutHeight:844}),844);});
-test('navigation clamps elastic offsets but preserves real panning within layout bounds',()=>{assert.equal(navigationViewportBottom({height:844,layoutHeight:844,offsetTop:-80}),844);assert.equal(navigationViewportBottom({height:844,layoutHeight:844,offsetTop:80}),844);assert.equal(navigationViewportBottom({height:790,layoutHeight:844,offsetTop:40}),830);assert.equal(navigationViewportBottom({height:790,layoutHeight:844,offsetTop:100}),844);assert.equal(navigationViewportBottom({height:844,layoutHeight:544,offsetTop:100}),844);});
-test('zoom keeps native fixed positioning and missing visual metrics use a valid layout height',()=>{assert.equal(navigationViewportBottom({height:400,layoutHeight:844,scale:2}),null);assert.equal(navigationViewportBottom({height:NaN,layoutHeight:844}),844);assert.equal(navigationViewportBottom({height:0,layoutHeight:0}),null);assert.equal(navigationViewportBottom({height:844.123456,layoutHeight:844.123456}),844.123);});
+import {keyboardViewportOpen} from '../web/app-viewport.js';
+test('a stale short viewport without an editable focus must not hide the tab bar',()=>{
+ assert.equal(keyboardViewportOpen({baseline:844,height:530}),false);
+ assert.equal(keyboardViewportOpen({baseline:844,height:530,wasOpen:true,now:1000,closingUntil:500}),false);
+});
+test('editing hides tabs only for a keyboard-sized shrink and ends when height is restored',()=>{
+ assert.equal(keyboardViewportOpen({baseline:844,height:530,editing:true}),true);
+ assert.equal(keyboardViewportOpen({baseline:844,height:790,editing:true}),false);
+ assert.equal(keyboardViewportOpen({baseline:844,height:844,editing:true,wasOpen:true}),false);
+});
+test('blur keeps tabs hidden briefly, then releases them even if visual height stays stale',()=>{
+ const closed={baseline:844,height:530,wasOpen:true,closingUntil:1500};
+ assert.equal(keyboardViewportOpen({...closed,now:1100}),true);
+ assert.equal(keyboardViewportOpen({...closed,now:1500}),false);
+ assert.equal(keyboardViewportOpen({...closed,now:1700}),false);
+ assert.equal(keyboardViewportOpen({...closed,now:1700,editing:true}),true);
+});

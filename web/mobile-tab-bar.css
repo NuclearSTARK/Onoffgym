@@ -14,9 +14,6 @@
   isolation:isolate;touch-action:pan-y pinch-zoom;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
   transform:translateY(0)!important;transition:transform .22s cubic-bezier(.22,.61,.36,1),opacity .18s;
  }
- html.nav-viewport-anchored body:not(.login-mode):not(.push-onboarding) #mobile-nav.mobile-nav{
-  top:calc(var(--mobile-nav-viewport-bottom) - var(--tab-bar-height) - var(--tab-bar-bottom-inset))!important;bottom:auto!important;
- }
  body:not(.login-mode):not(.push-onboarding) #mobile-nav.mobile-nav[data-scroll-hidden]{transform:translateY(calc(100% + var(--tab-bar-bottom-inset) + 18px))!important;opacity:0;pointer-events:none}
  #mobile-nav.mobile-nav>button{
   position:relative;z-index:1;flex:1 1 0;min-width:0!important;width:0!important;

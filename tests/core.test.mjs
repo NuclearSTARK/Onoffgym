@@ -19,3 +19,17 @@ test('closed-day classes require explicit times and share the same attendance sc
  assert.deepEqual(validateWorkouts([holiday],undefined,holidays).errors,[]);
 });
 test('Wednesday only accepts WOD even on a public holiday, including copied/imported workouts',()=>{const date='2026-11-04',holidays={[date]:{name:'격리 공휴일'}},bt=fixture(date,'B/T');bt.sessions=['09:00'];assert.match(validateWorkouts([bt],undefined,holidays).errors.join(),/수요일/);const wod={...bt,program:'WOD'};assert.deepEqual(validateWorkouts([wod],undefined,holidays).errors,[]);const row={'날짜':date,'수업':'B/T','구간':'S1','제목':'격리','운동 내용':'5 reps','기록 종류':'횟수','수업 시간(공휴일)':'09:00'};assert.match(normalizeRows([row],undefined,holidays).errors.join(),/수요일/);});
+test('Wednesday open gym starts at 11:00 without a duplicate overlapping noon slot',async()=>{
+ const {workoutSchedule}=await import('../web/core.js');
+ for(const date of ['2026-11-11','2026-11-18'])assert.deepEqual(workoutSchedule(date),[
+  {time:'09:30',type:'WOD',end:'10:30'},
+  {time:'11:00',type:'OPEN GYM',end:'16:30'},
+  {time:'18:00',type:'WOD',end:'19:00'},
+  {time:'19:10',type:'WOD',end:'20:10'}
+ ]);
+ for(const date of ['2026-11-09','2026-11-10','2026-11-12','2026-11-13']){
+  const slots=workoutSchedule(date);assert.notEqual(slots.find(s=>s.time==='11:00').type,'OPEN GYM');
+  assert.deepEqual(slots.find(s=>s.type==='OPEN GYM'),{time:'12:00',type:'OPEN GYM',end:'16:30'});
+ }
+ const holiday={'2026-11-11':{name:'휴강'}};assert.deepEqual(workoutSchedule('2026-11-11',{},holiday),[]);
+});

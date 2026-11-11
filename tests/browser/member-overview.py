@@ -106,6 +106,9 @@ async def main():
    rects=await page.locator('.overview-filters input,.overview-filters select').evaluate_all('(es)=>es.map(e=>({x:e.getBoundingClientRect().x,right:e.getBoundingClientRect().right,w:e.getBoundingClientRect().width,h:e.getBoundingClientRect().height}))')
    assert all(r['right']<=width and r['x']>=0 for r in rects),rects
    assert abs(rects[0]['w']-rects[1]['w'])<1 and rects[0]['h']==rects[1]['h']
+   tabs=await page.locator('[data-overview-kind]').evaluate_all('(es)=>es.map(e=>({x:e.getBoundingClientRect().x,y:e.getBoundingClientRect().y,w:e.getBoundingClientRect().width,h:e.getBoundingClientRect().height,overflow:e.scrollWidth>e.clientWidth}))')
+   assert max(t['w'] for t in tabs)-min(t['w'] for t in tabs)<1 and all(t['h']==48 and not t['overflow'] for t in tabs),tabs
+   assert max(t['y'] for t in tabs)==min(t['y'] for t in tabs)
    assert await page.locator('.overview-member.is-compact').first.evaluate('(e)=>e.getBoundingClientRect().height<100')
   await page.set_viewport_size({'width':390,'height':844})
   await page.locator('[data-overview-list]').evaluate('(e)=>window.scrollTo(0,scrollY+e.getBoundingClientRect().top-200)')
@@ -125,13 +128,21 @@ async def main():
   assert await page.locator('.overview-member').count()==1
   await page.locator('[data-overview-presence]').select_option('all')
   await page.locator('[data-overview-kind=rm]').click()
-  await page.locator('.overview-records').first.wait_for()
+  await page.locator('.overview-member').first.wait_for()
   await check_pages()
-  await page.locator('.overview-records summary').first.click()
-  assert '225 lbs' in await page.locator('[data-overview-list]').inner_text()
-  assert '200 lbs' in await page.locator('[data-overview-list]').inner_text()
+  rm=page.locator('.overview-member').filter(has_text='기간권회원')
+  assert '1개 종목 · 55개 기록' in await rm.inner_text() and '기록 있음' in await rm.inner_text()
+  assert await rm.locator(':scope > div').count()==2
+  assert await page.locator('[data-overview-list] .overview-records').count()==0
+  await rm.locator('.overview-member-name').click()
+  await page.locator('.overview-record-summary').wait_for()
+  assert '225 lbs' in await page.locator('.overview-record-summary').inner_text()
+  assert '200 lbs' in await page.locator('.overview-record-summary').inner_text()
+  await page.locator('#modal [data-action=close]').click()
   await page.locator('[data-overview-unit]').select_option('kg')
-  assert '102.1 kg' in await page.locator('[data-overview-list]').inner_text()
+  await rm.locator('.overview-history-link').click()
+  await page.locator('.overview-record-summary').wait_for()
+  assert '102.1 kg' in await page.locator('.overview-record-summary').inner_text()
   await page.locator('[data-overview-filter="deadlift"]').click()
   await page.locator('.overview-history-row').first.wait_for()
   assert await page.locator('.overview-history-row img').count()==0
@@ -142,10 +153,23 @@ async def main():
   assert '2020-01-01' in await page.locator('#modal').inner_text()
   await page.locator('#modal [data-action=close]').click()
   await page.locator('[data-overview-kind=named]').click()
-  await page.locator('.overview-records').first.wait_for()
+  await page.locator('.overview-member').first.wait_for()
   await check_pages()
-  await page.locator('.overview-records summary').first.click()
-  assert '12R + 5' in await page.locator('[data-overview-list]').inner_text()
+  named=page.locator('.overview-member').filter(has_text='기간권회원')
+  assert '1개 종목 · 2개 기록' in await named.inner_text()
+  assert await named.locator(':scope > div').count()==2
+  for width in [320,390,768]:
+   await page.set_viewport_size({'width':width,'height':844})
+   assert await named.evaluate('(e)=>e.getBoundingClientRect().height<100')
+   assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+  await page.set_viewport_size({'width':390,'height':844})
+  await page.locator('[data-overview-kind=named]').scroll_into_view_if_needed()
+  await page.screenshot(path='/workspace/scratch/onoff-overview-named-tabs.png')
+  await named.locator('.overview-history-link').click()
+  await page.locator('.overview-record-summary').wait_for()
+  assert '12R + 5' in await page.locator('.overview-record-summary').inner_text()
+  assert '11R + 90' in await page.locator('.overview-record-summary').inner_text()
+  await page.locator('#modal [data-action=close]').click()
   await page.locator('[data-overview-search]').fill('없는회원')
   assert await page.locator('.overview-member').count()==0
   assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')

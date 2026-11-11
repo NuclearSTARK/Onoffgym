@@ -19,7 +19,7 @@ def token(uid):
  enc=lambda v:base64.urlsafe_b64encode(json.dumps(v).encode()).decode().rstrip('=')
  return enc({'alg':'HS256','typ':'JWT'})+'.'+enc({'sub':uid,'exp':4102444800,'iat':1793404800,'aud':'authenticated','role':'authenticated'})+'.signature'
 async def setup(browser,uid,width=390):
- context=await browser.new_context(viewport={'width':width,'height':844})
+ context=await browser.new_context(viewport={'width':width,'height':844},has_touch=True)
  user={'id':uid,'email':'qa@example.invalid','aud':'authenticated','role':'authenticated','user_metadata':{},'app_metadata':{}}
  session={'access_token':token(uid),'refresh_token':'isolated-fixture','expires_at':4102444800,'expires_in':2300000000,'token_type':'bearer','user':user}
  await context.add_init_script("localStorage.setItem('onoff-auth-approval-qa',"+json.dumps(json.dumps(session))+");")
@@ -40,7 +40,7 @@ async def setup(browser,uid,width=390):
      pn=int(q.get('page','0'));data={'kind':kind,'memberId':q['memberId'],'page':pn,'total':55,'hasMore':pn==0,'items':[{'id':str(i),'date':'2020-01-01' if pn else '2026-11-11','lbs':225,'label':'Deadlift','note':'<img src=x onerror=alert(1)>','event':'attendance','createdAt':'2026-11-12T01:05:00Z','debited':True} for i in range(50 if pn==0 else 5)]}
     else:
      rows=[]
-     for index,m in enumerate(members):
+     for index,m in enumerate(members+[dict(base,id=f'20000000-0000-4000-8000-{i:012d}',name=f'테스트회원{i:02d}',status='approved') for i in range(20)]):
       row={'id':m['id'],'name':m['name'],'status':m['status'],'pass':next((p for p in passes if p['user_id']==m['id']),None),'count':0,'lifetime':0,'debits':0,'items':[],'latestDate':None,'attendedAt':None}
       if index==1:
        row.update(count=5,lifetime=9,latestDate='2026-11-12',attendedAt='2026-11-12T01:05:00Z')
@@ -68,7 +68,47 @@ async def main():
   await context.add_init_script("const QARealDate=Date;globalThis.Date=class extends QARealDate{constructor(...a){super(...(a.length?a:['2026-11-12T01:00:00Z']))}static now(){return new QARealDate('2026-11-12T01:00:00Z').getTime()}};")
   await page.goto(origin+'/#admin/overview',wait_until='networkidle')
   await page.locator('.overview-member').first.wait_for(timeout=15000)
-  assert await page.locator('.overview-member').count()==5
+  assert await page.locator('.overview-member').count()==25
+  async def check_pages():
+   pager=page.locator('[data-overview-list] [data-swipe-pager]')
+   await pager.locator('.swipe-page-label').wait_for()
+   assert await pager.locator('.swipe-page').count()==3
+   assert [await el.locator('.overview-member').count() for el in await pager.locator('.swipe-page').all()]==[10,10,5]
+   await pager.locator('[data-swipe-step="1"]').click()
+   await page.wait_for_timeout(450)
+   assert await pager.locator('.swipe-page-label').inner_text()=='2 / 3'
+   await pager.locator('.swipe-pages').evaluate('(e)=>e.scrollTo({left:e.clientWidth*2,behavior:"instant"})')
+   await page.wait_for_timeout(250)
+   assert await pager.locator('.swipe-page-label').inner_text()=='3 / 3'
+   assert await pager.locator('.swipe-page:not([inert]) .overview-member').count()==5
+   await pager.locator('[data-swipe-step="-1"]').click()
+   await page.wait_for_timeout(400)
+   await pager.locator('[data-swipe-step="-1"]').click()
+   await page.wait_for_timeout(400)
+  await check_pages()
+  track=page.locator('[data-overview-list] .swipe-pages')
+  await track.evaluate('(e)=>window.scrollTo(0,scrollY+e.getBoundingClientRect().top-250)')
+  await page.wait_for_timeout(200)
+  rect=await track.bounding_box();cdp=await context.new_cdp_session(page)
+  x=rect['x']+rect['width']-25;y=min(rect['y']+80,650)
+  await cdp.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':x,'y':y}]})
+  for step in range(1,11):
+   await cdp.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x-step*(rect['width']-50)/10,'y':y}]})
+   await page.wait_for_timeout(25)
+  await cdp.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+  await page.wait_for_timeout(600)
+  assert await page.locator('[data-overview-list] .swipe-page-label').inner_text()=='2 / 3',await track.evaluate('(e)=>({left:e.scrollLeft,w:e.clientWidth,y:e.getBoundingClientRect().top})')
+  await page.locator('[data-overview-list] [data-swipe-step="-1"]').click()
+  await page.wait_for_timeout(400)
+  for width in [320,390,768]:
+   await page.set_viewport_size({'width':width,'height':844})
+   assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+   rects=await page.locator('.overview-filters input,.overview-filters select').evaluate_all('(es)=>es.map(e=>({x:e.getBoundingClientRect().x,right:e.getBoundingClientRect().right,w:e.getBoundingClientRect().width,h:e.getBoundingClientRect().height}))')
+   assert all(r['right']<=width and r['x']>=0 for r in rects),rects
+   assert abs(rects[0]['w']-rects[1]['w'])<1 and rects[0]['h']==rects[1]['h']
+  await page.set_viewport_size({'width':390,'height':844})
+  await page.locator('[data-overview-search]').scroll_into_view_if_needed()
+  await page.screenshot(path='/workspace/scratch/onoff-overview-mobile.png')
   assert '출석 10:05' in await page.locator('.overview-member').filter(has_text='기간권회원').inner_text()
   assert '미출석' in await page.locator('.overview-member').filter(has_text='횟수권회원').inner_text()
   await page.locator('[data-overview-presence]').select_option('yes')
@@ -76,6 +116,7 @@ async def main():
   await page.locator('[data-overview-presence]').select_option('all')
   await page.locator('[data-overview-kind=rm]').click()
   await page.locator('.overview-records').first.wait_for()
+  await check_pages()
   await page.locator('.overview-records summary').first.click()
   assert '225 lbs' in await page.locator('[data-overview-list]').inner_text()
   assert '200 lbs' in await page.locator('[data-overview-list]').inner_text()
@@ -92,6 +133,7 @@ async def main():
   await page.locator('#modal [data-action=close]').click()
   await page.locator('[data-overview-kind=named]').click()
   await page.locator('.overview-records').first.wait_for()
+  await check_pages()
   await page.locator('.overview-records summary').first.click()
   assert '12R + 5' in await page.locator('[data-overview-list]').inner_text()
   await page.locator('[data-overview-search]').fill('없는회원')
@@ -105,6 +147,10 @@ async def main():
    assert cls in await avatar.get_attribute('class')
   avatar=page.locator('.member-row').filter(has_text='횟수권회원').locator('.avatar')
   assert '255, 155, 66' in await avatar.evaluate('(e)=>getComputedStyle(e).boxShadow')
+  ring=await avatar.evaluate('(e)=>({s:getComputedStyle(e).boxShadow,w:e.offsetWidth,h:e.offsetHeight})')
+  green=await page.locator('.member-row').filter(has_text='기간권회원').locator('.avatar').evaluate('(e)=>({s:getComputedStyle(e).boxShadow,w:e.offsetWidth,h:e.offsetHeight})')
+  assert ring['s'].replace('255, 155, 66','70, 205, 145')==green['s'] and ring['w']==green['w'] and ring['h']==green['h']
+  assert 'inset' in ring['s']
   avatar=page.locator('.member-row').filter(has_text='시작전회원').locator('.avatar')
   assert 'member-active' not in await avatar.get_attribute('class')
   await page.locator('[data-member-detail="'+REJECTED+'"]').click()
@@ -112,6 +158,10 @@ async def main():
   await page.locator('#pass-kind').select_option('period')
   await page.locator('#pass-kind').select_option('visits')
   assert await page.locator('[name=visits]').get_attribute('inputmode')=='numeric'
+  await page.locator('#modal [data-action=close]').click()
+  await page.goto(origin+'/#admin',wait_until='networkidle')
+  cards=await page.locator('.admin-folders>.folder-card').evaluate_all('(es)=>es.map(e=>e.dataset.page)')
+  assert cards[:2]==['admin/members','admin/overview'],cards
   assert not errors,errors
   await context.close()
   context,page=await setup(browser,PENDING)

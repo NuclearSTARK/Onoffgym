@@ -11,6 +11,7 @@ origin='http://127.0.0.1:'+str(server.server_port)
 ADMIN='10000000-0000-4000-8000-000000000001';PENDING='10000000-0000-4000-8000-000000000002';REJECTED='10000000-0000-4000-8000-000000000003';STOPPED='10000000-0000-4000-8000-000000000004'
 base={'role':'member','privacy_version':'privacy-2026-11-05','gender':'male','age_over_14':True,'created_at':'2026-11-01T00:00:00Z','coach_permissions':[]}
 members=[dict(base,id=ADMIN,name='검증 운영자',role='admin',status='approved',approved_at='2026-11-01T00:00:00Z'),dict(base,id=PENDING,name='승인대기회원',status='pending',approved_at=None),dict(base,id=REJECTED,name='거절된회원',status='suspended',approved_at=None,rejected_at='2026-11-10T10:00:00Z'),dict(base,id=STOPPED,name='이용중지회원',status='suspended',approved_at='2026-11-01T00:00:00Z')]
+members.extend([dict(base,id='10000000-0000-4000-8000-000000000005',name='동명이인',note='오전 방문',status='approved'),dict(base,id='10000000-0000-4000-8000-000000000006',name='동명이인',note='저녁 방문',status='approved')])
 posts=[];errors=[];saved=None
 photo='20000000-0000-4000-8000-000000000001'
 record_tools={'photoEnabled':True,'aiReady':False,'attendance':{'enabled':True,'latitude':35.2851377,'longitude':129.2170302,'radius':200}}
@@ -71,10 +72,24 @@ async def main():
   assert float(await page.locator('[name=latitude]').input_value())==35.2851377
   await page.locator('#record-tools-form [type=submit]').click();await page.wait_for_timeout(200)
   assert any(x['path'].endswith('/api/record-tools') and x['body']['attendance']['radius']==200 for x in posts)
-  await page.locator('#attendance-override-form [name=memberId]').select_option(ADMIN)
+  search=page.locator('[data-gps-member-search]')
+  submit=page.locator('#attendance-override-form [type=submit]')
+  assert await submit.is_disabled()
+  await search.fill('승인대기')
+  assert await page.locator('[data-gps-member]').count()==0
+  await search.fill('동명이인')
+  assert await page.locator('[data-gps-member]').count()==2
+  assert '오전 방문' in await page.locator('#gps-member-results').inner_text()
+  await page.locator('[data-gps-member="10000000-0000-4000-8000-000000000006"]').click()
+  assert await page.locator('[name=memberId]').input_value()=='10000000-0000-4000-8000-000000000006'
+  assert not await submit.is_disabled()
+  await search.fill('검증')
+  assert await page.locator('[name=memberId]').input_value()==''
+  assert await submit.is_disabled()
+  await page.locator('[data-gps-member="'+ADMIN+'"]').click()
   await page.locator('#attendance-override-form [name=reason]').fill('실내 위치 오류 확인')
   await page.locator('#attendance-override-form [type=submit]').click();await page.wait_for_timeout(200)
-  assert any(x['path'].endswith('/api/attendance/override') for x in posts)
+  assert any(x['path'].endswith('/api/attendance/override') and x['body']['id']==ADMIN and x['body']['reason']=='실내 위치 오류 확인' for x in posts)
   await page.goto(origin+'/#members',wait_until='networkidle')
   await page.locator('[data-records-filter="WOD"]').click()
   await page.locator('[data-action=daily-photo-upload]').wait_for()

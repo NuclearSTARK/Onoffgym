@@ -2,6 +2,8 @@
 export const TV_REGISTRATION_QR_URL='https://m.site.naver.com/2koh5';
 
 const shareIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 9H5v12h14V9h-3M12 15V2m-4 4 4-4 4 4"/></svg>';
+// Draw the Chrome menu ourselves: several TV fonts lack the vertical ellipsis.
+const menuIcon='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="12" cy="19" r="2.2"/></svg>';
 const step=(number,content)=>`<li><span class="tv-install-number" aria-hidden="true">${number}</span><div>${content}</div></li>`;
 
 export function tvRegistrationMarkup(){
@@ -20,7 +22,7 @@ export function tvRegistrationMarkup(){
     </ol></section>
     <section class="tv-install-platform tv-install-android" aria-labelledby="tv-install-android-title"><h3 id="tv-install-android-title">안드로이드 <span>Chrome</span></h3><ol>
      ${step(1,'<strong>Chrome</strong>에서 ONOFF 열기')}
-     ${step(2,'오른쪽 위 <strong class="tv-install-dots">⋮</strong> →<br><strong>홈 화면에 추가 / 앱 설치</strong>')}
+     ${step(2,`오른쪽 위 <strong class="tv-install-dots">${menuIcon} 메뉴</strong> →<br><strong>홈 화면에 추가 / 앱 설치</strong>`)}
      ${step(3,'<strong>설치</strong> 또는 <strong>추가</strong> →<br>홈 화면의 <strong>ONOFF</strong> 실행')}
     </ol></section>
    </div>

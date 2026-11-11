@@ -56,7 +56,7 @@
 .tv-install-number{display:grid;place-items:center;width:33px;height:33px;flex:0 0 33px;border-radius:50%;background:#365684;color:#e4efff;font-size:22px;font-weight:700;line-height:1;margin-top:6px}
 .tv-install-share{display:inline-flex;align-items:center;gap:8px}
 .tv-install-share svg{width:31px;height:31px;color:#aacaff}
-.tv-install-dots{font-size:36px;line-height:1;vertical-align:middle}
+.tv-install-dots{display:inline-flex;align-items:center;gap:3px;line-height:1;vertical-align:middle}.tv-install-dots svg{display:block;width:18px;height:30px;flex-shrink:0}
 .tv-install-android{background:#213330;border-color:#3c6255}
 .tv-install-android h3{color:#a8e3cc}
 .tv-install-android .tv-install-number{background:#346b59;color:#d6f3e7}

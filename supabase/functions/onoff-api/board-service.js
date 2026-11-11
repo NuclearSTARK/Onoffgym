@@ -8,7 +8,7 @@ export function createBoardService(db,{apiKey='',visionFetch=fetch}={}){
  async function source(id){if(typeof id!=='string'||!/^[-a-f0-9]{36}$/i.test(id))fail('사진을 확인해주세요.');const p=await query(db.from('gym_photos').select('*').eq('id',id).eq('kind','daily').eq('active',true).eq('uploaded',true).maybeSingle());if(!p)fail('사진을 찾을 수 없어요.',404);return p;}
  async function context(p){const ws=await query(db.from('gym_workouts').select('body').eq('date',p.date));return boardSections(ws.filter(w=>p.program==='ALL'||w.body.program===p.program).map(w=>w.body));}
  async function snapshot(m){const config=await setting();return {...config,...(m.role==='admin'?{aiReady:!!apiKey}:{})};}
- async function personal(m,memberRows){const imports=await query(db.from('gym_board_imports').select('*,gym_photos!inner(date,program,session,active)').eq('status','published').eq('gym_photos.active',true).contains('rows',[{participants:[{memberId:m.id}]}]).order('updated_at',{ascending:false}).limit(1000));
+ async function personal(m,memberRows){const imports=await query(db.from('gym_board_imports').select('*,gym_photos!inner(date,program,session,active)').eq('status','published').eq('gym_photos.active',true).contains('rows',JSON.stringify([{participants:[{memberId:m.id}]}])).order('updated_at',{ascending:false}).limit(1000));
  const visible=memberRows||await query(db.from('gym_members').select('id,name,status,disclosure_consent').eq('status','approved')); return personalBoardRecords(imports,m,visible);}
  async function route(m,path,b){
   if(!hasPermission(m,'photos'))fail('사진 관리 권한이 필요해요.',403);

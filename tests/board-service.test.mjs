@@ -25,3 +25,16 @@ test('personal photo records retain a single team result and redact unlinked or 
  const imports=[{photo_id:photoId,gym_photos:{date:'2026-11-10',session:''},rows:[row,{...row,id:'excluded',excluded:true},{...row,id:'other',participants:[{name:'다른회원',memberId:'other'}]}]}];
  const result=personalBoardRecords(imports,{...admin,name:'본인실명'},[{id:'private-id',disclosure_consent:false,name:'비공개회원'}]);assert.equal(result.length,1);assert.deepEqual(result[0].participants.map(p=>p.name),['본인실명','팀원','팀원']);assert(!JSON.stringify(result).includes('private-id'));
 });
+
+test('personal board history serializes a JSONB array with the real Supabase client before bootstrap',async()=>{
+ const {createClient}=await import('@supabase/supabase-js');
+ const seen=[];
+ const db=createClient('https://board-history.invalid','test-public-key',{auth:{persistSession:false,autoRefreshToken:false},global:{fetch:async(url)=>{
+  const u=new URL(url);seen.push(u);return new Response('[]',{status:200,headers:{'Content-Type':'application/json'}});
+ }}});
+ const data=await createBoardService(db).personal(admin,[]);assert.deepEqual(data,[]);
+ const url=seen.find(u=>u.pathname.endsWith('/gym_board_imports'));assert(url);
+ const predicate=url.searchParams.get('rows');assert(predicate.startsWith('cs.['));
+ assert.deepEqual(JSON.parse(predicate.slice(3)),[{participants:[{memberId:admin.id}]}]);
+ assert.equal(url.searchParams.get('status'),'eq.published');assert.equal(url.searchParams.get('gym_photos.active'),'eq.true');
+});

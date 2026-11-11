@@ -178,7 +178,7 @@ function createBoardService(db2, { apiKey = "", visionFetch = fetch } = {}) {
     return { ...config, ...m.role === "admin" ? { aiReady: !!apiKey } : {} };
   }
   async function personal(m, memberRows) {
-    const imports = await query(db2.from("gym_board_imports").select("*,gym_photos!inner(date,program,session,active)").eq("status", "published").eq("gym_photos.active", true).contains("rows", [{ participants: [{ memberId: m.id }] }]).order("updated_at", { ascending: false }).limit(1e3));
+    const imports = await query(db2.from("gym_board_imports").select("*,gym_photos!inner(date,program,session,active)").eq("status", "published").eq("gym_photos.active", true).contains("rows", JSON.stringify([{ participants: [{ memberId: m.id }] }])).order("updated_at", { ascending: false }).limit(1e3));
     const visible = memberRows || await query(db2.from("gym_members").select("id,name,status,disclosure_consent").eq("status", "approved"));
     return personalBoardRecords(imports, m, visible);
   }

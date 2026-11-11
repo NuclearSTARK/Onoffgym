@@ -35,6 +35,8 @@ async def setup(browser,uid,width=390):
    if u.path.endswith('/api/bootstrap'):
     viewer=dict(next(m for m in members if m['id']==uid),email='qa@example.invalid')
     data={'viewer':viewer,'members':members if uid==ADMIN else [],'workouts':{'2026-11-10_WOD':{'date':'2026-11-10','program':'WOD','sections':[{'number':1,'title':'S1','text':'Team of 2','record':True,'kind':'시간'}]}},'records':[],'rms':[],'posts':[],'library':[],'notices':[],'preferences':{},'membership':None,'memberships':[],'membershipEvents':[],'memberAttendance':[],'attendance':[],'push':{},'releaseTime':'22:00','revision':len(posts),'serverNow':'2026-11-10T11:00:00Z','calendar':{'dates':{}},'privacyReviewRequired':False,'recordTools':record_tools,'photos':[{'id':photo,'kind':'daily','date':'2026-11-10','program':'WOD','session':'','ownerId':ADMIN}], 'photoRecords':[]}
+   elif u.path.endswith('/api/photos/upload'):
+    data={'id':'30000000-0000-4000-8000-000000000001'}
    elif u.path.endswith('/api/board/open'):
     data={'photo':photo,'date':'2026-11-10','sections':sections,'members':[members[0]],'aliases':[],'saved':saved,'aiReady':False}
    elif u.path.endswith('/api/board/save'):
@@ -60,48 +62,38 @@ async def main():
   browser=await p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
   context,page=await setup(browser,ADMIN)
   await context.add_init_script("const QARealDate=Date;globalThis.Date=class extends QARealDate{constructor(...a){super(...(a.length?a:['2026-11-10T11:00:00Z']))}static now(){return new QARealDate('2026-11-10T11:00:00Z').getTime()}};")
-  await context.grant_permissions(['geolocation'])
-  await context.set_geolocation({'latitude':35.2851377,'longitude':129.2170302,'accuracy':15})
+  await context.grant_permissions(['geolocation']);await context.set_geolocation({'latitude':35.2851377,'longitude':129.2170302,'accuracy':15})
   await page.goto(origin+'/#admin/record-tools',wait_until='networkidle')
   await page.locator('#record-tools-form').wait_for(timeout=15000)
+  assert 'OPENAI_API_KEY' not in await page.locator('body').inner_text()
+  assert await page.locator('[name=photoEnabled]').count()==0
   await page.locator('[data-gym-locate]').click()
   assert float(await page.locator('[name=latitude]').input_value())==35.2851377
-  await page.locator('#record-tools-form [type=submit]').click()
-  await page.wait_for_timeout(300)
+  await page.locator('#record-tools-form [type=submit]').click();await page.wait_for_timeout(200)
   assert any(x['path'].endswith('/api/record-tools') and x['body']['attendance']['radius']==200 for x in posts)
   await page.locator('#attendance-override-form [name=memberId]').select_option(ADMIN)
   await page.locator('#attendance-override-form [name=reason]').fill('실내 위치 오류 확인')
-  await page.locator('#attendance-override-form [type=submit]').click()
-  await page.wait_for_timeout(300)
+  await page.locator('#attendance-override-form [type=submit]').click();await page.wait_for_timeout(200)
   assert any(x['path'].endswith('/api/attendance/override') for x in posts)
   await page.goto(origin+'/#members',wait_until='networkidle')
-  await page.locator('[data-records-filter=\"WOD\"]').click()
-  await page.locator('[data-board-open]').first.wait_for(timeout=10000)
-  await page.locator('[data-board-open]').first.click()
-  await page.locator('[data-board-add]').click()
-  await page.locator('[name=sectionKey]').select_option('WOD:1')
-  await page.locator('[name=name]').fill('형대')
-  await page.locator('[name=memberId]').select_option(ADMIN)
-  await page.locator('[name=remember]').check()
-  await page.locator('[data-board-person-add]').click()
-  await page.locator('[name=name]').nth(1).fill('미가입팀원')
-  await page.locator('[name=value]').fill('08:41')
-  await page.locator('[name=note]').fill('팀원 확인 완료')
-  await page.locator('[name=reviewed]').check()
-  await page.locator('[data-board-save=draft]').click()
-  await page.wait_for_timeout(300)
-  assert saved['status']=='draft' and len(saved['rows'][0]['participants'])==2
-  await page.locator('[data-board-save=published]').click()
-  await page.wait_for_timeout(300)
-  assert saved['status']=='published'
-  assert saved['rows'][0]['value']=='08:41'
-  await page.screenshot(path=str(pathlib.Path('/tmp/onoff-record-tools-board.png')))
-  page.once('dialog',lambda d:d.accept())
-  await page.locator('[data-board-save=void]').click()
-  await page.wait_for_timeout(300)
-  assert saved['status']=='void'
+  await page.locator('[data-records-filter="WOD"]').click()
+  await page.locator('[data-action=daily-photo-upload]').wait_for()
+  assert await page.locator('[data-board-open]').count()==0
+  await page.locator('[data-action=daily-photo-upload]').click()
+  assert '칠판 사진을 그대로 저장' in await page.locator('#modal').inner_text()
+  assert await page.locator('[data-photo-files]').count()==1
+  from PIL import Image
+  from io import BytesIO
+  fixture=BytesIO();Image.new('RGB',(40,40),'white').save(fixture,format='JPEG')
+  await page.locator('[data-photo-files]').set_input_files({'name':'fixture.jpg','mimeType':'image/jpeg','buffer':fixture.getvalue()})
+  await page.locator('[data-photo-preview] img').wait_for()
+  await page.locator('#daily-photo-form [type=submit]').click()
+  await page.wait_for_timeout(600)
+  assert any(x['path'].endswith('/api/photos/attach') and x['body']['photoIds']==['30000000-0000-4000-8000-000000000001'] for x in posts)
+  assert await page.locator('#modal[open]').count()==0
+  assert not any('/api/board/' in x['path'] for x in posts)
   assert not errors,errors
-  print('Browser: mobile settings, GPS calibration, exception attendance, unlinked team member, alias, draft/publish/void passed; no page errors')
+  print('Browser: GPS calibration/exception attendance preserved; original photo upload remains; AI settings/actions are removed.')
   await browser.close()
  server.shutdown()
 asyncio.run(main())

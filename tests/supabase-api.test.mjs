@@ -227,6 +227,17 @@ test('GPS attendance is enforced by the authenticated server before any deductio
  assert.equal(f.writes.length,0);
  const r=await f.request('/api/attendance',{body:{position:{latitude:35.3,longitude:129.2,accuracy:15,timestamp:Date.parse('2026-11-02T01:00:00Z')}}});assert.equal(r.status,200);assert.equal(f.writes.at(-1).op,'attendance');
 });
-test('members cannot disable GPS, override attendance, or read whiteboard drafts',async()=>{
- const f=fixture();for(const path of ['/api/record-tools','/api/attendance/override','/api/board/open'])assert.equal((await f.request(path,{body:{}})).status,403);assert.equal(f.writes.length,0);
+test('members cannot disable GPS or override attendance',async()=>{
+ const f=fixture();for(const path of ['/api/record-tools','/api/attendance/override'])assert.equal((await f.request(path,{body:{}})).status,403);assert.equal(f.writes.length,0);
 });
+
+test('member overview never exposes other members records to ordinary members, delegated coaches or pending admins',async()=>{
+ for(const options of [{},{role:'coach',coach_permissions:['records.create','records.update','rm']},{role:'admin',status:'pending'}]){const f=fixture(options);assert.equal((await f.request('/api/member-overview?kind=rm')).status,403);assert.equal(f.writes.length,0);}
+ const f=fixture({role:'admin'});assert.equal((await f.request('/api/member-overview?kind=attendance',{token:null})).status,401);
+});
+test('admin overview binds its actor to verified identity and accepts historical dates and paged member histories',async()=>{
+ const f=fixture({role:'admin'});
+ const r=await f.request('/api/member-overview?kind=rm&action=history&memberId='+ADMIN+'&page=21&filter=deadlift&date=2020-01-01&actor='+ADMIN);assert.equal(r.status,200);assert.equal(f.writes.at(-1).actor,MEMBER);assert.equal(f.writes.at(-1).p.memberId,ADMIN);assert.equal(f.writes.at(-1).p.page,21);assert.equal(f.writes.at(-1).p.date,'2020-01-01');
+ for(const query of ['kind=bad','kind=attendance&date=2026-02-30','kind=rm&action=history&memberId=wrong','kind=rm&action=history&memberId='+ADMIN+'&page=-1'])assert.equal((await f.request('/api/member-overview?'+query)).status,400);
+});
+test('retired photo AI endpoints cannot analyze or modify records for any approved role',async()=>{for(const role of ['member','admin']){const f=fixture({role});assert.equal((await f.request('/api/board/analyze',{body:{photoId:ADMIN}})).status,410);assert.equal(f.writes.length,0);}});

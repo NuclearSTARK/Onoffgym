@@ -1,5 +1,6 @@
-import {createBoardService} from './board-service.js';
-import {validateAttendanceLocation} from '../../../web/attendance-location.js';
+import {createMemberOverviewService} from './member-overview-service.js';
+import {readPhotoHistory} from './photo-history.js';
+import {validateAttendanceLocation,DEFAULT_RECORD_TOOLS} from '../../../web/attendance-location.js';
 import {meetupLifecycle} from '../../../web/meetups.js';
 import {canonicalRecordPayload} from '../../../web/record-schema.js';
 import {participationAccess} from '../../../web/participation-access.js';
@@ -25,8 +26,8 @@ const ORIGINS=new Set(['https://nuclearstark.github.io','https://onoffgym.pages.
 const bad=(message,status=400,extra={})=>{throw Object.assign(Error(message),{status,...extra});};
 const uuid=v=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const text=(v,min,max,label)=>{if(typeof v!=='string'||v.trim().length<min||v.length>max)bad(label+'을 확인해주세요.');return v.trim();};
-export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,visionFetch=fetch,apiKey='',now=()=>new Date()}={}){
- const board=createBoardService(db,{apiKey,visionFetch});
+export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,now=()=>new Date()}={}){
+ const overview=createMemberOverviewService(db);
  const media=createMediaService(db,{now}),points=createPointsService(db,{now});
  const push=createPushService(db,{now,maintenance:()=>media.cleanup()}),account=createAccountService(db,{reauthenticate}),named=createNamedService(db);
  async function result(q){const {data,error}=await q;if(error){const code=error.code;if(code==='23514')bad(error.message?.includes('14세')?'회원이 먼저 성별·만 14세 이상 확인과 개인정보 안내 동의를 완료해야 승인할 수 있어요.':'변경할 수 없는 계정 상태입니다.',409);bad(code==='42501'?'이 요청을 처리할 권한이 없어요.':code==='23505'?'이미 등록된 항목이 있어요. 새로 불러온 뒤 확인해주세요.':code==='40001'?'다른 기기에서 변경됐어요. 다시 불러와 주세요.':'저장 요청을 처리하지 못했어요.',code==='42501'?403:['23505','40001'].includes(code)?409:503);}return data;}
@@ -88,7 +89,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   // Ranking preference is not derived from JWT or editable names.
   if(canRead){for(const p of await rows('gym_preferences',q=>q.limit(1000))){rank.set(p.user_id,p.body.rank!==false);avatars.set(p.user_id,avatarEmoji(p.body.avatarEmoji));}}
   const accRows=canRead?await rows('gym_acc_workouts',q=>{q=q.or(`date.gte.${addDays(day,-30)},date.eq.${viewDate}`);return (hasPermission(m,'acc.read')&&url.searchParams.get('view')!=='member'?q:q.lte('release_at',now().toISOString())).order('date',{ascending:false}).limit(1000);}):[];
-  const [recordTools,photoRecords]=await Promise.all([board.snapshot(m),board.personal(m,memberRows)]);
+  const [savedTools,photoRecords]=await Promise.all([setting('recordTools',DEFAULT_RECORD_TOOLS),readPhotoHistory(db,m,memberRows)]);const recordTools={attendance:{...DEFAULT_RECORD_TOOLS.attendance,...savedTools?.attendance}};
   return {recordTools,photoRecords,named:await named.snapshot(m),privacyReviewRequired:m.privacy_version!==PRIVACY_VERSION||!validGender(m.gender),points:pointData,accWorkouts:Object.fromEntries(accRows.map(w=>[w.date,w.body])),videoCategories:await videoCategories(),viewer:m,...rev,memberView:!all,shared:true,releaseTime:await setting('releaseTime','22:00'),banner:await setting('banner',DEFAULT_BANNER),rmCatalogue:cat,rmCategories:await setting('rmCategories',RM_CATEGORIES),library:lib,
    calendar:cal,membership:pass,membershipState:access,memberships:passes,membershipEvents:events.map(e=>({...e,body:JSON.stringify(e.body)})),memberAttendance:attAll,attendance:att.map(a=>a.date),
    recordMembers:hasPermission(m,'records.create')||hasPermission(m,'records.update')?memberRows.filter(x=>x.status==='approved').map(x=>({id:x.id,name:x.name,status:x.status})):[],
@@ -118,17 +119,18 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   if(path==='/api/bootstrap')return bootstrap(m,url);
   if(path==='/api/profile')return commit(m.id,'profile',{name:text(b.name,2,30,'실명')});
   approved(m);
+  if(path==='/api/member-overview')return overview.read(m,url);
   if(['/api/rm/comparison','/api/named-wods/comparison'].includes(path)&&!validGender(m.gender))bad('성별을 먼저 선택해주세요.',409);
   if((path==='/api/posts'||path==='/api/meetups'||(path==='/api/posts/comment'))&&m.disclosure_consent===false)bad('개인설정에서 회원 간 공개에 동의한 뒤 이용해주세요.',403);
-  if(path.startsWith('/api/board/'))return board.route(m,path,b);
-  if(path==='/api/record-tools'){admin(m);const a=b.attendance;if(typeof b.photoEnabled!=='boolean'||!a||typeof a.enabled!=='boolean'||!Number.isInteger(a.radius)||a.radius<50||a.radius>500||a.enabled&&(![a.latitude,a.longitude].every(v=>typeof v==='number'&&Number.isFinite(v))||Math.abs(a.latitude)>90||Math.abs(a.longitude)>180))bad('체육관 위치와 반경(50~500m)을 확인해주세요.');const value={photoEnabled:b.photoEnabled,attendance:{enabled:a.enabled,latitude:typeof a.latitude==='number'?a.latitude:null,longitude:typeof a.longitude==='number'?a.longitude:null,radius:a.radius}};await commit(m.id,'setting',{key:'recordTools',value});return {ok:true};}
+  if(path.startsWith('/api/board/'))bad('사진 자동 기록 기능이 종료됐어요. 기존 사진은 계속 볼 수 있습니다.',410);
+  if(path==='/api/record-tools'){admin(m);const a=b.attendance;if(!a||typeof a.enabled!=='boolean'||!Number.isInteger(a.radius)||a.radius<50||a.radius>500||a.enabled&&(![a.latitude,a.longitude].every(v=>typeof v==='number'&&Number.isFinite(v))||Math.abs(a.latitude)>90||Math.abs(a.longitude)>180))bad('체육관 위치와 반경(50~500m)을 확인해주세요.');const value={photoEnabled:false,attendance:{enabled:a.enabled,latitude:typeof a.latitude==='number'?a.latitude:null,longitude:typeof a.longitude==='number'?a.longitude:null,radius:a.radius}};await commit(m.id,'setting',{key:'recordTools',value});return {ok:true};}
   if(path==='/api/attendance/override'){admin(m);if(!uuid(b.id))bad('회원을 확인해주세요.');return result(db.rpc('onoff_attendance_override',{actor:m.id,target:b.id,reason:text(b.reason,2,200,'예외 사유')}));}
   if(path.startsWith('/api/named-wods/'))return named.route(m,path,b);
   if(path==='/api/rm/comparison'){if(typeof b.movementId!=='string'||b.movementId.length>100)bad('종목을 확인해주세요.');return result(db.rpc('onoff_rm_comparison',{actor:m.id,movement_id:b.movementId}));}
   if(path==='/api/members/delete'){admin(m);if(!uuid(b.id)||!uuid(b.requestId)||b.id===m.id||b.confirmed!==true||typeof b.confirmedName!=='string'||b.confirmedName.length>40)bad('삭제할 회원과 확인 내용을 확인해주세요.');return account.removeByAdmin(m,b);}
   if(path==='/api/points'||path.startsWith('/api/points/'))return points.route(m,path,b);
   if(path.startsWith('/api/photos/')){if(path==='/api/photos/attach'&&(!normalizeDate(b.date)||b.date>kstDate(now())||!['ALL','B/T','WOD'].includes(b.program)||b.session&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.session)))bad('사진 날짜·수업을 확인해주세요.');return media.route(m,path,b);}
-  if(path==='/api/attendance'){try{validateAttendanceLocation((await board.setting()).attendance,b.position,+now());}catch(e){bad(e.message,403);}const day=kstDate(now()),cal=await calendar(),ws=await rows('gym_workouts',q=>q.eq('date',day));if(!workoutSchedule(day,ws.map(w=>w.body),cal.dates).length)bad('휴강일에는 출석할 수 없어요. 특별 수업이 등록되면 출석할 수 있습니다.',403);return commit(m.id,'attendance');}
+  if(path==='/api/attendance'){try{validateAttendanceLocation((await setting('recordTools',DEFAULT_RECORD_TOOLS)).attendance,b.position,+now());}catch(e){bad(e.message,403);}const day=kstDate(now()),cal=await calendar(),ws=await rows('gym_workouts',q=>q.eq('date',day));if(!workoutSchedule(day,ws.map(w=>w.body),cal.dates).length)bad('휴강일에는 출석할 수 없어요. 특별 수업이 등록되면 출석할 수 있습니다.',403);return commit(m.id,'attendance');}
   if(path==='/api/preferences'){
    const p={};if('showMembershipWallet' in b){if(!['admin','coach'].includes(m.role))bad('운영자·코치만 회원카드 표시를 설정할 수 있어요.',403);if(typeof b.showMembershipWallet!=='boolean')bad('회원카드·쿠폰 표시 설정을 확인해주세요.');p.showMembershipWallet=b.showMembershipWallet;}if('pushOnboardingSeen' in b){if(b.pushOnboardingSeen!==true)bad('알림 안내 상태를 확인해주세요.');p.pushOnboardingSeen=true;}if('avatarEmoji' in b){if(!validAvatar(b.avatarEmoji))bad('프로필 이모지를 목록에서 선택해주세요.');p.avatarEmoji=b.avatarEmoji;}if('rank' in b){if(typeof b.rank!=='boolean')bad('순위 설정을 확인해주세요.');p.rank=b.rank;}if('rmSelection' in b){const cat=await setting('rmCatalogue',DEFAULT_RM_CATALOGUE);if(!Array.isArray(b.rmSelection)||b.rmSelection.length>200||b.rmSelection.some(id=>!cat.some(m=>m.id===id)))bad('1RM 종목을 확인해주세요.');p.rmSelection=[...new Set(b.rmSelection)];}return commit(m.id,'preferences',p);
   }
@@ -199,7 +201,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   try{
    if(!allowed)bad('허용된 앱에서 접속해주세요.',403);if(req.method==='OPTIONS')return new Response(null,{status:204,headers:cors});
    const url=new URL(req.url),match=url.pathname.match(/\/api\/[^?]+$/),path=match?.[0];if(!path)bad('요청을 찾을 수 없어요.',404);
-   const get=new Set(['/api/points','/api/points/admin','/api/health','/api/bootstrap','/api/revision','/api/tv/bootstrap','/api/tv/status','/api/storage-usage','/api/push/test-access/config','/api/push/test-access/status','/api/push/history']);if(req.method!==(get.has(path)?'GET':'POST'))bad('지원하지 않는 요청 방식이에요.',405);
+   const get=new Set(['/api/member-overview','/api/points','/api/points/admin','/api/health','/api/bootstrap','/api/revision','/api/tv/bootstrap','/api/tv/status','/api/storage-usage','/api/push/test-access/config','/api/push/test-access/status','/api/push/history']);if(req.method!==(get.has(path)?'GET':'POST'))bad('지원하지 않는 요청 방식이에요.',405);
    let b={};if(req.method==='POST'){if(!req.headers.get('Content-Type')?.startsWith('application/json'))bad('JSON 요청만 사용할 수 있어요.',415);const raw=await req.text();if(raw.length>2_000_000)bad('요청이 너무 커요.',413);try{b=JSON.parse(raw);}catch{bad('요청 형식을 확인해주세요.');}if(!b||typeof b!=='object'||Array.isArray(b))bad('요청 형식을 확인해주세요.');}
    return response(await route(req,path,url,b));
   }catch(e){if(!e.status)console.error('ONOFF request failed',e.name);return response({error:e.status?e.message:'서버 연결을 확인해주세요.',...(e.status&&e.joinAccess?{joinAccess:e.joinAccess}:{})},e.status||503);}

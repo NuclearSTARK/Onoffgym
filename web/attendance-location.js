@@ -1,3 +1,4 @@
+export const DEFAULT_RECORD_TOOLS={attendance:{enabled:false,latitude:null,longitude:null,radius:200}};
 // Coordinates are used for the current attendance request only, never persisted.
 export function distanceMetres(a,b){const rad=n=>n*Math.PI/180,lat=rad(b.latitude-a.latitude),lon=rad(b.longitude-a.longitude),h=Math.sin(lat/2)**2+Math.cos(rad(a.latitude))*Math.cos(rad(b.latitude))*Math.sin(lon/2)**2;return 6371000*2*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));}
 export function validateAttendanceLocation(config,position,now=Date.now()){

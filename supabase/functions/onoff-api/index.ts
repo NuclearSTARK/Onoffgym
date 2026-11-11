@@ -1040,6 +1040,15 @@ async function tvPassword(password, salt) {
   return tvHex(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(salt), iterations: 1e5 }, key, 256));
 }
 
+// web/membership-reminder.js
+function membershipReminderEligible(member, pass, payload, at = /* @__PURE__ */ new Date()) {
+  const day = kstDate(at), hour = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", hourCycle: "h23" }).format(at);
+  return !!(member?.status === "approved" && !member.delete_requested_at && pass && pass.user_id === member.id && payload?.membershipId === pass.id && normalizeDate(payload.endDate) && pass.end_date === payload.endDate && pass.end_date === addDays(day, 3) && pass.start_date <= day && !pass.paused_at && (pass.kind === "period" || pass.kind === "visits" && pass.remaining_visits > 0) && Number(hour) >= 9);
+}
+function membershipReminderPayload(pass) {
+  return { title: "\uD68C\uC6D0\uAD8C \uB9CC\uB8CC 3\uC77C \uC804", body: `\uD68C\uC6D0\uAD8C\uC774 ${pass.end_date}\uC5D0 \uB9CC\uB8CC\uB3FC\uC694. \uC774\uC6A9 \uAE30\uAC04\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.`, url: "/Onoffgym/?membership=expiry#settings", tag: `membership-expiry:${pass.id}:${pass.end_date}` };
+}
+
 // worker/push.js
 function unbase64(s) {
   return Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
@@ -1126,7 +1135,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
   async function subscribe(actor, testHash, b) {
     const sub = validateSubscription(b.subscription);
     if (!sub) fail6("\uC54C\uB9BC \uAD6C\uB3C5 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    const id2 = await pushDigest(sub.endpoint), preferences = { notices: b.preferences?.notices !== false, workouts: b.preferences?.workouts !== false, approvals: b.preferences?.approvals !== false };
+    const id2 = await pushDigest(sub.endpoint), preferences = { notices: b.preferences?.notices !== false, workouts: b.preferences?.workouts !== false, approvals: b.preferences?.approvals !== false, memberships: b.preferences?.memberships !== false };
     await result(db2.rpc("onoff_push_subscribe", { actor, test_code: testHash, sub_id: id2, sub_body: sub, prefs: preferences }));
     return { ok: true, id: id2 };
   }
@@ -1144,13 +1153,17 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
         try {
           const current = await one("gym_push_subscriptions", "id", job.subscriptionId);
           if (!current) continue;
-          let allowed = false;
+          let membership = null, allowed = false;
           if (current.user_id) {
             const member = await one("gym_members", "id", current.user_id);
             allowed = member?.status === "approved" && (job.kind === "test" || current.preferences?.[job.kind] !== false);
             if (job.kind === "approvals") {
               const pending = await one("gym_members", "id", job.subjectId);
               allowed = allowed && member?.role === "admin" && (pending?.status === "pending" || pending?.status === "approved" && job.payload?.signupEvent === true);
+            }
+            if (job.kind === "memberships") {
+              membership = await one("gym_memberships", "user_id", current.user_id);
+              allowed = allowed && current.user_id === job.subjectId && membershipReminderEligible(member, membership, job.payload, now());
             }
           } else if (current.test_hash) {
             const test = await one("gym_push_tests", "hash", current.test_hash);
@@ -1168,7 +1181,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
           } else {
             const subscription = validateSubscription(current.body);
             if (!subscription) throw Error("Invalid subscription");
-            const payload = meetup ? { title: "\uC6B4\uB3D9 \uBC88\uAC1C", body: meetupMessage(meetup.starts_at), url: "/Onoffgym/?post=" + encodeURIComponent(meetup.id) + "#community", tag: "meetup:" + meetup.id } : job.kind === "approvals" ? { ...job.payload, url: "/Onoffgym/?approval=" + encodeURIComponent(job.subjectId) + "#admin/members" } : job.payload;
+            const payload = job.kind === "memberships" ? membershipReminderPayload(membership) : meetup ? { title: "\uC6B4\uB3D9 \uBC88\uAC1C", body: meetupMessage(meetup.starts_at), url: "/Onoffgym/?post=" + encodeURIComponent(meetup.id) + "#community", tag: "meetup:" + meetup.id } : job.kind === "approvals" ? { ...job.payload, url: "/Onoffgym/?approval=" + encodeURIComponent(job.subjectId) + "#admin/members" } : job.payload;
             const body = await encryptPush(subscription, payload), authorization = await vapidAuthorization(subscription.endpoint, { VAPID_PUBLIC_KEY: config.publicKey, VAPID_PRIVATE_JWK: JSON.stringify(config.privateJwk), VAPID_SUBJECT: config.subject }, now());
             const response = await pushFetch(subscription.endpoint, { method: "POST", headers: { Authorization: authorization, "Content-Encoding": "aes128gcm", "Content-Type": "application/octet-stream", TTL: "3600", Urgency: job.kind === "test" ? "high" : "normal" }, body, redirect: "error", signal: AbortSignal.timeout(8e3) });
             if (!response.ok) reason = "\uD478\uC2DC \uC11C\uBE44\uC2A4 HTTP " + response.status;

@@ -106,10 +106,20 @@ async def main():
    rects=await page.locator('.overview-filters input,.overview-filters select').evaluate_all('(es)=>es.map(e=>({x:e.getBoundingClientRect().x,right:e.getBoundingClientRect().right,w:e.getBoundingClientRect().width,h:e.getBoundingClientRect().height}))')
    assert all(r['right']<=width and r['x']>=0 for r in rects),rects
    assert abs(rects[0]['w']-rects[1]['w'])<1 and rects[0]['h']==rects[1]['h']
+   assert await page.locator('.overview-member.is-compact').first.evaluate('(e)=>e.getBoundingClientRect().height<100')
   await page.set_viewport_size({'width':390,'height':844})
-  await page.locator('[data-overview-search]').scroll_into_view_if_needed()
-  await page.screenshot(path='/workspace/scratch/onoff-overview-mobile.png')
-  assert '출석 10:05' in await page.locator('.overview-member').filter(has_text='기간권회원').inner_text()
+  await page.locator('[data-overview-list]').evaluate('(e)=>window.scrollTo(0,scrollY+e.getBoundingClientRect().top-200)')
+  await page.screenshot(path='/workspace/scratch/onoff-overview-compact.png')
+  compact=page.locator('.overview-member').filter(has_text='기간권회원')
+  assert '출석 ✓' in await compact.inner_text()
+  assert '출석 5일 · 차감 0회' in await compact.inner_text()
+  assert '승인 회원' not in await compact.inner_text() and '누적' not in await compact.inner_text()
+  assert await compact.locator(':scope > div').count()==2
+  await compact.locator('.overview-history-link').click()
+  await page.locator('.overview-history-summary').wait_for()
+  summary=await page.locator('.overview-history-summary').inner_text()
+  assert '출석 10:05' in summary and '2026-12-01까지' in summary and '누적 9일' in summary
+  await page.locator('#modal [data-action=close]').click()
   assert '미출석' in await page.locator('.overview-member').filter(has_text='횟수권회원').inner_text()
   await page.locator('[data-overview-presence]').select_option('yes')
   assert await page.locator('.overview-member').count()==1

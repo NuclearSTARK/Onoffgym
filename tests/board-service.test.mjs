@@ -27,7 +27,7 @@ test('personal photo records retain a single team result and redact unlinked or 
 });
 
 test('personal board history serializes a JSONB array with the real Supabase client before bootstrap',async()=>{
- const {createClient}=await import('@supabase/supabase-js');
+ const {createClient}=await import('../web/assets/supabase-js-2.118.0.js');
  const seen=[];
  const db=createClient('https://board-history.invalid','test-public-key',{auth:{persistSession:false,autoRefreshToken:false},global:{fetch:async(url)=>{
   const u=new URL(url);seen.push(u);return new Response('[]',{status:200,headers:{'Content-Type':'application/json'}});

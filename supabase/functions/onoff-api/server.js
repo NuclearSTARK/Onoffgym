@@ -1,3 +1,4 @@
+import {createAvatarService,avatarSnapshot} from './avatar-service.js';
 import {createMemberOverviewService} from './member-overview-service.js';
 import {readPhotoHistory} from './photo-history.js';
 import {validateAttendanceLocation,DEFAULT_RECORD_TOOLS} from '../../../web/attendance-location.js';
@@ -27,7 +28,7 @@ const bad=(message,status=400,extra={})=>{throw Object.assign(Error(message),{st
 const uuid=v=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const text=(v,min,max,label)=>{if(typeof v!=='string'||v.trim().length<min||v.length>max)bad(label+'을 확인해주세요.');return v.trim();};
 export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,now=()=>new Date()}={}){
- const overview=createMemberOverviewService(db);
+ const overview=createMemberOverviewService(db),profilePhotos=createAvatarService(db);
  const media=createMediaService(db,{now}),points=createPointsService(db,{now});
  const push=createPushService(db,{now,maintenance:()=>media.cleanup()}),account=createAccountService(db,{reauthenticate}),named=createNamedService(db);
  async function result(q){const {data,error}=await q;if(error){const code=error.code;if(code==='23514')bad(error.message?.includes('14세')?'회원이 먼저 성별·만 14세 이상 확인과 개인정보 안내 동의를 완료해야 승인할 수 있어요.':'변경할 수 없는 계정 상태입니다.',409);bad(code==='42501'?'이 요청을 처리할 권한이 없어요.':code==='23505'?'이미 등록된 항목이 있어요. 새로 불러온 뒤 확인해주세요.':code==='40001'?'다른 기기에서 변경됐어요. 다시 불러와 주세요.':'저장 요청을 처리하지 못했어요.',code==='42501'?403:['23505','40001'].includes(code)?409:503);}return data;}
@@ -87,10 +88,13 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   const rankingOwners=new Set(memberRows.filter(x=>x.status==='approved'&&x.disclosure_consent===true).map(x=>x.id));
   const records=[...new Map([...ownRecords,...selectedRecords].map(r=>[r.id,r])).values()],names=new Map(memberRows.map(x=>[x.id,x.name])),rank=new Map(),avatars=new Map();
   // Ranking preference is not derived from JWT or editable names.
-  if(canRead){for(const p of await rows('gym_preferences',q=>q.limit(1000))){rank.set(p.user_id,p.body.rank!==false);avatars.set(p.user_id,avatarEmoji(p.body.avatarEmoji));}}
+  const avatarPreferences=canRead?await rows('gym_preferences',q=>q.limit(1000)):(prefs?[prefs]:[]);
+  if(prefs&&!avatarPreferences.some(p=>p.user_id===m.id))avatarPreferences.push(prefs);
+  for(const p of avatarPreferences){rank.set(p.user_id,p.body.rank!==false);avatars.set(p.user_id,avatarEmoji(p.body.avatarEmoji));}
+  const avatarPhotos=avatarSnapshot(avatarPreferences,memberRows,m);
   const accRows=canRead?await rows('gym_acc_workouts',q=>{q=q.or(`date.gte.${addDays(day,-30)},date.eq.${viewDate}`);return (hasPermission(m,'acc.read')&&url.searchParams.get('view')!=='member'?q:q.lte('release_at',now().toISOString())).order('date',{ascending:false}).limit(1000);}):[];
   const [savedTools,photoRecords]=await Promise.all([setting('recordTools',DEFAULT_RECORD_TOOLS),readPhotoHistory(db,m,memberRows)]);const recordTools={attendance:{...DEFAULT_RECORD_TOOLS.attendance,...savedTools?.attendance}};
-  return {recordTools,photoRecords,named:await named.snapshot(m),privacyReviewRequired:m.privacy_version!==PRIVACY_VERSION||!validGender(m.gender),points:pointData,accWorkouts:Object.fromEntries(accRows.map(w=>[w.date,w.body])),videoCategories:await videoCategories(),viewer:m,...rev,memberView:!all,shared:true,releaseTime:await setting('releaseTime','22:00'),banner:await setting('banner',DEFAULT_BANNER),rmCatalogue:cat,rmCategories:await setting('rmCategories',RM_CATEGORIES),library:lib,
+  return {recordTools,photoRecords,avatarPhotos,named:await named.snapshot(m),privacyReviewRequired:m.privacy_version!==PRIVACY_VERSION||!validGender(m.gender),points:pointData,accWorkouts:Object.fromEntries(accRows.map(w=>[w.date,w.body])),videoCategories:await videoCategories(),viewer:m,...rev,memberView:!all,shared:true,releaseTime:await setting('releaseTime','22:00'),banner:await setting('banner',DEFAULT_BANNER),rmCatalogue:cat,rmCategories:await setting('rmCategories',RM_CATEGORIES),library:lib,
    calendar:cal,membership:pass,membershipState:access,memberships:passes,membershipEvents:events.map(e=>({...e,body:JSON.stringify(e.body)})),memberAttendance:attAll,attendance:att.map(a=>a.date),
    recordMembers:hasPermission(m,'records.create')||hasPermission(m,'records.update')?memberRows.filter(x=>x.status==='approved').map(x=>({id:x.id,name:x.name,status:x.status})):[],
    members:staff?memberRows.map(x=>({...x,pointBalance:Number(pointBalances.find(a=>a.user_id===x.id)?.balance||0),avatarEmoji:avatars.get(x.id)||avatarEmoji(),note:notes.find(n=>n.user_id===x.id)?.note||''})):[],
@@ -119,6 +123,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   if(path==='/api/bootstrap')return bootstrap(m,url);
   if(path==='/api/profile')return commit(m.id,'profile',{name:text(b.name,2,30,'실명')});
   approved(m);
+  if(path.startsWith('/api/avatars/'))return profilePhotos.route(m,path,b);
   if(path==='/api/member-overview')return overview.read(m,url);
   if(['/api/rm/comparison','/api/named-wods/comparison'].includes(path)&&!validGender(m.gender))bad('성별을 먼저 선택해주세요.',409);
   if((path==='/api/posts'||path==='/api/meetups'||(path==='/api/posts/comment'))&&m.disclosure_consent===false)bad('개인설정에서 회원 간 공개에 동의한 뒤 이용해주세요.',403);
@@ -132,7 +137,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   if(path.startsWith('/api/photos/')){if(path==='/api/photos/attach'&&(!normalizeDate(b.date)||b.date>kstDate(now())||!['ALL','B/T','WOD'].includes(b.program)||b.session&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.session)))bad('사진 날짜·수업을 확인해주세요.');return media.route(m,path,b);}
   if(path==='/api/attendance'){try{validateAttendanceLocation((await setting('recordTools',DEFAULT_RECORD_TOOLS)).attendance,b.position,+now());}catch(e){bad(e.message,403);}const day=kstDate(now()),cal=await calendar(),ws=await rows('gym_workouts',q=>q.eq('date',day));if(!workoutSchedule(day,ws.map(w=>w.body),cal.dates).length)bad('휴강일에는 출석할 수 없어요. 특별 수업이 등록되면 출석할 수 있습니다.',403);return commit(m.id,'attendance');}
   if(path==='/api/preferences'){
-   const p={};if('showMembershipWallet' in b){if(!['admin','coach'].includes(m.role))bad('운영자·코치만 회원카드 표시를 설정할 수 있어요.',403);if(typeof b.showMembershipWallet!=='boolean')bad('회원카드·쿠폰 표시 설정을 확인해주세요.');p.showMembershipWallet=b.showMembershipWallet;}if('pushOnboardingSeen' in b){if(b.pushOnboardingSeen!==true)bad('알림 안내 상태를 확인해주세요.');p.pushOnboardingSeen=true;}if('avatarEmoji' in b){if(!validAvatar(b.avatarEmoji))bad('프로필 이모지를 목록에서 선택해주세요.');p.avatarEmoji=b.avatarEmoji;}if('rank' in b){if(typeof b.rank!=='boolean')bad('순위 설정을 확인해주세요.');p.rank=b.rank;}if('rmSelection' in b){const cat=await setting('rmCatalogue',DEFAULT_RM_CATALOGUE);if(!Array.isArray(b.rmSelection)||b.rmSelection.length>200||b.rmSelection.some(id=>!cat.some(m=>m.id===id)))bad('1RM 종목을 확인해주세요.');p.rmSelection=[...new Set(b.rmSelection)];}return commit(m.id,'preferences',p);
+   const p={};if('showMembershipWallet' in b){if(!['admin','coach'].includes(m.role))bad('운영자·코치만 회원카드 표시를 설정할 수 있어요.',403);if(typeof b.showMembershipWallet!=='boolean')bad('회원카드·쿠폰 표시 설정을 확인해주세요.');p.showMembershipWallet=b.showMembershipWallet;}if('pushOnboardingSeen' in b){if(b.pushOnboardingSeen!==true)bad('알림 안내 상태를 확인해주세요.');p.pushOnboardingSeen=true;}if('avatarEmoji' in b){if(!validAvatar(b.avatarEmoji))bad('프로필 이모지를 목록에서 선택해주세요.');p.avatarEmoji=b.avatarEmoji;p.avatarPhoto=null;}if('rank' in b){if(typeof b.rank!=='boolean')bad('순위 설정을 확인해주세요.');p.rank=b.rank;}if('rmSelection' in b){const cat=await setting('rmCatalogue',DEFAULT_RM_CATALOGUE);if(!Array.isArray(b.rmSelection)||b.rmSelection.length>200||b.rmSelection.some(id=>!cat.some(m=>m.id===id)))bad('1RM 종목을 확인해주세요.');p.rmSelection=[...new Set(b.rmSelection)];}return commit(m.id,'preferences',p);
   }
   if(path==='/api/records/delete'){if(!uuid(b.id))bad('기록을 확인해주세요.');return result(db.rpc('onoff_delete_record',{actor:m.id,record_id:b.id}));}
   if(path==='/api/records'){

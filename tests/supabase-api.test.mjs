@@ -97,7 +97,7 @@ test('only approved admins may delete workouts and deletion never targets member
 });
 test('profile emoji accepts only the shared catalogue and ignores caller-selected user identity',async()=>{
  const f=fixture();assert.equal((await f.request('/api/preferences',{body:{avatarEmoji:'<img src=x>'}})).status,400);assert.equal(f.writes.length,0);
- assert.equal((await f.request('/api/preferences',{body:{avatarEmoji:'🐯',user_id:ADMIN,role:'admin'}})).status,200);assert.equal(f.writes[0].actor,MEMBER);assert.deepEqual(f.writes[0].p,{avatarEmoji:'🐯'});
+ assert.equal((await f.request('/api/preferences',{body:{avatarEmoji:'🐯',user_id:ADMIN,role:'admin'}})).status,200);assert.equal(f.writes[0].actor,MEMBER);assert.deepEqual(f.writes[0].p,{avatarEmoji:'🐯',avatarPhoto:null});
 });
 test('closed-day attendance rejects an API bypass until a scheduled class exists',async()=>{
  const f=fixture();f.tables.gym_holiday_cache[0].body.dates['2026-11-02']={name:'휴강일'};

@@ -77,7 +77,7 @@ async def main():
    await pager.locator('[data-swipe-step="1"]').click()
    await page.wait_for_timeout(450)
    assert await pager.locator('.swipe-page-label').inner_text()=='2 / 3'
-   await pager.locator('.swipe-pages').evaluate('(e)=>e.scrollTo({left:e.clientWidth*2,behavior:"instant"})')
+   await pager.locator('.swipe-pages').evaluate('(e)=>e.scrollTo({left:e.children[2].offsetLeft-e.children[0].offsetLeft,behavior:"instant"})')
    await page.wait_for_timeout(250)
    assert await pager.locator('.swipe-page-label').inner_text()=='3 / 3'
    assert await pager.locator('.swipe-page:not([inert]) .overview-member').count()==5

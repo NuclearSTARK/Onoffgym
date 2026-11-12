@@ -11,3 +11,5 @@
 출석·1RM·NAMED WOD 회원 현황 페이지에는 24px 가로 간격을 적용합니다. 공통 페이지 도구는 실제 페이지 시작점을 측정해 간격을 포함하며, 너비가 0인 숨겨진 화면에서는 계산하지 않습니다. 비정상·빈 초기 페이지도 보정하고 화면이 나타나거나 크기가 바뀌면 복구합니다.
 
 검증: `npm test`, `npm run build:backend`, `npm run build:cloudflare`, `npm run build`, `tests/browser/avatar-photos.py`, `tests/browser/swipe-pages.py`, `tests/browser/member-overview.py`, `tests/browser/record-tools.py`. 브라우저 테스트의 계정·API·사진은 격리된 가상 데이터입니다.
+
+Auth 계정 삭제의 연쇄 삭제는 `supabase_auth_admin` 권한으로 실행됩니다. `20261112053538_onoff_avatar_cleanup_auth_deletion.sql`은 큐 기록 전용 트리거를 `SECURITY DEFINER`, 빈 `search_path`, 클라이언트·서비스 역할의 직접 실행 금지로 제한합니다. 이 역할 자체의 전환은 관리형 연결에서 허용되지 않아, 동일하게 정리 큐에 INSERT 권한이 없는 `authenticated` 역할로 임시 테이블의 연쇄 삭제를 검증했습니다. `supabase/avatar-photo-tests.sql`은 교체·연쇄 삭제와 직접 실행 차단을 재현하고 모두 롤백합니다. 실제 회원 데이터는 사용하지 않습니다.

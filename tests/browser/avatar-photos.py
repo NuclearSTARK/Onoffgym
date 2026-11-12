@@ -83,19 +83,42 @@ async def main():
  async with async_playwright() as p:
   browser=await p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
   context,page=await setup(browser,ADMIN)
+  await context.add_init_script("window.qaViewport=Object.assign(new EventTarget(),{height:innerHeight,width:innerWidth,offsetTop:0,offsetLeft:0,scale:1});Object.defineProperty(window,'visualViewport',{configurable:true,value:qaViewport});window.qaViewportMetrics=values=>{Object.assign(qaViewport,values);qaViewport.dispatchEvent(new Event('resize'));};")
   await context.add_init_script("const QARealDate=Date;globalThis.Date=class extends QARealDate{constructor(...a){super(...(a.length?a:['2026-11-12T01:00:00Z']))}static now(){return new QARealDate('2026-11-12T01:00:00Z').getTime()}};")
   await page.goto(origin+'/#settings',wait_until='networkidle')
   await page.locator('.settings-avatar').wait_for(timeout=15000)
   assert await page.locator('.settings-avatar img').count()==0
+  # Simulate iOS returning from Photos with a stale, shrunken visual viewport.
+  # This is a native-picker lifecycle simulation, not a physical iPhone test.
+  await page.locator('[data-action=avatar-picker]').click()
+  await page.wait_for_timeout(250)
+  original_frame=await page.locator('#modal').bounding_box()
+  await page.evaluate("const input=document.querySelector('[data-avatar-photo-file]');input.dispatchEvent(new Event('click',{bubbles:true}));input.focus();qaViewportMetrics({height:420,offsetTop:100});input.dispatchEvent(new Event('cancel',{bubbles:true}));")
+  await page.wait_for_timeout(750)
+  restored=await page.locator('#modal').bounding_box()
+  assert abs(restored['height']-original_frame['height'])<3,(original_frame,restored)
+  assert not await page.locator('html').evaluate('(e)=>e.classList.contains("mobile-keyboard-open")')
+  controls=await page.locator('#avatar-pager .swipe-controls').bounding_box()
+  content=await page.locator('#modal .modal-content').bounding_box()
+  assert controls['y']+controls['height']<=content['y']+content['height'],(controls,content)
+  await page.screenshot(path='/workspace/scratch/avatar-picker-return-mobile.png')
+  await page.locator('#modal [data-action=close]').click()
+  await page.evaluate('qaViewportMetrics({height:innerHeight,offsetTop:0})')
   source=Image.new('RGB',(640,400),'#e55b5b');ImageDraw.Draw(source).rectangle((320,0,639,399),fill='#426fee')
   fixture=BytesIO();source.save(fixture,format='JPEG')
   async def upload():
    await page.locator('[data-action=avatar-picker]').click()
+   await page.evaluate("const input=document.querySelector('[data-avatar-photo-file]');input.dispatchEvent(new Event('click',{bubbles:true}));input.focus();qaViewportMetrics({height:420,offsetTop:100});")
    await page.locator('[data-avatar-photo-file]').set_input_files({'name':'profile.jpg','mimeType':'image/jpeg','buffer':fixture.getvalue()})
    await page.locator('[data-avatar-canvas]').wait_for()
+   await page.wait_for_timeout(250)
+   crop_frame=await page.locator('#modal').bounding_box()
+   assert crop_frame['y']>=12 and crop_frame['y']+crop_frame['height']<=844,crop_frame
+   assert not await page.locator('html').evaluate('(e)=>e.classList.contains("mobile-keyboard-open")')
    await page.locator('[data-avatar-zoom]').evaluate('(e)=>{e.value=2;e.dispatchEvent(new Event("input"))}')
    await page.locator('[data-avatar-x]').evaluate('(e)=>{e.value=.5;e.dispatchEvent(new Event("input"))}')
    await page.screenshot(path='/workspace/scratch/avatar-crop-mobile.png')
+   await page.evaluate('qaViewportMetrics({height:innerHeight,offsetTop:0})')
    await page.locator('[data-avatar-photo-save]').click()
    await page.wait_for_function('!document.querySelector("#modal").open')
    await page.locator('.settings-avatar img:not([hidden])').wait_for()
@@ -129,7 +152,7 @@ async def main():
   assert await page.locator('.settings-avatar img').count()==0
   assert '🐯' in await page.locator('.settings-avatar').inner_text()
   assert not errors,errors
-  print('Browser: optional photo upload, circular crop/zoom/pan, private image signing, period/visit ring overlay, deletion, emoji switching and reload persistence passed.')
+  print('Browser: native-picker cancel/select with stale viewport, dialog recovery and optional photo upload, circular crop/zoom/pan, private image signing, period/visit ring overlay, deletion, emoji switching and reload persistence passed.')
   await browser.close()
  server.shutdown()
 asyncio.run(main())

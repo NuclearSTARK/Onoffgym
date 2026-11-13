@@ -1,3 +1,4 @@
+import {createWorkoutCommentsService} from './workout-comments-service.js';
 import {createAvatarService,avatarSnapshot} from './avatar-service.js';
 import {createMemberOverviewService} from './member-overview-service.js';
 import {readPhotoHistory} from './photo-history.js';
@@ -28,6 +29,7 @@ const bad=(message,status=400,extra={})=>{throw Object.assign(Error(message),{st
 const uuid=v=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const text=(v,min,max,label)=>{if(typeof v!=='string'||v.trim().length<min||v.length>max)bad(label+'을 확인해주세요.');return v.trim();};
 export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,now=()=>new Date()}={}){
+ const workoutComments=createWorkoutCommentsService(db);
  const overview=createMemberOverviewService(db),profilePhotos=createAvatarService(db);
  const media=createMediaService(db,{now}),points=createPointsService(db,{now});
  const push=createPushService(db,{now,maintenance:()=>media.cleanup()}),account=createAccountService(db,{reauthenticate}),named=createNamedService(db);
@@ -123,6 +125,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   if(path==='/api/bootstrap')return bootstrap(m,url);
   if(path==='/api/profile')return commit(m.id,'profile',{name:text(b.name,2,30,'실명')});
   approved(m);
+  if(path==='/api/workout-comments'||path.startsWith('/api/workout-comments/'))return workoutComments.route(m,path,url,b);
   if(path.startsWith('/api/avatars/'))return profilePhotos.route(m,path,b);
   if(path==='/api/member-overview')return overview.read(m,url);
   if(['/api/rm/comparison','/api/named-wods/comparison'].includes(path)&&!validGender(m.gender))bad('성별을 먼저 선택해주세요.',409);
@@ -206,7 +209,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   try{
    if(!allowed)bad('허용된 앱에서 접속해주세요.',403);if(req.method==='OPTIONS')return new Response(null,{status:204,headers:cors});
    const url=new URL(req.url),match=url.pathname.match(/\/api\/[^?]+$/),path=match?.[0];if(!path)bad('요청을 찾을 수 없어요.',404);
-   const get=new Set(['/api/member-overview','/api/points','/api/points/admin','/api/health','/api/bootstrap','/api/revision','/api/tv/bootstrap','/api/tv/status','/api/storage-usage','/api/push/test-access/config','/api/push/test-access/status','/api/push/history']);if(req.method!==(get.has(path)?'GET':'POST'))bad('지원하지 않는 요청 방식이에요.',405);
+   const get=new Set(['/api/workout-comments','/api/member-overview','/api/points','/api/points/admin','/api/health','/api/bootstrap','/api/revision','/api/tv/bootstrap','/api/tv/status','/api/storage-usage','/api/push/test-access/config','/api/push/test-access/status','/api/push/history']);if(req.method!==(get.has(path)?'GET':'POST'))bad('지원하지 않는 요청 방식이에요.',405);
    let b={};if(req.method==='POST'){if(!req.headers.get('Content-Type')?.startsWith('application/json'))bad('JSON 요청만 사용할 수 있어요.',415);const raw=await req.text();if(raw.length>2_000_000)bad('요청이 너무 커요.',413);try{b=JSON.parse(raw);}catch{bad('요청 형식을 확인해주세요.');}if(!b||typeof b!=='object'||Array.isArray(b))bad('요청 형식을 확인해주세요.');}
    return response(await route(req,path,url,b));
   }catch(e){if(!e.status)console.error('ONOFF request failed',e.name);return response({error:e.status?e.message:'서버 연결을 확인해주세요.',...(e.status&&e.joinAccess?{joinAccess:e.joinAccess}:{})},e.status||503);}

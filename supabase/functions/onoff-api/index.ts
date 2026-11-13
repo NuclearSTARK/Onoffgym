@@ -1,6 +1,10 @@
 // supabase/functions/onoff-api/entry.js
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
+// web/course-programs.js
+var isSaturday = (date) => /^\d{4}-\d{2}-\d{2}$/.test(date || "") && (/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay() === 6;
+var canonicalProgram = (program, date) => isSaturday(date) && String(program).trim().toUpperCase() === "SPECIAL WORKOUT" ? "WOD" : String(program || "").trim().toUpperCase();
+
 // web/record-schema.js
 var CONDITIONS = ["rx", "scaled", "unspecified"];
 var RX_LABEL = "Rx'd";
@@ -154,12 +158,13 @@ function normalizeRows(rows, library = MOVEMENTS, holidays = {}) {
   if (!Array.isArray(rows) || rows.length > 1e3) return { errors: ["\uCD5C\uB300 1,000\uD589\uAE4C\uC9C0 \uB4F1\uB85D\uD560 \uC218 \uC788\uC5B4\uC694."], workouts: [] };
   rows.forEach((r, i) => {
     if (!Object.values(r).some((v) => String(v).trim())) return;
-    const line = i + 2, date = normalizeDate(r["\uB0A0\uC9DC"]), program = String(r["\uC218\uC5C5"] || "").trim().toUpperCase(), sm = String(r["\uAD6C\uAC04"] || "").trim().toUpperCase().match(/^S?([1-9]\d?)$/), title = String(r["\uC81C\uBAA9"] || "").trim(), text2 = String(r["\uC6B4\uB3D9 \uB0B4\uC6A9"] || "").trim(), kind = String(r["\uAE30\uB85D \uC885\uB958"] || "\uC5C6\uC74C").trim(), movementText = String(r["\uAD00\uB828 \uB3D9\uC791"] || "").trim(), overview = String(r["\uC624\uB298 \uC6B4\uB3D9 \uC124\uBA85 \uC601\uC0C1"] || "").trim();
+    const line = i + 2, date = normalizeDate(r["\uB0A0\uC9DC"]), program = canonicalProgram(r["\uC218\uC5C5"], date), sm = String(r["\uAD6C\uAC04"] || "").trim().toUpperCase().match(/^S?([1-9]\d?)$/), title = String(r["\uC81C\uBAA9"] || "").trim(), text2 = String(r["\uC6B4\uB3D9 \uB0B4\uC6A9"] || "").trim(), kind = String(r["\uAE30\uB85D \uC885\uB958"] || "\uC5C6\uC74C").trim(), movementText = String(r["\uAD00\uB828 \uB3D9\uC791"] || "").trim(), overview = String(r["\uC624\uB298 \uC6B4\uB3D9 \uC124\uBA85 \uC601\uC0C1"] || "").trim();
     const issues = [];
     if (!date) issues.push("\uB0A0\uC9DC\uB294 YYYY-MM-DD \uD615\uC2DD\uC73C\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-    if (!["B/T", "WOD"].includes(program)) issues.push("\uC218\uC5C5\uC740 B/T \uB610\uB294 WOD\uB9CC \uC785\uB825\uD560 \uC218 \uC788\uC5B4\uC694.");
+    if (!["B/T", "WOD"].includes(program)) issues.push("\uC218\uC5C5\uC740 B/T, WOD \uB610\uB294 \uD1A0\uC694\uC77C Special Workout\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
     if (date) {
       const day = (/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay();
+      if (isSaturday(date) && program === "B/T") issues.push("\uD1A0\uC694\uC77C\uC5D0\uB294 Special Workout\uB9CC \uB4F1\uB85D\uD560 \uC218 \uC788\uC5B4\uC694.");
       if (day === 3 && program === "B/T") issues.push("\uC218\uC694\uC77C\uC5D0\uB294 WOD\uB9CC \uB4F1\uB85D\uD560 \uC218 \uC788\uC5B4\uC694.");
     }
     if (!sm) issues.push("\uAD6C\uAC04\uC740 S1\uBD80\uD130 S99\uAE4C\uC9C0 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
@@ -1527,6 +1532,11 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     approved(m);
     if (path === "/api/workout-comments" || path.startsWith("/api/workout-comments/")) return workoutComments.route(m, path, url, b);
     if (path.startsWith("/api/avatars/")) return profilePhotos.route(m, path, b);
+    if (path === "/api/member-milestones") {
+      if (req.method !== "GET") bad("\uC870\uD68C \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 405);
+      if (m.delete_requested_at) bad("\uBCF8\uC778 \uACC4\uC815\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 403);
+      return result(db2.rpc("onoff_member_milestones", { actor: m.id }));
+    }
     if (path === "/api/member-overview") return overview.read(m, url);
     if (["/api/rm/comparison", "/api/named-wods/comparison"].includes(path) && !validGender(m.gender)) bad("\uC131\uBCC4\uC744 \uBA3C\uC800 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.", 409);
     if ((path === "/api/posts" || path === "/api/meetups" || path === "/api/posts/comment") && m.disclosure_consent === false) bad("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC774\uC6A9\uD574\uC8FC\uC138\uC694.", 403);
@@ -1571,6 +1581,14 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     }
     if (path === "/api/preferences") {
       const p = {};
+      if ("newYear2027Seen" in b) {
+        if (b.newYear2027Seen !== true) bad("\uC0C8\uD574 \uC548\uB0B4 \uC0C1\uD0DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        p.newYear2027Seen = true;
+      }
+      if ("celebrations" in b) {
+        if (typeof b.celebrations !== "boolean") bad("\uCD95\uD558 \uD6A8\uACFC \uC124\uC815\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        p.celebrations = b.celebrations;
+      }
       if ("showMembershipWallet" in b) {
         if (!["admin", "coach"].includes(m.role)) bad("\uC6B4\uC601\uC790\xB7\uCF54\uCE58\uB9CC \uD68C\uC6D0\uCE74\uB4DC \uD45C\uC2DC\uB97C \uC124\uC815\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
         if (typeof b.showMembershipWallet !== "boolean") bad("\uD68C\uC6D0\uCE74\uB4DC\xB7\uCFE0\uD3F0 \uD45C\uC2DC \uC124\uC815\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
@@ -1885,7 +1903,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
       const url = new URL(req.url), match = url.pathname.match(/\/api\/[^?]+$/), path = match?.[0];
       if (!path) bad("\uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
-      const get = /* @__PURE__ */ new Set(["/api/workout-comments", "/api/member-overview", "/api/points", "/api/points/admin", "/api/health", "/api/bootstrap", "/api/revision", "/api/tv/bootstrap", "/api/tv/status", "/api/storage-usage", "/api/push/test-access/config", "/api/push/test-access/status", "/api/push/history"]);
+      const get = /* @__PURE__ */ new Set(["/api/member-milestones", "/api/workout-comments", "/api/member-overview", "/api/points", "/api/points/admin", "/api/health", "/api/bootstrap", "/api/revision", "/api/tv/bootstrap", "/api/tv/status", "/api/storage-usage", "/api/push/test-access/config", "/api/push/test-access/status", "/api/push/history"]);
       if (req.method !== (get.has(path) ? "GET" : "POST")) bad("\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uC694\uCCAD \uBC29\uC2DD\uC774\uC5D0\uC694.", 405);
       let b = {};
       if (req.method === "POST") {

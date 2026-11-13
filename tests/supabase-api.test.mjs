@@ -242,3 +242,13 @@ test('admin overview binds its actor to verified identity and accepts historical
 });
 test('retired photo AI endpoints cannot analyze or modify records for any approved role',async()=>{for(const role of ['member','admin']){const f=fixture({role});assert.equal((await f.request('/api/board/analyze',{body:{photoId:ADMIN}})).status,410);assert.equal(f.writes.length,0);}});
 test('workout comment routes authenticate callers before RPC and never accept a client-selected author',async()=>{const f=fixture();const body={id:crypto.randomUUID(),date:'2026-11-13',program:'B/T',text:'댓글',authorId:ADMIN,role:'admin'};assert.equal((await f.request('/api/workout-comments?date=2026-11-13&program=WOD',{token:null})).status,401);assert.equal((await f.request('/api/workout-comments/create',{body,token:null})).status,401);f.tables.gym_members[0].disclosure_consent=true;const calls=[];f.db.rpc=async(name,args)=>{calls.push({name,args});return {data:{ok:true,total:0},error:null};};assert.equal((await f.request('/api/workout-comments/create',{body})).status,200);assert.equal(calls[0].name,'onoff_workout_comments');assert.equal(calls[0].args.actor,MEMBER);assert.equal('authorId' in calls[0].args.p,false);assert.equal((await f.request('/api/workout-comments?date=2026-11-13&program=WOD')).status,200);assert.equal((await f.request('/api/workout-comments',{body})).status,405);});
+
+test('milestones read binds only the verified owner; pending/deleted and anonymous readers cannot access it',async()=>{
+ const f=fixture();assert.equal((await f.request('/api/member-milestones?actor='+ADMIN+'&user_id='+ADMIN)).status,200);assert.deepEqual(f.writes,[{actor:MEMBER}]);
+ assert.equal((await f.request('/api/member-milestones',{body:{actor:ADMIN}})).status,405);assert.equal(f.writes.length,1);
+ for(const options of [{status:'pending'},{status:'suspended'},{delete_requested_at:'2026-11-13T00:00Z'},{valid:false},{anonymous:true}]){const denied=fixture(options);assert.ok([401,403].includes((await denied.request('/api/member-milestones')).status));assert.equal(denied.writes.length,0);}
+});
+test('New Year and celebration preferences validate values, are own-only and cannot clear the seen marker',async()=>{
+ const f=fixture();assert.equal((await f.request('/api/preferences',{body:{newYear2027Seen:true,celebrations:false,user_id:ADMIN}})).status,200);assert.deepEqual(f.writes[0],{actor:MEMBER,op:'preferences',p:{newYear2027Seen:true,celebrations:false}});
+ assert.equal((await f.request('/api/preferences',{body:{newYear2027Seen:false}})).status,400);assert.equal((await f.request('/api/preferences',{body:{celebrations:'true'}})).status,400);assert.equal(f.writes.length,1);
+});

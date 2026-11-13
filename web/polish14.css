@@ -45,3 +45,11 @@ body.push-onboarding:has(.privacy-compact) #main{align-items:start;align-content
 .post-title>[data-meetup-status]:empty{display:none}
 .post-card.is-meetup-closed>h3,.post-card.is-meetup-closed>p,.post-card.is-meetup-closed>.post-cover,.post-thread.is-meetup-closed .post-title-text,.post-thread.is-meetup-closed>.meetup-content{filter:blur(4px);opacity:.55;user-select:none;-webkit-user-select:none}
 .post-thread.is-meetup-closed>.meetup-content{pointer-events:none}
+
+/* Keep the selected date/course separate and let class labels break only between lines. */
+#member-record-results .member-record-heading{display:grid;gap:3px;min-width:0;margin:0;line-height:1.45}
+#member-record-results .member-record-heading>span{display:block;white-space:nowrap}
+#member-record-results>.panel-head>.unit-toggle{flex-shrink:0}
+.class-entry-actions.single-program{grid-template-columns:minmax(0,1fr)}
+.class-entry-actions>.class-entry-button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:64px;line-height:1.4}
+.class-entry-button>span{display:block;white-space:nowrap}

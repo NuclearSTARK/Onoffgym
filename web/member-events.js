@@ -28,7 +28,7 @@ export function createMemberEvents({raw,context,modal,toast}={}){
    seen.add(owner);try{localStorage.setItem('onoff-newyear-2027-'+owner,'1');}catch{}raw('/api/preferences',{newYear2027Seen:true}).catch(()=>{});
   }
   display=document.createElement('aside');display.className='member-celebration '+(event.kind==='welcome'?'newyear-welcome':'pr-celebration');display.setAttribute('role','status');
-  display.innerHTML=event.kind==='welcome'?'<strong class="newyear-number">2027</strong><p>새해의 나를 ON!</p>':`<div class="gold-burst" aria-hidden="true">${Array.from({length:16},(_,i)=>`<i style="--angle:${i*22.5}deg;--distance:${70+i%3*24}px"></i>`).join('')}</div><span>✦ NEW PERSONAL BEST ✦</span><strong>${esc(c.name)}님, 최고 기록!</strong><p>${event.items.slice(0,2).map(x=>esc(x.label)).join(' · ')}</p>`;
+  display.innerHTML=event.kind==='welcome'?'<strong class="newyear-number">2027</strong><p>새해의 나를 ON!</p>':`<div class="gold-burst" aria-hidden="true">${Array.from({length:16},(_,i)=>`<i style="--angle:${i*22.5}deg;--distance:${70+i%3*24}px"></i>`).join('')}</div><span>✦ NEW Personal Record ✦</span><strong>${esc(c.name)}님, 최고 기록!</strong><p>${event.items.slice(0,2).map(x=>esc(x.label)).join(' · ')}</p>`;
   document.body.append(display);displayTimer=setTimeout(clearDisplay,event.kind==='welcome'?3000:2800);
  }
  async function mutation(path,body,options){sync();const id=owner,g=generation;const candidate=id&&body&&['/api/rms','/api/records','/api/named-wods/record'].includes(path)&&!(path==='/api/records'&&body.records?.every(r=>r.memberId&&r.memberId!==id));

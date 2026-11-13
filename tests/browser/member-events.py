@@ -109,6 +109,22 @@ async def setup(browser,uid,width=390):
  await context.add_init_script("const QADate=Date;globalThis.Date=class extends QADate{constructor(...a){super(...(a.length?a:["+json.dumps(server_now)+"]))}static now(){return new QADate("+json.dumps(server_now)+").getTime()}};")
  page=await context.new_page();page.on('pageerror',lambda e:errors.append(str(e)))
  return context,page
+async def check_record_layout(page,program_count=1):
+ toolbar=page.locator('.member-record-toolbar')
+ assert await toolbar.locator('button').count()==program_count+1
+ boxes=await toolbar.locator('button').evaluate_all('(buttons)=>buttons.map(b=>{const r=b.getBoundingClientRect();return {x:r.x,right:r.right,y:r.y,width:r.width,overflow:b.scrollWidth>b.clientWidth+1}})')
+ assert max(b['y'] for b in boxes)-min(b['y'] for b in boxes)<1,boxes
+ assert all(not b['overflow'] for b in boxes),boxes
+ assert all(boxes[i]['right']+3<boxes[i+1]['x'] for i in range(len(boxes)-1)),boxes
+ header=page.locator('#member-record-results>.panel-head')
+ lines=header.locator('.member-record-heading>span')
+ assert await lines.count()==2
+ assert await lines.evaluate_all('(lines)=>lines.every(el=>el.scrollWidth<=el.clientWidth+1)')
+ a=await lines.nth(0).bounding_box();b=await lines.nth(1).bounding_box();units=await header.locator('.unit-toggle').bounding_box()
+ assert a['y']+a['height']<=b['y']+1,(a,b)
+ assert max(a['x']+a['width'],b['x']+b['width'])<=units['x']-3,(a,b,units)
+ assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+
 async def main():
  global server_now,best_lbs,fail_save,first_workout
  async with async_playwright() as p:
@@ -119,7 +135,37 @@ async def main():
   assert await page.locator('.home-program-tabs button').inner_text()=='Special Workout'
   assert await page.locator('[data-comment-program]').count()==1
   assert await page.locator('[data-comment-program="WOD"]').count()==1
+  await page.goto(origin+'/#members',wait_until='networkidle')
+  for theme in ['navy','mint','orange']:
+   await page.evaluate('(theme)=>document.documentElement.dataset.theme=theme',theme)
+   for width in [320,390,768]:
+    await page.set_viewport_size({'width':width,'height':844})
+    await check_record_layout(page)
+  assert await page.locator('.member-record-heading>span').all_inner_texts()==['11월 14일 토요일','Special Workout']
+  await page.locator('#member-record-results [data-unit="kg"]').click()
+  await check_record_layout(page)
+  await page.locator('[data-record-section="all"]').click()
+  await check_record_layout(page)
+  await page.set_viewport_size({'width':390,'height':844})
+  await page.screenshot(path='/workspace/scratch/record-button-layout-mobile.png')
+  await page.locator('[data-action="prev-date"]').click()
+  for program in ['B/T','WOD']:
+   await page.locator('[data-records-filter="'+program+'"]').click()
+   await page.set_viewport_size({'width':320,'height':844})
+   await check_record_layout(page,2)
+   assert await page.locator('.member-record-heading>span').nth(1).inner_text()==program
+  await page.locator('[data-action="today"]').click()
   await page.goto(origin+'/#admin/workouts',wait_until='networkidle')
+  button=page.locator('[data-edit-workout="WOD"]')
+  assert await button.locator('span').all_inner_texts()==['Special Workout','등록·수정']
+  for width in [320,390,768]:
+   await page.set_viewport_size({'width':width,'height':844})
+   assert await button.evaluate('(b)=>b.scrollWidth<=b.clientWidth+1')
+   assert await button.locator('span').evaluate_all('(lines)=>lines.every(el=>el.scrollWidth<=el.clientWidth+1)')
+   assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+  await page.set_viewport_size({'width':390,'height':844})
+  await page.screenshot(path='/workspace/scratch/class-entry-button-layout-mobile.png')
+
   assert await page.locator('[data-edit-workout="B/T"]').count()==0
   await page.locator('[data-edit-workout="WOD"]').click()
   assert 'Special Workout' in await page.locator('#modal h2').inner_text()
@@ -130,6 +176,11 @@ async def main():
   assert await page.locator('.tv-program strong').all_inner_texts()==['Special Workout']
   assert await page.locator('#tv-WOD .tv-section').count()>0
   await page.screenshot(path='/workspace/scratch/saturday-tv-qa.png')
+  await context.close()
+  context,page=await setup(browser,REJECTED,320)
+  await page.goto(origin+'/#members',wait_until='networkidle')
+  await check_record_layout(page)
+  assert '나의 기록 입력' in await page.locator('.member-record-toolbar').inner_text()
   await context.close()
   # Actual record form saves: only strict own bests celebrate; rejection cannot celebrate.
   server_now='2026-11-13T01:00:00Z'
@@ -143,6 +194,7 @@ async def main():
   await save_rm(205)
   await page.locator('.pr-celebration').wait_for()
   assert '검증 운영자' in await page.locator('.pr-celebration').inner_text()
+  assert await page.locator('.pr-celebration>span').inner_text()=='✦ NEW Personal Record ✦'
   await page.locator('.pr-celebration').wait_for(state='detached')
   await save_rm(205)
   await page.wait_for_timeout(900)

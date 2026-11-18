@@ -13,7 +13,6 @@
   },
   "devDependencies": {
     "@supabase/supabase-js": "2.118.0",
-    "esbuild": "0.25.12",
-    "potrace": "2.1.8"
+    "esbuild": "0.25.12"
   }
 }

@@ -1,3 +1,4 @@
+import {readJsonObject} from './request-body.js';
 import {createWorkoutCommentsService} from './workout-comments-service.js';
 import {createAvatarService,avatarSnapshot} from './avatar-service.js';
 import {createMemberOverviewService} from './member-overview-service.js';
@@ -194,7 +195,13 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
   if(path==='/api/membership'){if(!uuid(b.id))bad('회원을 확인해주세요.');const old=await one('gym_memberships','user_id',b.id);let pass;try{pass=changeMembership(old,b,kstDate(now()));}catch(e){bad(e.message);}return commit(m.id,'membership',{id:b.id,action:b.action,pass,revision:old?.revision??-1,reason:String(b.reason||'').slice(0,200)});}
   if(path==='/api/attendance/cancel'){if(!uuid(b.id)||!normalizeDate(b.date)||b.date>kstDate(now()))bad('회원과 출석 날짜를 확인해주세요.');return commit(m.id,'attendance-cancel',{id:b.id,date:b.date,reason:text(b.reason,1,200,'취소 사유')});}
   if(path==='/api/workouts/delete'){if(!normalizeDate(b.date)||!['B/T','WOD'].includes(b.program))bad('삭제할 수업을 확인해주세요.');return result(db.rpc('onoff_delete_workout',{actor:m.id,target_date:b.date,target_program:b.program}));}
-  if(path==='/api/workouts'){if(!Array.isArray(b.workouts))bad('수업 목록을 확인해주세요.');for(const w of b.workouts){const old=await one('gym_workouts','key',w.date+'_'+w.program);permit(m,old?'workouts.update':'workouts.create');}const [lib,cal]=await Promise.all([library(),calendar()]),v=validateWorkouts(b.workouts,lib.map(m=>m.name),cal.dates);if(v.errors.length)bad(v.errors.join('\n'));await commit(m.id,'workouts',{workouts:v.workouts,overwrite:b.overwrite===true});return {ok:true,count:v.workouts.length};}
+  if(path==='/api/workouts'){
+   if(!hasPermission(m,'workouts.create')&&!hasPermission(m,'workouts.update'))bad('수업 관리 권한이 필요해요.',403);
+   const [lib,cal]=await Promise.all([library(),calendar()]),v=validateWorkouts(b.workouts,lib.map(m=>m.name),cal.dates);
+   if(v.errors.length)bad(v.errors.join('\n'));
+   for(const w of v.workouts){const old=await one('gym_workouts','key',w.date+'_'+w.program);permit(m,old?'workouts.update':'workouts.create');}
+   await commit(m.id,'workouts',{workouts:v.workouts,overwrite:b.overwrite===true});return {ok:true,count:v.workouts.length};
+  }
   if(path==='/api/settings'){if(typeof b.releaseTime!=='string'||!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.releaseTime))bad('공개 시간을 확인해주세요.');await commit(m.id,'settings',{releaseTime:b.releaseTime});return {ok:true,releaseTime:b.releaseTime};}
   if(path==='/api/banner'){if(!validBanner(b))bad('공지 문구·색상·노출 여부를 확인해주세요.');const banner={text:b.text.trim(),color:b.color,enabled:b.enabled};await commit(m.id,'setting',{key:'banner',value:banner});return {ok:true,banner};}
   if(path==='/api/rm-catalogue/delete'){if(typeof b.id!=='string'||!b.id||b.id.length>100)bad('종목을 확인해주세요.');return result(db.rpc('onoff_rm_archive',{actor:m.id,item_id:b.id}));}
@@ -211,7 +218,7 @@ export function createHandler(db,{verifyUser,reauthenticate,fetchCalendar=fetch,
    if(!allowed)bad('허용된 앱에서 접속해주세요.',403);if(req.method==='OPTIONS')return new Response(null,{status:204,headers:cors});
    const url=new URL(req.url),match=url.pathname.match(/\/api\/[^?]+$/),path=match?.[0];if(!path)bad('요청을 찾을 수 없어요.',404);
    const get=new Set(['/api/member-milestones','/api/workout-comments','/api/member-overview','/api/points','/api/points/admin','/api/health','/api/bootstrap','/api/revision','/api/tv/bootstrap','/api/tv/status','/api/storage-usage','/api/push/test-access/config','/api/push/test-access/status','/api/push/history']);if(req.method!==(get.has(path)?'GET':'POST'))bad('지원하지 않는 요청 방식이에요.',405);
-   let b={};if(req.method==='POST'){if(!req.headers.get('Content-Type')?.startsWith('application/json'))bad('JSON 요청만 사용할 수 있어요.',415);const raw=await req.text();if(raw.length>2_000_000)bad('요청이 너무 커요.',413);try{b=JSON.parse(raw);}catch{bad('요청 형식을 확인해주세요.');}if(!b||typeof b!=='object'||Array.isArray(b))bad('요청 형식을 확인해주세요.');}
+   let b={};if(req.method==='POST'){if(!req.headers.get('Content-Type')?.startsWith('application/json'))bad('JSON 요청만 사용할 수 있어요.',415);b=await readJsonObject(req);}
    return response(await route(req,path,url,b));
   }catch(e){if(!e.status)console.error('ONOFF request failed',e.name);return response({error:e.status?e.message:'서버 연결을 확인해주세요.',...(e.status&&e.joinAccess?{joinAccess:e.joinAccess}:{})},e.status||503);}
  };

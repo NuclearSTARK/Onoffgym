@@ -1,4 +1,5 @@
 import {writeFile} from 'node:fs/promises';
+import {CONTENT_SECURITY_POLICY} from './security-policy.mjs';
 
 // Reuse the static Supabase build; never publish the legacy Worker/D1 build.
 await import('./build-pages.mjs');
@@ -7,7 +8,8 @@ await writeFile('pages-dist/_headers', `/*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
-  Content-Security-Policy: frame-ancestors 'none'; object-src 'none'; base-uri 'self'
+  Content-Security-Policy: ${CONTENT_SECURITY_POLICY}; frame-ancestors 'none'
+  Permissions-Policy: geolocation=(self), microphone=(), payment=()
   Cache-Control: no-cache
 `);
 

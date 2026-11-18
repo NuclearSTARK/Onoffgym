@@ -1,0 +1,2 @@
+// Restore the startup screen without requiring inline script execution.
+try{const c=window.ONOFF_BACKEND;if(c){const s=JSON.parse(localStorage.getItem('onoff-auth-'+c.projectId)||'null');if(s?.user?.id){const t=localStorage.getItem('onoff-theme');if(['navy','mint','orange'].includes(t))document.documentElement.dataset.theme=t;document.querySelector('#session-startup').hidden=false;document.documentElement.classList.add('app-booting');}}}catch{}

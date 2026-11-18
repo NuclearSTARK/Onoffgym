@@ -1,5 +1,6 @@
 import {readFile,writeFile,mkdir,rm,cp,readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
+import {CONTENT_SECURITY_POLICY} from './security-policy.mjs';
 const out='pages-dist';await rm(out,{recursive:true,force:true});await cp('web',out,{recursive:true});
 const demo=process.argv.includes('--demo'),config=JSON.parse(await readFile('supabase/public-project.json','utf8'));
 await writeFile(out+'/backend-config.js',demo?'window.ONOFF_DEMO=true;window.ONOFF_BACKEND=null;':'window.ONOFF_BACKEND='+JSON.stringify(config)+';');
@@ -14,5 +15,5 @@ const fingerprint=createHash('sha256');for(const file of [...entries,'index.html
 const version=fingerprint.digest('hex').slice(0,12);
 await writeFile(out+'/release.json',JSON.stringify({version}));
 for(const file of entries.filter(f=>f.endsWith('.js'))){let code=await readFile(out+'/'+file,'utf8');code=code.replace(/(from\s*|import\s*\(\s*)(['"])(\.{1,2}\/[^'"?]+\.js)\2/g,(_,prefix,quote,path)=>prefix+quote+path+'?v='+version+quote);await writeFile(out+'/'+file,code);}
-for(const file of ['index.html','tv.html','push-test.html','auth-callback.html']){let markup=await readFile(out+'/'+file,'utf8');markup=markup.replace('</head>',`<meta name="onoff-release" content="${version}"></head>`);markup=markup.replace(/((?:src|href)=["'])([^"':?]+\.(?:js|css))(?:\?[^"']*)?(["'])/g,(_,prefix,path,quote)=>prefix+path+'?v='+version+quote);await writeFile(out+'/'+file,markup);}
+for(const file of ['index.html','tv.html','push-test.html','auth-callback.html']){let markup=await readFile(out+'/'+file,'utf8');markup=markup.replace('</head>',`<meta name="onoff-release" content="${version}"><meta http-equiv="Content-Security-Policy" content="${CONTENT_SECURITY_POLICY}"></head>`);markup=markup.replace(/((?:src|href)=["'])([^"':?]+\.(?:js|css))(?:\?[^"']*)?(["'])/g,(_,prefix,path,quote)=>prefix+path+'?v='+version+quote);await writeFile(out+'/'+file,markup);}
 console.log('Built GitHub Pages site in '+out+(demo?' (isolated demo)':' (authenticated Supabase backend)'));

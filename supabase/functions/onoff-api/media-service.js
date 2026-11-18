@@ -2,8 +2,25 @@ import {hasPermission} from '../../../web/permissions.js';
 const fail=(message,status=400)=>{throw Object.assign(Error(message),{status});};
 // Accept only canvas-produced JPEGs and drop APP/COM metadata defensively.
 export function cleanJpeg(bytes){if(bytes.length<4||bytes[0]!==255||bytes[1]!==216)fail('JPEG 사진을 선택해주세요.');const parts=[bytes.subarray(0,2)];let i=2;while(i<bytes.length){if(bytes[i]!==255)fail('사진 형식을 확인해주세요.');const marker=bytes[i+1];if(marker===218){parts.push(bytes.subarray(i));const output=new Uint8Array(bytes.length);let length=0;for(const part of parts){output.set(part,length);length+=part.length;}return output.slice(0,length);}const size=(bytes[i+2]<<8)|bytes[i+3];if(size<2||i+2+size>bytes.length)fail('사진 파일이 손상됐어요.');if(!(marker>=224&&marker<=239)&&marker!==254)parts.push(bytes.subarray(i,i+2+size));i+=2+size;}fail('사진 파일을 확인해주세요.');}
+// Compressed byte limits alone do not bound the decoded image's memory use.
+export function jpegDimensions(bytes,maxSide){
+ let i=2,dimensions;
+ while(i+3<bytes.length){
+  if(bytes[i]!==255)fail('사진 형식을 확인해주세요.');
+  const marker=bytes[i+1],size=(bytes[i+2]<<8)|bytes[i+3];
+  if(size<2||i+2+size>bytes.length)fail('사진 파일이 손상됐어요.');
+  if(marker===218){if(!dimensions||bytes.at(-2)!==255||bytes.at(-1)!==217)fail('사진 파일이 손상됐어요.');return dimensions;}
+  if([192,193,194].includes(marker)){
+   const height=(bytes[i+5]<<8)|bytes[i+6],width=(bytes[i+7]<<8)|bytes[i+8];
+   if(dimensions||size<8||bytes[i+4]!==8||!width||!height||width>maxSide||height>maxSide||![1,3].includes(bytes[i+9])||size!==8+3*bytes[i+9])fail('사진 해상도를 줄여주세요.');
+   dimensions={width,height};
+  }
+  i+=2+size;
+ }
+ fail('사진 파일을 확인해주세요.');
+}
 export const photoPreviewPath=path=>path.replace(/\.jpg$/,'.preview.jpg');
-function decodeJpeg(data,limit){if(typeof data!=='string'||data.length>Math.ceil(limit/3)*4)fail('압축된 사진 크기를 확인해주세요.');let bytes;try{bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));}catch{fail('사진 파일을 확인해주세요.');}if(bytes.length>limit)fail('사진 크기를 줄여주세요.');return cleanJpeg(bytes);}
+function decodeJpeg(data,limit){if(typeof data!=='string'||data.length>Math.ceil(limit/3)*4)fail('압축된 사진 크기를 확인해주세요.');let bytes;try{bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));}catch{fail('사진 파일을 확인해주세요.');}if(bytes.length>limit)fail('사진 크기를 줄여주세요.');const clean=cleanJpeg(bytes);jpegDimensions(clean,limit===65536?480:1600);return clean;}
 export function createMediaService(db,{now=()=>new Date()}={}){
  const bucket=db.storage?.from('onoff-private-photos');
  async function result(q){const {data,error}=await q;if(error)fail(error.code==='42501'?'사진 접근 권한이 없어요.':'사진을 저장하지 못했어요. 다시 시도해주세요.',error.code==='42501'?403:503);return data;}

@@ -1,6 +1,46 @@
 // supabase/functions/onoff-api/entry.js
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
+// supabase/functions/onoff-api/request-body.js
+var fail = (message, status = 400) => {
+  throw Object.assign(Error(message), { status });
+};
+async function readJsonObject(req, limit = 2e6) {
+  const declared = req.headers.get("Content-Length");
+  if (declared !== null && /^\d+$/.test(declared) && Number(declared) > limit) fail("\uC694\uCCAD\uC774 \uB108\uBB34 \uCEE4\uC694.", 413);
+  const reader = req.body?.getReader(), chunks = [];
+  let length = 0;
+  if (reader) try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > limit) {
+        await reader.cancel().catch(() => {
+        });
+        fail("\uC694\uCCAD\uC774 \uB108\uBB34 \uCEE4\uC694.", 413);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  let body;
+  try {
+    body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    fail("\uC694\uCCAD \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) fail("\uC694\uCCAD \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  return body;
+}
+
 // web/course-programs.js
 var isSaturday = (date) => /^\d{4}-\d{2}-\d{2}$/.test(date || "") && (/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay() === 6;
 var canonicalProgram = (program, date) => isSaturday(date) && String(program).trim().toUpperCase() === "SPECIAL WORKOUT" ? "WOD" : String(program || "").trim().toUpperCase();
@@ -213,66 +253,69 @@ function normalizeRows(rows, library = MOVEMENTS, holidays = {}) {
   return { errors, warnings, workouts: [...groups.values()].sort((a, b) => a.date.localeCompare(b.date) || a.program.localeCompare(b.program)) };
 }
 function validateWorkouts(workouts, library = MOVEMENTS, holidays = {}) {
-  if (!Array.isArray(workouts) || !workouts.length || workouts.length > 250) return { errors: ["1~250\uAC1C \uC218\uC5C5\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694."], workouts: [] };
+  const invalid = (message) => ({ errors: [message], workouts: [] });
+  if (!Array.isArray(workouts) || !workouts.length || workouts.length > 250) return invalid("1~250\uAC1C \uC218\uC5C5\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
   const rows = [];
   for (const w of workouts) {
-    if (!Array.isArray(w.sections) || !w.sections.length) return { errors: ["\uC218\uC5C5 \uAD6C\uAC04\uC774 \uBE44\uC5B4 \uC788\uC5B4\uC694."], workouts: [] };
-    w.sections.forEach((s, i) => rows.push({ "\uB0A0\uC9DC": w.date, "\uC218\uC5C5": w.program, "\uAD6C\uAC04": "S" + (i + 1), "\uC81C\uBAA9": s.title || "S" + (i + 1), "\uC6B4\uB3D9 \uB0B4\uC6A9": s.text, "\uAE30\uB85D \uC885\uB958": s.record ? s.kind : "\uC5C6\uC74C", "\uAD00\uB828 \uB3D9\uC791": (s.movements?.length ? s.movements : s.movement ? [s.movement] : []).join("; "), "\uC624\uB298 \uC6B4\uB3D9 \uC124\uBA85 \uC601\uC0C1": w.overviewId ? "https://youtu.be/" + w.overviewId : "", "\uC218\uC5C5 \uC2DC\uAC04(\uACF5\uD734\uC77C)": (w.sessions || []).join(", ") }));
+    if (!w || typeof w !== "object" || Array.isArray(w) || typeof w.program !== "string" || !Array.isArray(w.sections) || !w.sections.length || w.sections.length > 99) return invalid("\uC218\uC5C5\uACFC \uAD6C\uAC04 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (w.sessions !== void 0 && (!Array.isArray(w.sessions) || w.sessions.length > 24 || w.sessions.some((t) => typeof t !== "string"))) return invalid("\uC218\uC5C5 \uC2DC\uAC04 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    for (const [i, s] of w.sections.entries()) {
+      if (!s || typeof s !== "object" || Array.isArray(s) || s.movements !== void 0 && (!Array.isArray(s.movements) || s.movements.some((m) => typeof m !== "string")) || s.movement !== void 0 && typeof s.movement !== "string") return invalid("\uC218\uC5C5 \uAD6C\uAC04\uACFC \uAD00\uB828 \uB3D9\uC791\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      rows.push({ "\uB0A0\uC9DC": w.date, "\uC218\uC5C5": w.program, "\uAD6C\uAC04": "S" + (i + 1), "\uC81C\uBAA9": s.title || "S" + (i + 1), "\uC6B4\uB3D9 \uB0B4\uC6A9": s.text, "\uAE30\uB85D \uC885\uB958": s.record ? s.kind : "\uC5C6\uC74C", "\uAD00\uB828 \uB3D9\uC791": (s.movements?.length ? s.movements : s.movement ? [s.movement] : []).join("; "), "\uC624\uB298 \uC6B4\uB3D9 \uC124\uBA85 \uC601\uC0C1": w.overviewId ? "https://youtu.be/" + w.overviewId : "", "\uC218\uC5C5 \uC2DC\uAC04(\uACF5\uD734\uC77C)": (w.sessions || []).join(", ") });
+    }
   }
   const result = normalizeRows(rows, library, holidays);
-  if (!result.errors.length) {
-    for (const w of result.workouts) {
-      const source = workouts.find((x) => normalizeDate(x.date) === w.date && x.program.toUpperCase() === w.program);
-      w.sections.forEach((s, i) => {
-        if (s.record && source?.sections[i]?.recordPolicy) {
-          try {
-            s.recordPolicy = recordPolicy({ ...s, recordPolicy: source.sections[i].recordPolicy });
-          } catch (e) {
-            result.errors.push(e.message);
-          }
+  if (!result.errors.length) for (const w of result.workouts) {
+    const source = workouts.find((x) => normalizeDate(x.date) === w.date && canonicalProgram(x.program, normalizeDate(x.date)) === w.program);
+    w.sections.forEach((s, i) => {
+      if (s.record && source?.sections[i]?.recordPolicy) {
+        try {
+          s.recordPolicy = recordPolicy({ ...s, recordPolicy: source.sections[i].recordPolicy });
+        } catch (e) {
+          result.errors.push(e.message);
         }
-      });
-    }
+      }
+    });
   }
   return result;
 }
 
 // supabase/functions/onoff-api/workout-comments-service.js
-var fail = (message, status = 400) => {
+var fail2 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 var uuid = (value) => typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
 function createWorkoutCommentsService(db2) {
   return { async route(member, path, url, body) {
-    if (member.status !== "approved" || member.delete_requested_at) fail("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uB313\uAE00\uC744 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (member.status !== "approved" || member.delete_requested_at) fail2("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uB313\uAE00\uC744 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     const read = path === "/api/workout-comments", source = read ? Object.fromEntries(url.searchParams) : body;
     const action = read ? source.action || "summary" : { "/api/workout-comments/create": "create", "/api/workout-comments/update": "update", "/api/workout-comments/delete": "delete" }[path];
-    if (!(read ? ["summary", "list"] : ["create", "update", "delete"]).includes(action)) fail("\uB313\uAE00 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    if (!normalizeDate(source.date) || !["B/T", "WOD"].includes(source.program)) fail("\uC218\uC5C5 \uB0A0\uC9DC\uC640 \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (!(read ? ["summary", "list"] : ["create", "update", "delete"]).includes(action)) fail2("\uB313\uAE00 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (!normalizeDate(source.date) || !["B/T", "WOD"].includes(source.program)) fail2("\uC218\uC5C5 \uB0A0\uC9DC\uC640 \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
     const p = { action, date: normalizeDate(source.date), program: source.program };
     if (read) {
       if (source.before !== void 0 || source.beforeId !== void 0) {
-        if (action !== "list" || typeof source.before !== "string" || source.before.length > 40 || !Number.isFinite(Date.parse(source.before)) || !uuid(source.beforeId)) fail("\uB313\uAE00 \uD398\uC774\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (action !== "list" || typeof source.before !== "string" || source.before.length > 40 || !Number.isFinite(Date.parse(source.before)) || !uuid(source.beforeId)) fail2("\uB313\uAE00 \uD398\uC774\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p.before = source.before;
         p.beforeId = source.beforeId;
       }
     } else {
-      if (!uuid(source.id)) fail("\uB313\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid(source.id)) fail2("\uB313\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p.id = source.id;
       if (action !== "delete") {
-        if (member.disclosure_consent !== true) fail("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC791\uC131\uD574\uC8FC\uC138\uC694.", 403);
-        if (typeof source.text !== "string" || !source.text.trim() || source.text.length > 500) fail("\uB313\uAE00\uC740 1~500\uC790\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+        if (member.disclosure_consent !== true) fail2("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC791\uC131\uD574\uC8FC\uC138\uC694.", 403);
+        if (typeof source.text !== "string" || !source.text.trim() || source.text.length > 500) fail2("\uB313\uAE00\uC740 1~500\uC790\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
         p.text = source.text.trim();
       }
       if (action !== "create") {
-        if (!Number.isInteger(source.revision) || source.revision < 0 || source.revision > 2147483647) fail("\uB313\uAE00 \uBCC0\uACBD \uC0C1\uD0DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (!Number.isInteger(source.revision) || source.revision < 0 || source.revision > 2147483647) fail2("\uB313\uAE00 \uBCC0\uACBD \uC0C1\uD0DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p.revision = source.revision;
       }
     }
     const { data, error } = await db2.rpc("onoff_workout_comments", { actor: member.id, p });
     if (error) {
       const status = error.code === "42501" ? 403 : error.code === "P0002" ? 404 : error.code === "40001" || error.code === "23505" ? 409 : ["22023", "22007", "22P02", "23514"].includes(error.code) ? 400 : 503;
-      fail(status === 503 ? "\uB313\uAE00\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." : error.message, status);
+      fail2(status === 503 ? "\uB313\uAE00\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." : error.message, status);
     }
     return data;
   } };
@@ -285,15 +328,15 @@ function hasPermission(member, key) {
 }
 
 // supabase/functions/onoff-api/media-service.js
-var fail2 = (message, status = 400) => {
+var fail3 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 function cleanJpeg(bytes) {
-  if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216) fail2("JPEG \uC0AC\uC9C4\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+  if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216) fail3("JPEG \uC0AC\uC9C4\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
   const parts = [bytes.subarray(0, 2)];
   let i = 2;
   while (i < bytes.length) {
-    if (bytes[i] !== 255) fail2("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (bytes[i] !== 255) fail3("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
     const marker = bytes[i + 1];
     if (marker === 218) {
       parts.push(bytes.subarray(i));
@@ -306,29 +349,50 @@ function cleanJpeg(bytes) {
       return output.slice(0, length);
     }
     const size = bytes[i + 2] << 8 | bytes[i + 3];
-    if (size < 2 || i + 2 + size > bytes.length) fail2("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC190\uC0C1\uB410\uC5B4\uC694.");
+    if (size < 2 || i + 2 + size > bytes.length) fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC190\uC0C1\uB410\uC5B4\uC694.");
     if (!(marker >= 224 && marker <= 239) && marker !== 254) parts.push(bytes.subarray(i, i + 2 + size));
     i += 2 + size;
   }
-  fail2("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+}
+function jpegDimensions(bytes, maxSide) {
+  let i = 2, dimensions;
+  while (i + 3 < bytes.length) {
+    if (bytes[i] !== 255) fail3("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    const marker = bytes[i + 1], size = bytes[i + 2] << 8 | bytes[i + 3];
+    if (size < 2 || i + 2 + size > bytes.length) fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC190\uC0C1\uB410\uC5B4\uC694.");
+    if (marker === 218) {
+      if (!dimensions || bytes.at(-2) !== 255 || bytes.at(-1) !== 217) fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC190\uC0C1\uB410\uC5B4\uC694.");
+      return dimensions;
+    }
+    if ([192, 193, 194].includes(marker)) {
+      const height = bytes[i + 5] << 8 | bytes[i + 6], width = bytes[i + 7] << 8 | bytes[i + 8];
+      if (dimensions || size < 8 || bytes[i + 4] !== 8 || !width || !height || width > maxSide || height > maxSide || ![1, 3].includes(bytes[i + 9]) || size !== 8 + 3 * bytes[i + 9]) fail3("\uC0AC\uC9C4 \uD574\uC0C1\uB3C4\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
+      dimensions = { width, height };
+    }
+    i += 2 + size;
+  }
+  fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
 }
 var photoPreviewPath = (path) => path.replace(/\.jpg$/, ".preview.jpg");
 function decodeJpeg(data, limit) {
-  if (typeof data !== "string" || data.length > Math.ceil(limit / 3) * 4) fail2("\uC555\uCD95\uB41C \uC0AC\uC9C4 \uD06C\uAE30\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  if (typeof data !== "string" || data.length > Math.ceil(limit / 3) * 4) fail3("\uC555\uCD95\uB41C \uC0AC\uC9C4 \uD06C\uAE30\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
   let bytes;
   try {
     bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
   } catch {
-    fail2("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
   }
-  if (bytes.length > limit) fail2("\uC0AC\uC9C4 \uD06C\uAE30\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
-  return cleanJpeg(bytes);
+  if (bytes.length > limit) fail3("\uC0AC\uC9C4 \uD06C\uAE30\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
+  const clean = cleanJpeg(bytes);
+  jpegDimensions(clean, limit === 65536 ? 480 : 1600);
+  return clean;
 }
 function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}) {
   const bucket = db2.storage?.from("onoff-private-photos");
   async function result(q) {
     const { data, error } = await q;
-    if (error) fail2(error.code === "42501" ? "\uC0AC\uC9C4 \uC811\uADFC \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : "\uC0AC\uC9C4\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : 503);
+    if (error) fail3(error.code === "42501" ? "\uC0AC\uC9C4 \uC811\uADFC \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : "\uC0AC\uC9C4\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : 503);
     return data;
   }
   async function cleanup() {
@@ -352,21 +416,21 @@ function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}
     return photos.filter((p) => !p.owner_id || p.owner_id === m?.id || owners.some((o) => o.id === p.owner_id && o.status === "approved" && o.disclosure_consent !== false));
   }
   async function route(m, path, b) {
-    if (m.status !== "approved") fail2("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (m.status !== "approved") fail3("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     if (path === "/api/photos/upload") {
-      if (m.disclosure_consent === false) fail2("\uC0AC\uC9C4 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC774\uC6A9\uD574\uC8FC\uC138\uC694.", 403);
-      if (!["community", "daily", "notice"].includes(b.kind) || b.kind === "daily" && !hasPermission(m, "photos") || b.kind === "notice" && !hasPermission(m, "notices")) fail2("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (m.disclosure_consent === false) fail3("\uC0AC\uC9C4 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC774\uC6A9\uD574\uC8FC\uC138\uC694.", 403);
+      if (!["community", "daily", "notice"].includes(b.kind) || b.kind === "daily" && !hasPermission(m, "photos") || b.kind === "notice" && !hasPermission(m, "notices")) fail3("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       const bytes = decodeJpeg(b.data, 614400), preview = b.previewData === void 0 ? null : decodeJpeg(b.previewData, 65536);
       await cleanup();
       const pending = await result(db2.from("gym_photos").select("id").eq("owner_id", m.id).eq("active", false).limit(10));
-      if (pending.length >= 10) fail2("\uBBF8\uC0AC\uC6A9 \uC0AC\uC9C4\uC774 \uB9CE\uC544\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 429);
+      if (pending.length >= 10) fail3("\uBBF8\uC0AC\uC6A9 \uC0AC\uC9C4\uC774 \uB9CE\uC544\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 429);
       const id2 = crypto.randomUUID(), storagePath = m.id + "/" + id2 + ".jpg", previewPath = preview ? photoPreviewPath(storagePath) : null;
       await result(db2.from("gym_photos").insert({ id: id2, owner_id: m.id, kind: b.kind, path: storagePath, preview_path: previewPath }));
       const uploads = await Promise.allSettled([[storagePath, bytes], ...preview ? [[previewPath, preview]] : []].map(([path2, data]) => bucket.upload(path2, data, { contentType: "image/jpeg", cacheControl: "3600", upsert: false })));
       if (uploads.some((r) => r.status === "rejected" || r.value.error)) {
         await result(db2.from("gym_photos").delete().eq("id", id2).eq("owner_id", m.id));
         await cleanup();
-        fail2("\uC0AC\uC9C4 \uC5C5\uB85C\uB4DC \uC2E4\uD328 \xB7 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uBA74 \uC7AC\uC5C5\uB85C\uB4DC\uD569\uB2C8\uB2E4.", 503);
+        fail3("\uC0AC\uC9C4 \uC5C5\uB85C\uB4DC \uC2E4\uD328 \xB7 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uBA74 \uC7AC\uC5C5\uB85C\uB4DC\uD569\uB2C8\uB2E4.", 503);
       }
       try {
         await result(db2.from("gym_photos").update({ uploaded: true }).eq("id", id2).eq("owner_id", m.id));
@@ -379,13 +443,13 @@ function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}
     }
     if (path === "/api/photos/preview") {
       const preview = decodeJpeg(b.previewData, 65536), photo = await result(db2.from("gym_photos").select("id,path,preview_path,owner_id").eq("id", b.id).eq("active", true).eq("uploaded", true).maybeSingle());
-      if (!photo) fail2("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
-      if (photo.owner_id !== m.id && m.role !== "admin") fail2("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (!photo) fail3("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      if (photo.owner_id !== m.id && m.role !== "admin") fail3("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       if (photo.preview_path) return { ok: true };
       const previewPath = photoPreviewPath(photo.path);
-      if (previewPath === photo.path) fail2("\uC0AC\uC9C4 \uACBD\uB85C\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (previewPath === photo.path) fail3("\uC0AC\uC9C4 \uACBD\uB85C\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const { error } = await bucket.upload(previewPath, preview, { contentType: "image/jpeg", cacheControl: "3600", upsert: false });
-      if (error && !["409", "Duplicate"].includes(String(error.statusCode || error.status || error.error))) fail2("\uBBF8\uB9AC\uBCF4\uAE30\uB97C \uC900\uBE44\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+      if (error && !["409", "Duplicate"].includes(String(error.statusCode || error.status || error.error))) fail3("\uBBF8\uB9AC\uBCF4\uAE30\uB97C \uC900\uBE44\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
       const updated = await result(db2.from("gym_photos").update({ preview_path: previewPath }).eq("id", photo.id).eq("active", true).is("preview_path", null).select("id"));
       if (!updated?.length) {
         const current = await result(db2.from("gym_photos").select("id,preview_path").eq("id", photo.id).maybeSingle());
@@ -397,42 +461,42 @@ function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}
       return { ok: true };
     }
     if (path === "/api/photos/urls") {
-      if (!Array.isArray(b.ids) || b.ids.length < 1 || b.ids.length > 12 || b.ids.some((id2) => typeof id2 !== "string" || !/^[-a-f0-9]{36}$/i.test(id2))) fail2("\uC0AC\uC9C4 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!Array.isArray(b.ids) || b.ids.length < 1 || b.ids.length > 12 || b.ids.some((id2) => typeof id2 !== "string" || !/^[-a-f0-9]{36}$/i.test(id2))) fail3("\uC0AC\uC9C4 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const photos = await visiblePhotos(m, await result(db2.from("gym_photos").select("id,path,preview_path,owner_id").eq("active", true).in("id", [...new Set(b.ids)])));
       if (!photos.length) return { urls: [] };
       const source = (p) => b.variant === "preview" && p.preview_path ? p.preview_path : p.path;
       const { data, error } = await bucket.createSignedUrls(photos.map(source), 60);
-      if (error) fail2("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+      if (error) fail3("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
       return { urls: photos.flatMap((p) => {
         const signed = data.find((x) => x.path === source(p));
         return signed?.signedUrl ? [{ id: p.id, url: signed.signedUrl, variant: source(p) === p.preview_path ? "preview" : "full" }] : [];
       }), expiresIn: 60 };
     }
     if (path === "/api/photos/program") {
-      if (!hasPermission(m, "photos")) fail2("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (!hasPermission(m, "photos")) fail3("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       return result(db2.rpc("onoff_photo_program", { actor: m.id, photo_id: b.id, target_program: b.program }));
     }
     if (path === "/api/photos/url") {
       const photo = await result(db2.from("gym_photos").select("*").eq("id", b.id).eq("active", true).maybeSingle());
-      if (!photo || !(await visiblePhotos(m, [photo])).length) fail2("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      if (!photo || !(await visiblePhotos(m, [photo])).length) fail3("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
       const { data, error } = await bucket.createSignedUrl(b.variant === "preview" && photo.preview_path ? photo.preview_path : photo.path, 60);
-      if (error) fail2("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+      if (error) fail3("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
       return { url: data.signedUrl, variant: b.variant === "preview" && photo.preview_path ? "preview" : "full", expiresIn: 60 };
     }
     if (path === "/api/photos/attach") {
-      if (b.kind !== "daily") fail2("\uC0AC\uC9C4 \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      if (!hasPermission(m, "photos")) fail2("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (b.kind !== "daily") fail3("\uC0AC\uC9C4 \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!hasPermission(m, "photos")) fail3("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       return result(db2.rpc("onoff_attach_photos", { actor: m.id, p: b }));
     }
     if (path === "/api/photos/delete") {
       const photo = await result(db2.from("gym_photos").select("*").eq("id", b.id).maybeSingle());
-      if (!photo) fail2("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
-      if (photo.active ? photo.kind === "daily" ? !hasPermission(m, "photos") : photo.kind === "notice" ? !hasPermission(m, "notices") : m.role !== "admin" : photo.owner_id !== m.id) fail2("\uC0AC\uC9C4 \uC0AD\uC81C \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 403);
+      if (!photo) fail3("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      if (photo.active ? photo.kind === "daily" ? !hasPermission(m, "photos") : photo.kind === "notice" ? !hasPermission(m, "notices") : m.role !== "admin" : photo.owner_id !== m.id) fail3("\uC0AC\uC9C4 \uC0AD\uC81C \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 403);
       await result(db2.from("gym_photos").delete().eq("id", photo.id));
       await cleanup();
       return { ok: true };
     }
-    fail2("\uC0AC\uC9C4 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 404);
+    fail3("\uC0AC\uC9C4 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 404);
   }
   async function list(date, postIds, noticeIds = [], member) {
     if (!bucket) return [];
@@ -444,7 +508,7 @@ function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}
 }
 
 // supabase/functions/onoff-api/avatar-service.js
-var fail3 = (message, status = 400) => {
+var fail4 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 var uuid2 = (v) => typeof v === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
@@ -459,14 +523,14 @@ function avatarSnapshot(preferences, members, viewer) {
   }));
 }
 function avatarJpeg(data) {
-  if (typeof data !== "string" || data.length > 131072) fail3("\uD504\uB85C\uD544 \uC0AC\uC9C4 \uD06C\uAE30\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
+  if (typeof data !== "string" || data.length > 131072) fail4("\uD504\uB85C\uD544 \uC0AC\uC9C4 \uD06C\uAE30\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
   let bytes;
   try {
     bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
   } catch {
-    fail3("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    fail4("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
   }
-  if (bytes.length > 98304) fail3("\uD504\uB85C\uD544 \uC0AC\uC9C4\uC740 96KB \uC774\uD558\uB85C \uC800\uC7A5\uD574\uC8FC\uC138\uC694.");
+  if (bytes.length > 98304) fail4("\uD504\uB85C\uD544 \uC0AC\uC9C4\uC740 96KB \uC774\uD558\uB85C \uC800\uC7A5\uD574\uC8FC\uC138\uC694.");
   bytes = cleanJpeg(bytes);
   let width = 0, height = 0;
   for (let i = 2; i + 8 < bytes.length; ) {
@@ -480,14 +544,14 @@ function avatarJpeg(data) {
     }
     i += 2 + size;
   }
-  if (width !== height || width < 32 || width > 512) fail3("\uD504\uB85C\uD544 \uC0AC\uC9C4\uC744 \uB2E4\uC2DC \uC798\uB77C \uC800\uC7A5\uD574\uC8FC\uC138\uC694.");
+  if (width !== height || width < 32 || width > 512) fail4("\uD504\uB85C\uD544 \uC0AC\uC9C4\uC744 \uB2E4\uC2DC \uC798\uB77C \uC800\uC7A5\uD574\uC8FC\uC138\uC694.");
   return bytes;
 }
 function createAvatarService(db2) {
   const bucket = db2.storage?.from("onoff-private-photos");
   async function result(q) {
     const { data, error } = await q;
-    if (error) fail3("\uD504\uB85C\uD544 \uC0AC\uC9C4\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    if (error) fail4("\uD504\uB85C\uD544 \uC0AC\uC9C4\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
     return data;
   }
   async function discard(path) {
@@ -499,12 +563,12 @@ function createAvatarService(db2) {
     }
   }
   return { async route(m, path, b) {
-    if (m.status !== "approved") fail3("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
-    if ("id" in b || "userId" in b || "user_id" in b || "path" in b) fail3("\uBCF8\uC778 \uD504\uB85C\uD544\uC5D0\uC11C \uC0AC\uC9C4\uC744 \uBCC0\uACBD\uD574\uC8FC\uC138\uC694.", 403);
+    if (m.status !== "approved") fail4("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if ("id" in b || "userId" in b || "user_id" in b || "path" in b) fail4("\uBCF8\uC778 \uD504\uB85C\uD544\uC5D0\uC11C \uC0AC\uC9C4\uC744 \uBCC0\uACBD\uD574\uC8FC\uC138\uC694.", 403);
     if (path === "/api/avatars/save") {
-      if (m.disclosure_consent === false) fail3("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC0AC\uC9C4\uC744 \uB4F1\uB85D\uD574\uC8FC\uC138\uC694.", 403);
+      if (m.disclosure_consent === false) fail4("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC0AC\uC9C4\uC744 \uB4F1\uB85D\uD574\uC8FC\uC138\uC694.", 403);
       const bytes = avatarJpeg(b.data), id2 = crypto.randomUUID(), storagePath = `avatars/${m.id}/${id2}.jpg`;
-      if (!bucket) fail3("\uC0AC\uC9C4 \uC800\uC7A5 \uC5F0\uACB0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 503);
+      if (!bucket) fail4("\uC0AC\uC9C4 \uC800\uC7A5 \uC5F0\uACB0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 503);
       await result(bucket.upload(storagePath, bytes, { contentType: "image/jpeg", cacheControl: "60", upsert: false }));
       try {
         await result(db2.rpc("onoff_commit", { actor: m.id, op: "preferences", p: { avatarPhoto: { id: id2, path: storagePath } } }));
@@ -519,7 +583,7 @@ function createAvatarService(db2) {
       return { ok: true };
     }
     if (path === "/api/avatars/urls") {
-      if (!Array.isArray(b.ids) || !b.ids.length || b.ids.length > 24 || b.ids.some((id2) => !uuid2(id2))) fail3("\uD68C\uC6D0 \uC0AC\uC9C4 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!Array.isArray(b.ids) || !b.ids.length || b.ids.length > 24 || b.ids.some((id2) => !uuid2(id2))) fail4("\uD68C\uC6D0 \uC0AC\uC9C4 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const ids = [...new Set(b.ids)], members = await result(db2.from("gym_members").select("id,status,disclosure_consent,delete_requested_at").in("id", ids));
       const allowed = members.filter((owner) => !owner.delete_requested_at && (owner.id === m.id || m.role === "admin" || owner.status === "approved" && owner.disclosure_consent !== false)).map((owner) => owner.id);
       if (!allowed.length || !bucket) return { urls: [], expiresIn: 60 };
@@ -535,34 +599,34 @@ function createAvatarService(db2) {
         return entry?.signedUrl ? [{ userId: p.userId, id: p.id, url: entry.signedUrl }] : [];
       }), expiresIn: 60 };
     }
-    fail3("\uD504\uB85C\uD544 \uC0AC\uC9C4 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 404);
+    fail4("\uD504\uB85C\uD544 \uC0AC\uC9C4 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 404);
   } };
 }
 
 // supabase/functions/onoff-api/member-overview-service.js
-var fail4 = (message, status = 400) => {
+var fail5 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 function createMemberOverviewService(db2) {
   return { async read(member, url) {
-    if (member.status !== "approved" || member.role !== "admin" || member.delete_requested_at) fail4("\uC6B4\uC601\uC790\uB9CC \uD68C\uC6D0 \uD604\uD669\uC744 \uBCFC \uC218 \uC788\uC5B4\uC694.", 403);
+    if (member.status !== "approved" || member.role !== "admin" || member.delete_requested_at) fail5("\uC6B4\uC601\uC790\uB9CC \uD68C\uC6D0 \uD604\uD669\uC744 \uBCFC \uC218 \uC788\uC5B4\uC694.", 403);
     const q = url.searchParams, kind = q.get("kind") || "attendance", action = q.get("action") || "summary", p = { kind, action };
-    if (!["attendance", "rm", "named"].includes(kind) || !["summary", "history"].includes(action)) fail4("\uC870\uD68C \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (!["attendance", "rm", "named"].includes(kind) || !["summary", "history"].includes(action)) fail5("\uC870\uD68C \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
     for (const key of ["date", "month"]) if (q.has(key)) {
-      if (!normalizeDate(q.get(key))) fail4("\uC870\uD68C \uB0A0\uC9DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!normalizeDate(q.get(key))) fail5("\uC870\uD68C \uB0A0\uC9DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p[key] = normalizeDate(q.get(key));
     }
     const filter = q.get("filter") || "";
-    if (filter.length > 100) fail4("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (filter.length > 100) fail5("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
     p.filter = filter;
     if (action === "history") {
       const id2 = q.get("memberId"), page = q.get("page") || "0";
-      if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id2 || "") || !/^\d{1,6}$/.test(page) || +page > 1e5) fail4("\uD68C\uC6D0\xB7\uD398\uC774\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id2 || "") || !/^\d{1,6}$/.test(page) || +page > 1e5) fail5("\uD68C\uC6D0\xB7\uD398\uC774\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p.memberId = id2;
       p.page = +page;
     }
     const { data, error } = await db2.rpc("onoff_member_overview", { actor: member.id, p });
-    if (error) fail4(error.code === "42501" ? "\uC6B4\uC601\uC790\uB9CC \uD68C\uC6D0 \uD604\uD669\uC744 \uBCFC \uC218 \uC788\uC5B4\uC694." : "\uD68C\uC6D0 \uD604\uD669\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : 503);
+    if (error) fail5(error.code === "42501" ? "\uC6B4\uC601\uC790\uB9CC \uD68C\uC6D0 \uD604\uD669\uC744 \uBCFC \uC218 \uC788\uC5B4\uC694." : "\uD68C\uC6D0 \uD604\uD669\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : 503);
     return data;
   } };
 }
@@ -690,7 +754,7 @@ function participationAccess({ viewer, author, post, pass, today, attendedToday 
 }
 
 // supabase/functions/onoff-api/named-service.js
-var fail5 = (message, status = 400) => {
+var fail6 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 var uuid3 = (x) => typeof x === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(x);
@@ -699,42 +763,42 @@ var validText = (x, min, max) => typeof x === "string" && x.trim().length >= min
 function createNamedService(db2) {
   async function rpc(name, p) {
     const { data, error } = await db2.rpc(name, p);
-    if (error) fail5(error.code === "42501" ? "\uC774 \uAE30\uB2A5\uC758 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : error.code === "23505" ? "\uC774\uBBF8 \uB4F1\uB85D\uB41C \uC885\uBAA9 \uB610\uB294 \uBD84\uB958\uC608\uC694." : "\uC694\uCCAD\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : error.code === "23505" ? 409 : 400);
+    if (error) fail6(error.code === "42501" ? "\uC774 \uAE30\uB2A5\uC758 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : error.code === "23505" ? "\uC774\uBBF8 \uB4F1\uB85D\uB41C \uC885\uBAA9 \uB610\uB294 \uBD84\uB958\uC608\uC694." : "\uC694\uCCAD\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : error.code === "23505" ? 409 : 400);
     return data;
   }
   return { snapshot: (m) => rpc("onoff_named_snapshot", { actor: m.id }), async route(m, path, b) {
-    if (m.status !== "approved") fail5("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (m.status !== "approved") fail6("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     if (path === "/api/named-wods/comparison") {
-      if (!id(b.wodId)) fail5("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!id(b.wodId)) fail6("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return rpc("onoff_named_comparison", { actor: m.id, wod_id: b.wodId });
     }
     let p;
     if (path === "/api/named-wods/selection") {
-      if (!Array.isArray(b.ids) || b.ids.length > 250 || b.ids.some((x) => !id(x))) fail5("\uC885\uBAA9 \uC120\uD0DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!Array.isArray(b.ids) || b.ids.length > 250 || b.ids.some((x) => !id(x))) fail6("\uC885\uBAA9 \uC120\uD0DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "selection", ids: [...new Set(b.ids)] };
     } else if (path === "/api/named-wods/record") {
-      if (!uuid3(b.id) || !id(b.wodId) || !/^\d{4}-\d{2}-\d{2}$/.test(b.date || "") || !validText(b.note ?? "", 0, 150)) fail5("\uC885\uBAA9\xB7\uB0A0\uC9DC\xB7\uBA54\uBAA8\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid3(b.id) || !id(b.wodId) || !/^\d{4}-\d{2}-\d{2}$/.test(b.date || "") || !validText(b.note ?? "", 0, 150)) fail6("\uC885\uBAA9\xB7\uB0A0\uC9DC\xB7\uBA54\uBAA8\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const time = Number.isInteger(b.seconds) && b.seconds >= 1 && b.seconds <= 59999, rounds = Number.isInteger(b.rounds) && b.rounds >= 0 && b.rounds <= 9999 && Number.isInteger(b.reps) && b.reps >= 0 && b.reps <= 99999 && b.rounds + b.reps > 0;
-      if (!time && !rounds) fail5("\uC2DC\uAC04 \uB610\uB294 \uB77C\uC6B4\uB4DC\xB7\uD69F\uC218\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!time && !rounds) fail6("\uC2DC\uAC04 \uB610\uB294 \uB77C\uC6B4\uB4DC\xB7\uD69F\uC218\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "record", id: b.id, wodId: b.wodId, date: b.date, note: (b.note || "").trim(), ...time ? { seconds: b.seconds } : { rounds: b.rounds, reps: b.reps } };
     } else if (path === "/api/named-wods/record/delete") {
-      if (!uuid3(b.id)) fail5("\uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid3(b.id)) fail6("\uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "record-delete", id: b.id };
     } else {
-      if (m.role !== "admin") fail5("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (m.role !== "admin") fail6("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       if (path === "/api/named-wods/catalogue") {
-        if (b.id && !id(b.id) || !validText(b.name, 1, 80) || !validText(b.description ?? "", 0, 1e4) || !id(b.categoryId) || !["time", "rounds"].includes(b.recordType) || typeof b.isDefault !== "boolean" || typeof b.active !== "boolean") fail5("\uC885\uBAA9 \uC124\uC815\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (b.id && !id(b.id) || !validText(b.name, 1, 80) || !validText(b.description ?? "", 0, 1e4) || !id(b.categoryId) || !["time", "rounds"].includes(b.recordType) || typeof b.isDefault !== "boolean" || typeof b.active !== "boolean") fail6("\uC885\uBAA9 \uC124\uC815\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p = { action: "catalogue", ...b.id ? { id: b.id } : {}, name: b.name.trim(), description: b.description || "", categoryId: b.categoryId, recordType: b.recordType, isDefault: b.isDefault, active: b.active };
       } else if (path === "/api/named-wods/catalogue/delete") {
-        if (!id(b.id)) fail5("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (!id(b.id)) fail6("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p = { action: "catalogue-delete", id: b.id };
       } else if (path === "/api/named-wods/category") {
-        if (b.id && !id(b.id) || !validText(b.label, 1, 40)) fail5("\uBD84\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (b.id && !id(b.id) || !validText(b.label, 1, 40)) fail6("\uBD84\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p = { action: "category", ...b.id ? { id: b.id } : {}, label: b.label.trim() };
       } else if (path === "/api/named-wods/category/delete") {
-        if (!id(b.id) || !id(b.targetId) || b.id === b.targetId) fail5("\uC62E\uAE38 \uBD84\uB958\uB97C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+        if (!id(b.id) || !id(b.targetId) || b.id === b.targetId) fail6("\uC62E\uAE38 \uBD84\uB958\uB97C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
         p = { action: "category-delete", id: b.id, targetId: b.targetId };
-      } else fail5("NAMED WOD \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      } else fail6("NAMED WOD \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
     }
     return rpc("onoff_named_mutate", { actor: m.id, p });
   } };
@@ -747,7 +811,7 @@ var validGender = (value) => value === "male" || value === "female";
 var PRIVACY_VERSION = "privacy-2026-11-05";
 
 // supabase/functions/onoff-api/points-service.js
-var fail6 = (message, status = 400) => {
+var fail7 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 var uuid4 = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
@@ -755,11 +819,11 @@ var integer2 = (n, min, max) => Number.isSafeInteger(n) && n >= min && n <= max;
 function createPointsService(db2, { now = () => /* @__PURE__ */ new Date() } = {}) {
   const read = async (q) => {
     const { data, error } = await q;
-    if (error) fail6("\uD3EC\uC778\uD2B8 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+    if (error) fail7("\uD3EC\uC778\uD2B8 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
     return data;
   };
   async function snapshot(m) {
-    if (m?.status !== "approved") fail6("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (m?.status !== "approved") fail7("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     const [cfg, account, coupons, products, ledger, rules, methods] = await Promise.all([
       read(db2.from("gym_point_config").select("enabled,attendance_points,record_points,max_balance").eq("singleton", true).maybeSingle()),
       read(db2.from("gym_point_accounts").select("balance").eq("user_id", m.id).maybeSingle()),
@@ -772,67 +836,67 @@ function createPointsService(db2, { now = () => /* @__PURE__ */ new Date() } = {
     return { enabled: !!cfg?.enabled, attendancePoints: cfg?.attendance_points || 0, recordPoints: cfg?.record_points || 0, balance: Number(account?.balance || 0), maxBalance: cfg?.max_balance == null ? null : Number(cfg.max_balance), rules: rules || [], methods: methods || [], coupons: (coupons || []).map((c) => ({ ...c, expired: !!c.expires_at && Date.parse(c.expires_at) <= +now() })), products: products || [], ledger: ledger || [] };
   }
   async function route(m, path, b) {
-    if (m?.status !== "approved") fail6("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (m?.status !== "approved") fail7("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     if (path === "/api/points") return snapshot(m);
     const isAdmin = m.role === "admin";
-    if (["/api/points/admin", "/api/points/settings", "/api/points/product", "/api/points/product/delete", "/api/points/rule", "/api/points/rule/delete", "/api/points/grant", "/api/points/deduct", "/api/points/reset", "/api/points/method", "/api/points/method/delete"].includes(path) && !isAdmin) fail6("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+    if (["/api/points/admin", "/api/points/settings", "/api/points/product", "/api/points/product/delete", "/api/points/rule", "/api/points/rule/delete", "/api/points/grant", "/api/points/deduct", "/api/points/reset", "/api/points/method", "/api/points/method/delete"].includes(path) && !isAdmin) fail7("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
     if (path === "/api/points/admin") {
       const cfg = await read(db2.from("gym_point_config").select("pin_hash").eq("singleton", true).maybeSingle());
       const [base, coupons, members, accounts] = await Promise.all([snapshot(m), read(db2.from("gym_point_coupons").select("id,user_id,name,price,total,remaining,created_at,last_used_at,expires_at").order("created_at", { ascending: false }).limit(100)), read(db2.from("gym_members").select("id,name,status")), read(db2.from("gym_point_accounts").select("user_id,balance"))]);
       return { ...base, pinConfigured: !!cfg?.pin_hash, members: members.filter((m2) => m2.status === "approved").map((m2) => ({ id: m2.id, name: m2.name, balance: Number(accounts.find((a) => a.user_id === m2.id)?.balance || 0) })), issued: (coupons || []).map((c) => ({ ...c, expired: !!c.expires_at && Date.parse(c.expires_at) <= +now(), memberName: members.find((m2) => m2.id === c.user_id)?.name || "\uD68C\uC6D0" })) };
     }
     if (path === "/api/points/reset") {
-      if (!uuid4(b.requestId) || b.confirmed !== true) fail6("\uCD08\uAE30\uD654 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid4(b.requestId) || b.confirmed !== true) fail7("\uCD08\uAE30\uD654 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const { data: data2, error: error2 } = await db2.rpc("onoff_point_reset", { actor: m.id, request_id: b.requestId });
-      if (error2) fail6(error2.code === "42501" ? "\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694." : "\uD3EC\uC778\uD2B8 \uCD08\uAE30\uD654 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error2.code === "42501" ? 403 : 503);
+      if (error2) fail7(error2.code === "42501" ? "\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694." : "\uD3EC\uC778\uD2B8 \uCD08\uAE30\uD654 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error2.code === "42501" ? 403 : 503);
       return data2;
     }
     let p;
     if (path === "/api/points/settings") {
-      if (typeof b.enabled !== "boolean" || b.pin && (typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin))) fail6("\uC801\uB9BD \uC124\uC815\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (typeof b.enabled !== "boolean" || b.pin && (typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin))) fail7("\uC801\uB9BD \uC124\uC815\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "settings", enabled: b.enabled, pin: b.pin || "" };
       for (const key of ["attendancePoints", "recordPoints"]) if (key in b) {
-        if (!integer2(b[key], 0, 1e6)) fail6("\uC801\uB9BD\uC561\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (!integer2(b[key], 0, 1e6)) fail7("\uC801\uB9BD\uC561\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p[key] = b[key];
       }
       if ("maxBalance" in b) {
-        if (b.maxBalance !== null && !integer2(b.maxBalance, 1, 9e12)) fail6("\uCD1D \uBCF4\uC720 \uD3EC\uC778\uD2B8 \uC0C1\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (b.maxBalance !== null && !integer2(b.maxBalance, 1, 9e12)) fail7("\uCD1D \uBCF4\uC720 \uD3EC\uC778\uD2B8 \uC0C1\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p.maxBalance = b.maxBalance;
       }
     } else if (path === "/api/points/rule") {
-      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !b.methodId && !["attendance", "record", "manual"].includes(b.kind) || b.methodId && (typeof b.methodId !== "string" || b.methodId.length > 80) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || !integer2(b.amount, 0, 1e6)) fail6("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !b.methodId && !["attendance", "record", "manual"].includes(b.kind) || b.methodId && (typeof b.methodId !== "string" || b.methodId.length > 80) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || !integer2(b.amount, 0, 1e6)) fail7("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "rule-save", id: b.id || "", ...b.methodId ? { methodId: b.methodId } : { kind: b.kind }, name: b.name.trim(), amount: b.amount };
     } else if (path === "/api/points/rule/delete") {
-      if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail6("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail7("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "rule-delete", id: b.id };
     } else if (path === "/api/points/method") {
-      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !["manual", "attendance", "record"].includes(b.kind) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60) fail6("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !["manual", "attendance", "record"].includes(b.kind) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60) fail7("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "method-save", id: b.id || "", name: b.name.trim(), kind: b.kind };
     } else if (path === "/api/points/method/delete") {
-      if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail6("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail7("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "method-delete", id: b.id };
     } else if (path === "/api/points/deduct") {
-      if (!uuid4(b.memberId) || !uuid4(b.requestId) || !integer2(b.amount, 1, 1e6) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200) fail6("\uCC28\uAC10 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid4(b.memberId) || !uuid4(b.requestId) || !integer2(b.amount, 1, 1e6) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200) fail7("\uCC28\uAC10 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "deduct", memberId: b.memberId, requestId: b.requestId, amount: b.amount, reason: b.reason.trim() };
     } else if (path === "/api/points/grant") {
-      if (!uuid4(b.memberId) || !uuid4(b.requestId) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200 || b.ruleId && (typeof b.ruleId !== "string" || b.ruleId.length > 80) || !b.ruleId && !integer2(b.amount, 1, 1e6)) fail6("\uC9C0\uAE09 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid4(b.memberId) || !uuid4(b.requestId) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200 || b.ruleId && (typeof b.ruleId !== "string" || b.ruleId.length > 80) || !b.ruleId && !integer2(b.amount, 1, 1e6)) fail7("\uC9C0\uAE09 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "grant", memberId: b.memberId, requestId: b.requestId, ruleId: b.ruleId || null, reason: b.reason.trim(), ...!b.ruleId ? { amount: b.amount } : {} };
     } else if (path === "/api/points/product") {
-      if (b.id && !uuid4(b.id) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || typeof b.description !== "string" || b.description.length > 300 || !integer2(b.price, 1, 1e9) || !integer2(b.uses, 1, 1e3)) fail6("\uC0C1\uD488 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && !uuid4(b.id) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || typeof b.description !== "string" || b.description.length > 300 || !integer2(b.price, 1, 1e9) || !integer2(b.uses, 1, 1e3)) fail7("\uC0C1\uD488 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "product-save", id: b.id || "", name: b.name.trim(), description: b.description, price: b.price, uses: b.uses };
     } else if (path === "/api/points/product/delete") {
-      if (!uuid4(b.id)) fail6("\uC0C1\uD488\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid4(b.id)) fail7("\uC0C1\uD488\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "product-delete", id: b.id };
     } else if (path === "/api/points/exchange") {
-      if (!uuid4(b.productId) || !uuid4(b.requestId) || !integer2(b.expectedPrice, 1, 1e9) || !integer2(b.expectedUses, 1, 1e3)) fail6("\uAD50\uD658 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid4(b.productId) || !uuid4(b.requestId) || !integer2(b.expectedPrice, 1, 1e9) || !integer2(b.expectedUses, 1, 1e3)) fail7("\uAD50\uD658 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "exchange", productId: b.productId, requestId: b.requestId, expectedPrice: b.expectedPrice, expectedUses: b.expectedUses };
     } else if (path === "/api/points/use") {
-      if (!uuid4(b.couponId) || !uuid4(b.requestId) || typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin)) fail6("\uCFE0\uD3F0\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid4(b.couponId) || !uuid4(b.requestId) || typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin)) fail7("\uCFE0\uD3F0\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "use", couponId: b.couponId, requestId: b.requestId, pin: b.pin };
-    } else fail6("\uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    } else fail7("\uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
     const { data, error } = await db2.rpc("onoff_points", { actor: m.id, p });
-    if (error) fail6(error.code === "42501" ? "\uC774 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD560 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : error.code === "P0001" ? error.message : "\uD3EC\uC778\uD2B8 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : error.code === "P0001" ? 400 : 503);
-    if (data?.ok === false) fail6(data.error, data.status || 400);
+    if (error) fail7(error.code === "42501" ? "\uC774 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD560 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : error.code === "P0001" ? error.message : "\uD3EC\uC778\uD2B8 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : error.code === "P0001" ? 400 : 503);
+    if (data?.ok === false) fail7(data.error, data.status || 400);
     return data;
   }
   return { snapshot, route };
@@ -966,51 +1030,51 @@ var avatarEmoji = (value) => validAvatar(value) ? value : "\u{1F3CB}\uFE0F";
 
 // supabase/functions/onoff-api/account-service.js
 var photoPaths = (paths) => [...new Set(paths.flatMap((path) => [path, photoPreviewPath(path)]))];
-var fail7 = (message, status = 400) => {
+var fail8 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 function createAccountService(db2, { reauthenticate } = {}) {
   return { async removeByAdmin(member, b) {
-    if (member.role !== "admin" || member.status !== "approved" || member.id === b.id) fail7("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+    if (member.role !== "admin" || member.status !== "approved" || member.id === b.id) fail8("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
     const args = { actor: member.id, target: b.id, request_id: b.requestId };
     const prepared = await db2.rpc("onoff_account_delete_prepare", { ...args, confirmed_name: b.confirmedName });
-    if (prepared.error) fail7(prepared.error.code === "42501" ? "\uACC4\uC815 \uC0AD\uC81C \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uC0AD\uC81C\uD560 \uC218 \uC5C6\uC5B4\uC694." : "\uD68C\uC6D0 \uC774\uB984\uACFC \uC0AD\uC81C \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", prepared.error.code === "42501" ? 403 : 409);
+    if (prepared.error) fail8(prepared.error.code === "42501" ? "\uACC4\uC815 \uC0AD\uC81C \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uC0AD\uC81C\uD560 \uC218 \uC5C6\uC5B4\uC694." : "\uD68C\uC6D0 \uC774\uB984\uACFC \uC0AD\uC81C \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", prepared.error.code === "42501" ? 403 : 409);
     if (!prepared.data?.already) {
       const paths = photoPaths(prepared.data?.paths || []);
       if (paths.length) {
         const bucket = db2.storage?.from("onoff-private-photos");
-        if (!bucket) fail7("\uC0AC\uC9C4 \uC0AD\uC81C \uC5F0\uACB0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 503);
+        if (!bucket) fail8("\uC0AC\uC9C4 \uC0AD\uC81C \uC5F0\uACB0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 503);
         for (let i = 0; i < paths.length; i += 100) {
           const removed = await bucket.remove(paths.slice(i, i + 100));
-          if (removed.error) fail7("\uC0AC\uC9C4 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uACC4\uC815 \uC0AD\uC81C\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+          if (removed.error) fail8("\uC0AC\uC9C4 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uACC4\uC815 \uC0AD\uC81C\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
         }
       }
       const deleted = await db2.auth.admin.deleteUser(b.id, false);
-      if (deleted.error) fail7("\uACC4\uC815 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+      if (deleted.error) fail8("\uACC4\uC815 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
     }
     const completed = await db2.rpc("onoff_account_delete_complete", args);
-    if (completed.error) fail7("\uACC4\uC815 \uC0AD\uC81C \uC644\uB8CC \uD655\uC778\uC744 \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    if (completed.error) fail8("\uACC4\uC815 \uC0AD\uC81C \uC644\uB8CC \uD655\uC778\uC744 \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
     return { ok: true, deleted: true };
   }, async withdraw(member, b) {
-    if (b.confirmed !== true || typeof b.password !== "string" || !b.password || b.password.length > 128) fail7("\uD0C8\uD1F4 \uB3D9\uC758\uC640 \uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    if (!member.email || !reauthenticate) fail7("\uC774\uBA54\uC77C \uB85C\uADF8\uC778\uC744 \uB2E4\uC2DC \uD655\uC778\uD574\uC8FC\uC138\uC694.", 401);
+    if (b.confirmed !== true || typeof b.password !== "string" || !b.password || b.password.length > 128) fail8("\uD0C8\uD1F4 \uB3D9\uC758\uC640 \uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (!member.email || !reauthenticate) fail8("\uC774\uBA54\uC77C \uB85C\uADF8\uC778\uC744 \uB2E4\uC2DC \uD655\uC778\uD574\uC8FC\uC138\uC694.", 401);
     const session = await reauthenticate(member.email, b.password);
-    if (!session || session.user?.id !== member.id || !session.accessToken) fail7("\uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.", 403);
+    if (!session || session.user?.id !== member.id || !session.accessToken) fail8("\uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.", 403);
     const prepared = await db2.rpc("onoff_withdraw_prepare", { actor: member.id });
-    if (prepared.error) fail7(prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uB2E4\uB978 \uC2B9\uC778\uB41C \uC6B4\uC601\uC790\uC5D0\uAC8C \uAD8C\uD55C\uC744 \uB118\uAE34 \uB4A4 \uD0C8\uD1F4\uD560 \uC218 \uC788\uC5B4\uC694." : "\uD0C8\uD1F4 \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", prepared.error.code === "23514" ? 409 : 503);
+    if (prepared.error) fail8(prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uB2E4\uB978 \uC2B9\uC778\uB41C \uC6B4\uC601\uC790\uC5D0\uAC8C \uAD8C\uD55C\uC744 \uB118\uAE34 \uB4A4 \uD0C8\uD1F4\uD560 \uC218 \uC788\uC5B4\uC694." : "\uD0C8\uD1F4 \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", prepared.error.code === "23514" ? 409 : 503);
     if (db2.storage?.from) {
       const photos = await db2.from("gym_photos").select("path").eq("owner_id", member.id);
-      if (photos.error) fail7("\uC0AC\uC9C4 \uC0AD\uC81C \uC900\uBE44\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+      if (photos.error) fail8("\uC0AC\uC9C4 \uC0AD\uC81C \uC900\uBE44\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
       const paths = photoPaths((photos.data || []).map((x) => x.path));
       for (let i = 0; i < paths.length; i += 100) {
         const removed2 = await db2.storage.from("onoff-private-photos").remove(paths.slice(i, i + 100));
-        if (removed2.error) fail7("\uC0AC\uC9C4 \uC0AD\uC81C\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+        if (removed2.error) fail8("\uC0AC\uC9C4 \uC0AD\uC81C\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
       }
     }
     const revoked = await db2.auth.admin.signOut(session.accessToken, "global");
-    if (revoked.error) fail7("\uB85C\uADF8\uC778 \uC5F0\uACB0 \uD574\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    if (revoked.error) fail8("\uB85C\uADF8\uC778 \uC5F0\uACB0 \uD574\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
     const removed = await db2.auth.admin.deleteUser(member.id, false);
-    if (removed.error) fail7("\uACC4\uC815 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    if (removed.error) fail8("\uACC4\uC815 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
     return { ok: true, deleted: true };
   } };
 }
@@ -1125,7 +1189,7 @@ async function pushDigest(value) {
 }
 
 // supabase/functions/onoff-api/push-service.js
-var fail8 = (message, status = 400) => {
+var fail9 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 var same = (a, b) => {
@@ -1139,7 +1203,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
 } } = {}) {
   async function result(q) {
     const { data, error } = await q;
-    if (error) fail8(error.code === "42501" ? "\uC54C\uB9BC \uC694\uCCAD \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : "\uC54C\uB9BC \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : 400);
+    if (error) fail9(error.code === "42501" ? "\uC54C\uB9BC \uC694\uCCAD \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : "\uC54C\uB9BC \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : 400);
     return data;
   }
   const one = (table, key, value) => result(db2.from(table).select("*").eq(key, value).maybeSingle());
@@ -1152,14 +1216,14 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
   }
   async function access(req) {
     const code = req.headers.get("X-OnOff-Push-Test") || "";
-    if (!/^[a-f0-9]{32}$/.test(code)) fail8("\uC720\uD6A8\uD55C \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C \uB610\uB294 \uCF54\uB4DC\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.", 401);
+    if (!/^[a-f0-9]{32}$/.test(code)) fail9("\uC720\uD6A8\uD55C \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C \uB610\uB294 \uCF54\uB4DC\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.", 401);
     const hash = await pushDigest(code), test = await one("gym_push_tests", "hash", hash);
-    if (!test || Date.parse(test.expires) <= +now()) fail8("\uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB410\uC5B4\uC694.", 401);
+    if (!test || Date.parse(test.expires) <= +now()) fail9("\uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB410\uC5B4\uC694.", 401);
     return { hash, test };
   }
   async function subscribe(actor, testHash, b) {
     const sub = validateSubscription(b.subscription);
-    if (!sub) fail8("\uC54C\uB9BC \uAD6C\uB3C5 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (!sub) fail9("\uC54C\uB9BC \uAD6C\uB3C5 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
     const id2 = await pushDigest(sub.endpoint), preferences = { notices: b.preferences?.notices !== false, workouts: b.preferences?.workouts !== false, approvals: b.preferences?.approvals !== false, memberships: b.preferences?.memberships !== false };
     await result(db2.rpc("onoff_push_subscribe", { actor, test_code: testHash, sub_id: id2, sub_body: sub, prefs: preferences }));
     return { ok: true, id: id2 };
@@ -1239,7 +1303,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
   async function publicRoute(req, path, b) {
     if (path === "/api/push/dispatch") {
       const secret = await setting("pushCronSecret");
-      if (!secret || !same(req.headers.get("X-OnOff-Worker"), secret)) fail8("\uC54C\uB9BC \uBC1C\uC1A1 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 401);
+      if (!secret || !same(req.headers.get("X-OnOff-Worker"), secret)) fail9("\uC54C\uB9BC \uBC1C\uC1A1 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 401);
       await maintenance();
       return dispatch();
     }
@@ -1256,14 +1320,14 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
       const job = await result(db2.rpc("onoff_push_compose", { actor: null, test_code: hash, p: { mode: "test", title: b.title || "ONOFF \uD478\uC2DC \uD14C\uC2A4\uD2B8", body: b.body || "\uC571\uC744 \uB2EB\uC740 \uC0C1\uD0DC\uC758 \uC54C\uB9BC \uC218\uC2E0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", subscriptionId: id2, delayed: b.delayed === true } }));
       return { ok: true, job, queued: true };
     }
-    fail8("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    fail9("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
   }
   async function memberRoute(member, path, b) {
     if (["/api/push/compose", "/api/push/history"].includes(path)) {
-      if (!hasPermission(member, "push")) fail8("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (!hasPermission(member, "push")) fail9("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       if (path.endsWith("/history")) return { jobs: await result(db2.rpc("onoff_push_history", { actor: member.id })) };
-      if (!["test", "all"].includes(b.mode)) fail8("\uBC1C\uC1A1 \uB300\uC0C1\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      if (b.mode === "test" && !b.endpoint) fail8("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
+      if (!["test", "all"].includes(b.mode)) fail9("\uBC1C\uC1A1 \uB300\uC0C1\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.mode === "test" && !b.endpoint) fail9("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
       const job = await result(db2.rpc("onoff_push_compose", { actor: member.id, test_code: null, p: { mode: b.mode, title: "ONOFF", body: b.body, subscriptionId: await pushDigest(b.endpoint || ""), delayed: b.mode === "test" } }));
       return { ok: true, queued: true, job };
     }
@@ -1276,8 +1340,8 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
       await result(db2.from("gym_push_subscriptions").delete().eq("id", id2).eq("user_id", member.id));
       return { ok: true };
     }
-    if (path === "/api/push/test") fail8("\uAC1C\uC778\uC124\uC815\uC758 \uC2DC\uD5D8 \uBC1C\uC1A1\uC740 \uC885\uB8CC\uB410\uC5B4\uC694. \uBCC4\uB3C4 \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uD654\uBA74\uC744 \uC0AC\uC6A9\uD574\uC8FC\uC138\uC694.", 410);
-    fail8("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    if (path === "/api/push/test") fail9("\uAC1C\uC778\uC124\uC815\uC758 \uC2DC\uD5D8 \uBC1C\uC1A1\uC740 \uC885\uB8CC\uB410\uC5B4\uC694. \uBCC4\uB3C4 \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uD654\uBA74\uC744 \uC0AC\uC6A9\uD574\uC8FC\uC138\uC694.", 410);
+    fail9("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
   }
   return { status, dispatch, enqueue, publicRoute, memberRoute };
 }
@@ -1825,13 +1889,13 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       return result(db2.rpc("onoff_delete_workout", { actor: m.id, target_date: b.date, target_program: b.program }));
     }
     if (path === "/api/workouts") {
-      if (!Array.isArray(b.workouts)) bad("\uC218\uC5C5 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      for (const w of b.workouts) {
+      if (!hasPermission(m, "workouts.create") && !hasPermission(m, "workouts.update")) bad("\uC218\uC5C5 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      const [lib, cal] = await Promise.all([library(), calendar()]), v = validateWorkouts(b.workouts, lib.map((m2) => m2.name), cal.dates);
+      if (v.errors.length) bad(v.errors.join("\n"));
+      for (const w of v.workouts) {
         const old = await one("gym_workouts", "key", w.date + "_" + w.program);
         permit(m, old ? "workouts.update" : "workouts.create");
       }
-      const [lib, cal] = await Promise.all([library(), calendar()]), v = validateWorkouts(b.workouts, lib.map((m2) => m2.name), cal.dates);
-      if (v.errors.length) bad(v.errors.join("\n"));
       await commit(m.id, "workouts", { workouts: v.workouts, overwrite: b.overwrite === true });
       return { ok: true, count: v.workouts.length };
     }
@@ -1908,14 +1972,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       let b = {};
       if (req.method === "POST") {
         if (!req.headers.get("Content-Type")?.startsWith("application/json")) bad("JSON \uC694\uCCAD\uB9CC \uC0AC\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 415);
-        const raw = await req.text();
-        if (raw.length > 2e6) bad("\uC694\uCCAD\uC774 \uB108\uBB34 \uCEE4\uC694.", 413);
-        try {
-          b = JSON.parse(raw);
-        } catch {
-          bad("\uC694\uCCAD \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-        }
-        if (!b || typeof b !== "object" || Array.isArray(b)) bad("\uC694\uCCAD \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        b = await readJsonObject(req);
       }
       return response(await route(req, path, url, b));
     } catch (e) {

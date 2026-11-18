@@ -252,3 +252,11 @@ test('New Year and celebration preferences validate values, are own-only and can
  const f=fixture();assert.equal((await f.request('/api/preferences',{body:{newYear2027Seen:true,celebrations:false,user_id:ADMIN}})).status,200);assert.deepEqual(f.writes[0],{actor:MEMBER,op:'preferences',p:{newYear2027Seen:true,celebrations:false}});
  assert.equal((await f.request('/api/preferences',{body:{newYear2027Seen:false}})).status,400);assert.equal((await f.request('/api/preferences',{body:{celebrations:'true'}})).status,400);assert.equal(f.writes.length,1);
 });
+
+test('workout authorization uses canonical date/program keys and malformed batches return 400',async()=>{
+ const workout={date:'2026-11-02',program:'wod',sections:[{title:'S1',text:'Updated class',record:false,kind:'없음'}]};
+ const creator=fixture({role:'coach',coach_permissions:['workouts.create']});
+ assert.equal((await creator.request('/api/workouts',{body:{workouts:[workout],overwrite:true}})).status,403);assert.equal(creator.writes.length,0);
+ const editor=fixture({role:'coach',coach_permissions:['workouts.update']});assert.equal((await editor.request('/api/workouts',{body:{workouts:[workout],overwrite:true}})).status,200);assert.equal(editor.writes[0].p.workouts[0].program,'WOD');
+ for(const invalid of [null,7,{}, {sections:[null]}, {...workout,sessions:{}}, {...workout,sections:[{text:'x',movements:{length:1}}]}]){const f=fixture({role:'admin'});assert.equal((await f.request('/api/workouts',{body:{workouts:[invalid]}})).status,400);assert.equal(f.writes.length,0);}
+});

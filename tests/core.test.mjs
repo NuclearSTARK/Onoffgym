@@ -33,3 +33,10 @@ test('Wednesday open gym starts at 11:00 without a duplicate overlapping noon sl
  }
  const holiday={'2026-11-11':{name:'휴강'}};assert.deepEqual(workoutSchedule('2026-11-11',{},holiday),[]);
 });
+
+test('Saturday aliases and padded lowercase programs keep their configured scoring policy',()=>{
+ const section={title:'S1',text:'Mixed',record:true,kind:'자유 기록',recordPolicy:{ranking:'metric',metricLabel:'총 횟수',metricOrder:'desc'}};
+ for(const [date,program,sessions] of [['2026-11-02',' wod ',[]],['2026-11-14','Special Workout',['10:00']]]){
+  const result=validateWorkouts([{date,program,sessions,sections:[section]}]);assert.deepEqual(result.errors,[]);assert.equal(result.workouts[0].program,'WOD');assert.equal(result.workouts[0].sections[0].recordPolicy.metricLabel,'총 횟수');
+ }
+});

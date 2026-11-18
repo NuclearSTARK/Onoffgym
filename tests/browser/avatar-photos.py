@@ -120,7 +120,7 @@ async def main():
    await page.screenshot(path='/workspace/scratch/avatar-crop-mobile.png')
    await page.evaluate('qaViewportMetrics({height:innerHeight,offsetTop:0})')
    await page.locator('[data-avatar-photo-save]').click()
-   await page.wait_for_function('!document.querySelector("#modal").open')
+   await page.wait_for_function('()=>!document.querySelector("#modal").open')
    await page.locator('.settings-avatar img:not([hidden])').wait_for()
   await upload()
   assert any(post['path'].endswith('/api/avatars/save') for post in posts)
@@ -138,12 +138,12 @@ async def main():
   await page.locator('[data-action=avatar-picker]').click()
   page.once('dialog',lambda dialog:dialog.accept())
   await page.locator('[data-avatar-photo-delete]').click()
-  await page.wait_for_function('!document.querySelector("#modal").open')
+  await page.wait_for_function('()=>!document.querySelector("#modal").open')
   assert ADMIN not in avatar_refs and await page.locator('.settings-avatar img').count()==0
   await upload()
   await page.locator('[data-action=avatar-picker]').click()
   await page.locator('[data-avatar-emoji="🐯"]').click()
-  await page.wait_for_function('document.querySelector("#avatar-save-status")?.textContent==="저장했어요."')
+  await page.wait_for_function('()=>document.querySelector("#avatar-save-status")?.textContent==="저장했어요."')
   assert ADMIN not in avatar_refs
   assert await page.locator('.settings-avatar img').count()==0
   assert '🐯' in await page.locator('.settings-avatar').inner_text()

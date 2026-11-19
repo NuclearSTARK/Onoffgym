@@ -1,0 +1,14 @@
+/* A 12px circle sits at the word's top right; the invisible tap area is larger. */
+.workout-term{display:inline;white-space:nowrap}
+button.workout-term-help{appearance:none;position:relative;display:inline-grid;place-items:center;vertical-align:super;top:-1px;width:16px;min-width:16px;height:16px;min-height:16px;margin:0 0 0 1px;padding:0;border:0;border-radius:0;box-shadow:none;background:transparent;color:var(--blue);font:inherit;line-height:1;letter-spacing:normal;overflow:visible;touch-action:manipulation}
+button.workout-term-help::before{content:"";position:absolute;inset:-5px -9px;border-radius:50%}
+button.workout-term-help>span{display:grid;place-items:center;pointer-events:none;width:12px;height:12px;border:1px solid currentColor;border-radius:50%;background:var(--surface);font-size:9px;font-weight:500;line-height:1}
+button.workout-term-help:hover,button.workout-term-help:active{background:transparent;color:var(--ink)}
+button.workout-term-help:focus-visible{outline:2px solid var(--blue);outline-offset:3px;border-radius:50%}
+.workout-term-popup{white-space:normal;color:var(--ink)}
+.workout-term-english{font-size:13px;line-height:1.6;font-weight:400;color:var(--muted);margin:0 0 18px;overflow-wrap:anywhere}
+.workout-term-description{font-size:17px;line-height:1.8;margin:0;word-break:keep-all;overflow-wrap:anywhere}
+.workout-term-example{margin-top:20px;padding-top:16px;border-top:1px solid var(--line);font-size:14px;line-height:1.8;color:var(--muted);word-break:keep-all;overflow-wrap:anywhere}
+.workout-term-example>span{display:block;font-size:12px;font-weight:600;color:var(--blue);margin-bottom:5px}
+.workout-term-example>p{margin:0}
+.workout-term-confirm{margin-top:24px}

@@ -6,9 +6,12 @@ button.workout-term-help>span{display:grid;place-items:center;pointer-events:non
 button.workout-term-help:hover,button.workout-term-help:active{background:transparent;color:var(--ink)}
 button.workout-term-help:focus-visible{outline:2px solid var(--blue);outline-offset:3px;border-radius:50%}
 .workout-term-popup{white-space:normal;color:var(--ink)}
-.workout-term-english{font-size:13px;line-height:1.6;font-weight:400;color:var(--muted);margin:0 0 18px;overflow-wrap:anywhere}
-.workout-term-description{font-size:17px;line-height:1.8;margin:0;word-break:keep-all;overflow-wrap:anywhere}
-.workout-term-example{margin-top:20px;padding-top:16px;border-top:1px solid var(--line);font-size:14px;line-height:1.8;color:var(--muted);word-break:keep-all;overflow-wrap:anywhere}
-.workout-term-example>span{display:block;font-size:12px;font-weight:600;color:var(--blue);margin-bottom:5px}
-.workout-term-example>p{margin:0}
-.workout-term-confirm{margin-top:24px}
+#modal .workout-term-english{font-size:14.4px;line-height:1.9;font-weight:400;color:var(--muted);margin:0 0 18px;overflow-wrap:anywhere}
+#modal .workout-term-description{font-size:14.4px;line-height:1.9;margin:0;word-break:keep-all;overflow-wrap:anywhere}
+.workout-term-example{margin-top:20px;padding-top:16px;border-top:1px solid var(--line);font-size:16.8px;line-height:1.8;color:var(--muted);word-break:keep-all;overflow-wrap:anywhere}
+#modal .workout-term-example>span{display:block;font-size:14.4px;font-weight:600;color:var(--blue);margin-bottom:5px}
+#modal .workout-term-example>p{margin:0;font-size:14.4px}
+#modal .workout-term-confirm{margin-top:24px;font-size:14.4px}
+
+/* Scale the rendered 18px title / 12px copy by 20%, scoped to glossary popups. */
+#modal:has(.workout-term-popup) .modal-head h2{font-size:21.6px;font-weight:700}

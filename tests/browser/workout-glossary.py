@@ -18,6 +18,7 @@ async def popup(page,key,english=True,title=None):
  assert await page.locator('.workout-term-english').count()==(1 if english else 0),key
  assert await page.locator('.workout-term-description').inner_text()
  assert await page.locator('.workout-term-example p').inner_text()
+ if key=='syn':assert await page.locator('.workout-term-example p').inner_text()=='10 Syn Burpees는 함께 버피 10회를 해요.'
  await page.locator('.workout-term-confirm').click()
  await page.wait_for_function('()=>!document.querySelector("#modal").open')
  assert await button.evaluate('el=>document.activeElement===el'),key
@@ -47,6 +48,11 @@ async def main():
     await button.click()
     assert await page.locator('.workout-term-popup').evaluate('el=>el.scrollWidth<=el.clientWidth+1'),(theme,width)
     assert await page.locator('.workout-term-english').evaluate('el=>el.scrollWidth<=el.clientWidth+1')
+    fonts=await page.evaluate("""()=>Object.fromEntries(['#modal .modal-head h2','.workout-term-english','.workout-term-description','.workout-term-example>span','.workout-term-example>p','.workout-term-confirm'].map(s=>{const cs=getComputedStyle(document.querySelector(s));return [s,{size:parseFloat(cs.fontSize),weight:cs.fontWeight}]}))""")
+    assert abs(fonts['#modal .modal-head h2']['size']-18*1.2)<.01,(theme,width,fonts)
+    assert fonts['#modal .modal-head h2']['weight']=='700'
+    for selector,value in fonts.items():
+     if selector!='#modal .modal-head h2':assert abs(value['size']-12*1.2)<.01,(theme,width,selector,value)
     await page.keyboard.press('Escape');await page.wait_for_function('()=>!document.querySelector("#modal").open')
   await page.locator('.course-card[data-course="WOD"] .course-section-toggle').first.click()
   await page.locator('.course-card[data-course="WOD"] .course-section-preview [data-workout-term="amrap"]:visible').click()
@@ -60,6 +66,7 @@ async def main():
    if key=='e4mom':assert await page.locator('.workout-term-english').inner_text()=='Every 4 Minutes On the Minute'
    await page.locator('.workout-term-confirm').click()
   await page.locator('[data-action="calendar"]').click()
+  assert await page.locator('#modal .modal-head h2').evaluate('el=>getComputedStyle(el).fontSize')=='18px'
   await page.locator('[data-calendar-date="2026-11-21"]').click()
   assert await page.locator('.home-program-tabs button').count()==1
   assert await page.locator('.home-program-tabs button').inner_text()=='Special Workout'

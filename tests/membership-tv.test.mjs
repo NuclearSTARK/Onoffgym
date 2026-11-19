@@ -1,3 +1,4 @@
+import {tvPassword} from '../worker/tv-service.js';
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {api} from '../worker/api.js';import {database,addMember,identity,fixture} from './db.mjs';
 import {periodEnd,changeMembership,membershipState} from '../web/membership.js';
@@ -52,7 +53,10 @@ test('TV four-digit PIN sessions expose only the selected published day without 
  const {call,db,now}=await setup();await call('owner','/api/workouts',{workouts:[fixture('2026-11-02'),fixture('2026-11-02','B/T'),fixture('2026-11-03')]});
  assert.equal((await call('coach','/api/tv/admin',{password:'0123',theme:'mint',unit:'lbs',pageSeconds:20})).status,403);
  assert.equal((await call('owner','/api/tv/admin',{password:'0123',theme:'mint',unit:'lbs',pageSeconds:20})).status,200);
- const stored=await db.prepare('SELECT value FROM gym_settings WHERE key=?').bind('tvPassword').first();assert.equal(stored.value.includes('0123'),false);
+ const stored=await db.prepare('SELECT value FROM gym_settings WHERE key=?').bind('tvPassword').first(),secret=JSON.parse(stored.value);
+ // Random salt/hash hex can coincidentally contain the PIN; verify structure and derivation instead.
+ assert.deepEqual(Object.keys(secret).sort(),['format','hash','salt']);assert.equal(secret.format,'pin4');
+ assert.match(secret.salt,/^[a-f0-9]{32}$/);assert.match(secret.hash,/^[a-f0-9]{64}$/);assert.equal(secret.hash,await tvPassword('0123',secret.salt));
  assert.equal((await call('','/api/tv/bootstrap')).status,401);
  const login=await call('','/api/tv/login',{password:'0123'});assert.equal(login.status,200);assert.match(login.headers.get('Set-Cookie'),/HttpOnly/);assert.match(login.headers.get('Set-Cookie'),/Secure/);
  const cookie=login.headers.get('Set-Cookie').split(';')[0];const tv=await call('','/api/tv/bootstrap?date=2026-11-03',undefined,now,{Cookie:cookie});assert.equal(tv.status,200);assert.equal(tv.data.workouts.length,2);assert.ok(tv.data.workouts.every(w=>w.date==='2026-11-02'));assert.equal(tv.data.members,undefined);assert.equal(tv.data.memberships,undefined);

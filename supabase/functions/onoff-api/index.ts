@@ -1,46 +1,6 @@
 // supabase/functions/onoff-api/entry.js
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
-// supabase/functions/onoff-api/request-body.js
-var fail = (message, status = 400) => {
-  throw Object.assign(Error(message), { status });
-};
-async function readJsonObject(req, limit = 2e6) {
-  const declared = req.headers.get("Content-Length");
-  if (declared !== null && /^\d+$/.test(declared) && Number(declared) > limit) fail("\uC694\uCCAD\uC774 \uB108\uBB34 \uCEE4\uC694.", 413);
-  const reader = req.body?.getReader(), chunks = [];
-  let length = 0;
-  if (reader) try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      length += value.byteLength;
-      if (length > limit) {
-        await reader.cancel().catch(() => {
-        });
-        fail("\uC694\uCCAD\uC774 \uB108\uBB34 \uCEE4\uC694.", 413);
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  let body;
-  try {
-    body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-  } catch {
-    fail("\uC694\uCCAD \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-  }
-  if (!body || typeof body !== "object" || Array.isArray(body)) fail("\uC694\uCCAD \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-  return body;
-}
-
 // web/course-programs.js
 var isSaturday = (date) => /^\d{4}-\d{2}-\d{2}$/.test(date || "") && (/* @__PURE__ */ new Date(date + "T12:00:00+09:00")).getUTCDay() === 6;
 var canonicalProgram = (program, date) => isSaturday(date) && String(program).trim().toUpperCase() === "SPECIAL WORKOUT" ? "WOD" : String(program || "").trim().toUpperCase();
@@ -280,396 +240,6 @@ function validateWorkouts(workouts, library = MOVEMENTS, holidays = {}) {
   return result;
 }
 
-// supabase/functions/onoff-api/workout-comments-service.js
-var fail2 = (message, status = 400) => {
-  throw Object.assign(Error(message), { status });
-};
-var uuid = (value) => typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
-function createWorkoutCommentsService(db2) {
-  return { async route(member, path, url, body) {
-    if (member.status !== "approved" || member.delete_requested_at) fail2("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uB313\uAE00\uC744 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
-    const read = path === "/api/workout-comments", source = read ? Object.fromEntries(url.searchParams) : body;
-    const action = read ? source.action || "summary" : { "/api/workout-comments/create": "create", "/api/workout-comments/update": "update", "/api/workout-comments/delete": "delete" }[path];
-    if (!(read ? ["summary", "list"] : ["create", "update", "delete"]).includes(action)) fail2("\uB313\uAE00 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    if (!normalizeDate(source.date) || !["B/T", "WOD"].includes(source.program)) fail2("\uC218\uC5C5 \uB0A0\uC9DC\uC640 \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    const p = { action, date: normalizeDate(source.date), program: source.program };
-    if (read) {
-      if (source.before !== void 0 || source.beforeId !== void 0) {
-        if (action !== "list" || typeof source.before !== "string" || source.before.length > 40 || !Number.isFinite(Date.parse(source.before)) || !uuid(source.beforeId)) fail2("\uB313\uAE00 \uD398\uC774\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-        p.before = source.before;
-        p.beforeId = source.beforeId;
-      }
-    } else {
-      if (!uuid(source.id)) fail2("\uB313\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      p.id = source.id;
-      if (action !== "delete") {
-        if (member.disclosure_consent !== true) fail2("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC791\uC131\uD574\uC8FC\uC138\uC694.", 403);
-        if (typeof source.text !== "string" || !source.text.trim() || source.text.length > 500) fail2("\uB313\uAE00\uC740 1~500\uC790\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-        p.text = source.text.trim();
-      }
-      if (action !== "create") {
-        if (!Number.isInteger(source.revision) || source.revision < 0 || source.revision > 2147483647) fail2("\uB313\uAE00 \uBCC0\uACBD \uC0C1\uD0DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-        p.revision = source.revision;
-      }
-    }
-    const { data, error } = await db2.rpc("onoff_workout_comments", { actor: member.id, p });
-    if (error) {
-      const status = error.code === "42501" ? 403 : error.code === "P0002" ? 404 : error.code === "40001" || error.code === "23505" ? 409 : ["22023", "22007", "22P02", "23514"].includes(error.code) ? 400 : 503;
-      fail2(status === 503 ? "\uB313\uAE00\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." : error.message, status);
-    }
-    return data;
-  } };
-}
-
-// web/permissions.js
-var COACH_PERMISSIONS = [["workouts.read", "\uBBF8\uACF5\uAC1C \uC218\uC5C5 \uC870\uD68C"], ["workouts.create", "\uC218\uC5C5 \uB4F1\uB85D"], ["workouts.update", "\uC218\uC5C5 \uC218\uC815"], ["workouts.delete", "\uC218\uC5C5 \uC0AD\uC81C"], ["records.create", "\uD68C\uC6D0 \uAE30\uB85D \uC785\uB825"], ["records.update", "\uD68C\uC6D0 \uAE30\uB85D \uC218\uC815"], ["records.delete", "\uD68C\uC6D0 \uAE30\uB85D \uC0AD\uC81C"], ["photos", "\uC624\uB298\uC758 \uAE30\uB85D \uC0AC\uC9C4 \uAD00\uB9AC"], ["videos", "\uC6B4\uB3D9\uC601\uC0C1 \uAD00\uB9AC"], ["rm", "1RM \uC885\uBAA9\uAD00\uB9AC"], ["notices", "\uACF5\uC9C0 \uAD00\uB9AC"], ["banner", "\uBC30\uB108 \uAD00\uB9AC"], ["push", "\uD478\uC2DC \uBC1C\uC1A1\xB7\uC774\uB825"], ["release", "\uACF5\uAC1C\uC2DC\uAC01"], ["tv", "TV \uD654\uBA74 \uC124\uC815"], ["acc.read", "\uBBF8\uACF5\uAC1C ACC \uC870\uD68C"], ["acc.create", "ACC \uB4F1\uB85D"], ["acc.update", "ACC \uC218\uC815"], ["acc.delete", "ACC \uC0AD\uC81C"]];
-function hasPermission(member, key) {
-  return member?.status === "approved" && (member.role === "admin" || member.role === "coach" && Array.isArray(member.coach_permissions) && member.coach_permissions.includes(key));
-}
-
-// supabase/functions/onoff-api/media-service.js
-var fail3 = (message, status = 400) => {
-  throw Object.assign(Error(message), { status });
-};
-function cleanJpeg(bytes) {
-  if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216) fail3("JPEG \uC0AC\uC9C4\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
-  const parts = [bytes.subarray(0, 2)];
-  let i = 2;
-  while (i < bytes.length) {
-    if (bytes[i] !== 255) fail3("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    const marker = bytes[i + 1];
-    if (marker === 218) {
-      parts.push(bytes.subarray(i));
-      const output = new Uint8Array(bytes.length);
-      let length = 0;
-      for (const part of parts) {
-        output.set(part, length);
-        length += part.length;
-      }
-      return output.slice(0, length);
-    }
-    const size = bytes[i + 2] << 8 | bytes[i + 3];
-    if (size < 2 || i + 2 + size > bytes.length) fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC190\uC0C1\uB410\uC5B4\uC694.");
-    if (!(marker >= 224 && marker <= 239) && marker !== 254) parts.push(bytes.subarray(i, i + 2 + size));
-    i += 2 + size;
-  }
-  fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-}
-function jpegDimensions(bytes, maxSide) {
-  let i = 2, dimensions;
-  while (i + 3 < bytes.length) {
-    if (bytes[i] !== 255) fail3("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    const marker = bytes[i + 1], size = bytes[i + 2] << 8 | bytes[i + 3];
-    if (size < 2 || i + 2 + size > bytes.length) fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC190\uC0C1\uB410\uC5B4\uC694.");
-    if (marker === 218) {
-      if (!dimensions || bytes.at(-2) !== 255 || bytes.at(-1) !== 217) fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC190\uC0C1\uB410\uC5B4\uC694.");
-      return dimensions;
-    }
-    if ([192, 193, 194].includes(marker)) {
-      const height = bytes[i + 5] << 8 | bytes[i + 6], width = bytes[i + 7] << 8 | bytes[i + 8];
-      if (dimensions || size < 8 || bytes[i + 4] !== 8 || !width || !height || width > maxSide || height > maxSide || ![1, 3].includes(bytes[i + 9]) || size !== 8 + 3 * bytes[i + 9]) fail3("\uC0AC\uC9C4 \uD574\uC0C1\uB3C4\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
-      dimensions = { width, height };
-    }
-    i += 2 + size;
-  }
-  fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-}
-var photoPreviewPath = (path) => path.replace(/\.jpg$/, ".preview.jpg");
-function decodeJpeg(data, limit) {
-  if (typeof data !== "string" || data.length > Math.ceil(limit / 3) * 4) fail3("\uC555\uCD95\uB41C \uC0AC\uC9C4 \uD06C\uAE30\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-  let bytes;
-  try {
-    bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
-  } catch {
-    fail3("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-  }
-  if (bytes.length > limit) fail3("\uC0AC\uC9C4 \uD06C\uAE30\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
-  const clean = cleanJpeg(bytes);
-  jpegDimensions(clean, limit === 65536 ? 480 : 1600);
-  return clean;
-}
-function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}) {
-  const bucket = db2.storage?.from("onoff-private-photos");
-  async function result(q) {
-    const { data, error } = await q;
-    if (error) fail3(error.code === "42501" ? "\uC0AC\uC9C4 \uC811\uADFC \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : "\uC0AC\uC9C4\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : 503);
-    return data;
-  }
-  async function cleanup() {
-    if (!bucket) return;
-    try {
-      const stale = await result(db2.from("gym_photos").select("id").eq("active", false).lt("created_at", new Date(+now() - 864e5).toISOString()).limit(30));
-      if (stale.length) await result(db2.from("gym_photos").delete().in("id", stale.map((p) => p.id)));
-      const pending = await result(db2.from("gym_photo_cleanup").select("path").limit(30));
-      if (pending.length) {
-        const paths = pending.map((x) => x.path);
-        const { error } = await bucket.remove(paths);
-        if (!error) await result(db2.from("gym_photo_cleanup").delete().in("path", paths));
-      }
-    } catch {
-    }
-  }
-  async function visiblePhotos(m, photos) {
-    if (m?.role === "admin") return photos;
-    const ids = [...new Set(photos.map((p) => p.owner_id).filter((id2) => id2 && id2 !== m?.id))];
-    const owners = ids.length ? await result(db2.from("gym_members").select("id,status,disclosure_consent").in("id", ids)) : [];
-    return photos.filter((p) => !p.owner_id || p.owner_id === m?.id || owners.some((o) => o.id === p.owner_id && o.status === "approved" && o.disclosure_consent !== false));
-  }
-  async function route(m, path, b) {
-    if (m.status !== "approved") fail3("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
-    if (path === "/api/photos/upload") {
-      if (m.disclosure_consent === false) fail3("\uC0AC\uC9C4 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC774\uC6A9\uD574\uC8FC\uC138\uC694.", 403);
-      if (!["community", "daily", "notice"].includes(b.kind) || b.kind === "daily" && !hasPermission(m, "photos") || b.kind === "notice" && !hasPermission(m, "notices")) fail3("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
-      const bytes = decodeJpeg(b.data, 614400), preview = b.previewData === void 0 ? null : decodeJpeg(b.previewData, 65536);
-      await cleanup();
-      const pending = await result(db2.from("gym_photos").select("id").eq("owner_id", m.id).eq("active", false).limit(10));
-      if (pending.length >= 10) fail3("\uBBF8\uC0AC\uC6A9 \uC0AC\uC9C4\uC774 \uB9CE\uC544\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 429);
-      const id2 = crypto.randomUUID(), storagePath = m.id + "/" + id2 + ".jpg", previewPath = preview ? photoPreviewPath(storagePath) : null;
-      await result(db2.from("gym_photos").insert({ id: id2, owner_id: m.id, kind: b.kind, path: storagePath, preview_path: previewPath }));
-      const uploads = await Promise.allSettled([[storagePath, bytes], ...preview ? [[previewPath, preview]] : []].map(([path2, data]) => bucket.upload(path2, data, { contentType: "image/jpeg", cacheControl: "3600", upsert: false })));
-      if (uploads.some((r) => r.status === "rejected" || r.value.error)) {
-        await result(db2.from("gym_photos").delete().eq("id", id2).eq("owner_id", m.id));
-        await cleanup();
-        fail3("\uC0AC\uC9C4 \uC5C5\uB85C\uB4DC \uC2E4\uD328 \xB7 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uBA74 \uC7AC\uC5C5\uB85C\uB4DC\uD569\uB2C8\uB2E4.", 503);
-      }
-      try {
-        await result(db2.from("gym_photos").update({ uploaded: true }).eq("id", id2).eq("owner_id", m.id));
-      } catch (e) {
-        await result(db2.from("gym_photos").delete().eq("id", id2).eq("owner_id", m.id));
-        await cleanup();
-        throw e;
-      }
-      return { id: id2 };
-    }
-    if (path === "/api/photos/preview") {
-      const preview = decodeJpeg(b.previewData, 65536), photo = await result(db2.from("gym_photos").select("id,path,preview_path,owner_id").eq("id", b.id).eq("active", true).eq("uploaded", true).maybeSingle());
-      if (!photo) fail3("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
-      if (photo.owner_id !== m.id && m.role !== "admin") fail3("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
-      if (photo.preview_path) return { ok: true };
-      const previewPath = photoPreviewPath(photo.path);
-      if (previewPath === photo.path) fail3("\uC0AC\uC9C4 \uACBD\uB85C\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      const { error } = await bucket.upload(previewPath, preview, { contentType: "image/jpeg", cacheControl: "3600", upsert: false });
-      if (error && !["409", "Duplicate"].includes(String(error.statusCode || error.status || error.error))) fail3("\uBBF8\uB9AC\uBCF4\uAE30\uB97C \uC900\uBE44\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
-      const updated = await result(db2.from("gym_photos").update({ preview_path: previewPath }).eq("id", photo.id).eq("active", true).is("preview_path", null).select("id"));
-      if (!updated?.length) {
-        const current = await result(db2.from("gym_photos").select("id,preview_path").eq("id", photo.id).maybeSingle());
-        if (!current) {
-          await result(db2.from("gym_photo_cleanup").upsert({ path: previewPath }, { onConflict: "path" }));
-          await cleanup();
-        }
-      }
-      return { ok: true };
-    }
-    if (path === "/api/photos/urls") {
-      if (!Array.isArray(b.ids) || b.ids.length < 1 || b.ids.length > 12 || b.ids.some((id2) => typeof id2 !== "string" || !/^[-a-f0-9]{36}$/i.test(id2))) fail3("\uC0AC\uC9C4 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      const photos = await visiblePhotos(m, await result(db2.from("gym_photos").select("id,path,preview_path,owner_id").eq("active", true).in("id", [...new Set(b.ids)])));
-      if (!photos.length) return { urls: [] };
-      const source = (p) => b.variant === "preview" && p.preview_path ? p.preview_path : p.path;
-      const { data, error } = await bucket.createSignedUrls(photos.map(source), 60);
-      if (error) fail3("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
-      return { urls: photos.flatMap((p) => {
-        const signed = data.find((x) => x.path === source(p));
-        return signed?.signedUrl ? [{ id: p.id, url: signed.signedUrl, variant: source(p) === p.preview_path ? "preview" : "full" }] : [];
-      }), expiresIn: 60 };
-    }
-    if (path === "/api/photos/program") {
-      if (!hasPermission(m, "photos")) fail3("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
-      return result(db2.rpc("onoff_photo_program", { actor: m.id, photo_id: b.id, target_program: b.program }));
-    }
-    if (path === "/api/photos/url") {
-      const photo = await result(db2.from("gym_photos").select("*").eq("id", b.id).eq("active", true).maybeSingle());
-      if (!photo || !(await visiblePhotos(m, [photo])).length) fail3("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
-      const { data, error } = await bucket.createSignedUrl(b.variant === "preview" && photo.preview_path ? photo.preview_path : photo.path, 60);
-      if (error) fail3("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
-      return { url: data.signedUrl, variant: b.variant === "preview" && photo.preview_path ? "preview" : "full", expiresIn: 60 };
-    }
-    if (path === "/api/photos/attach") {
-      if (b.kind !== "daily") fail3("\uC0AC\uC9C4 \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      if (!hasPermission(m, "photos")) fail3("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
-      return result(db2.rpc("onoff_attach_photos", { actor: m.id, p: b }));
-    }
-    if (path === "/api/photos/delete") {
-      const photo = await result(db2.from("gym_photos").select("*").eq("id", b.id).maybeSingle());
-      if (!photo) fail3("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
-      if (photo.active ? photo.kind === "daily" ? !hasPermission(m, "photos") : photo.kind === "notice" ? !hasPermission(m, "notices") : m.role !== "admin" : photo.owner_id !== m.id) fail3("\uC0AC\uC9C4 \uC0AD\uC81C \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 403);
-      await result(db2.from("gym_photos").delete().eq("id", photo.id));
-      await cleanup();
-      return { ok: true };
-    }
-    fail3("\uC0AC\uC9C4 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 404);
-  }
-  async function list(date, postIds, noticeIds = [], member) {
-    if (!bucket) return [];
-    const fields = "id,kind,post_id,notice_id,date,program,session,owner_id,preview_path";
-    const [daily, community, notices] = await Promise.all([result(db2.from("gym_photos").select(fields).eq("active", true).eq("kind", "daily").eq("date", date)), postIds.length ? result(db2.from("gym_photos").select(fields).eq("active", true).in("post_id", postIds)) : [], noticeIds.length ? result(db2.from("gym_photos").select(fields).eq("active", true).in("notice_id", noticeIds)) : []]);
-    return (await visiblePhotos(member, [...daily, ...community, ...notices])).map(({ owner_id, preview_path, ...photo }) => ({ ...photo, hasPreview: !!preview_path, canPreparePreview: owner_id === member?.id || member?.role === "admin" }));
-  }
-  return { route, list, cleanup };
-}
-
-// supabase/functions/onoff-api/avatar-service.js
-var fail4 = (message, status = 400) => {
-  throw Object.assign(Error(message), { status });
-};
-var uuid2 = (v) => typeof v === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
-function avatarReference(owner, value) {
-  return uuid2(owner) && uuid2(value?.id) && value.path === `avatars/${owner}/${value.id}.jpg` ? value : null;
-}
-function avatarSnapshot(preferences, members, viewer) {
-  const owners = new Map(members.map((m) => [m.id, m]));
-  return Object.fromEntries(preferences.flatMap((p) => {
-    const photo = avatarReference(p.user_id, p.body?.avatarPhoto), m = owners.get(p.user_id);
-    return photo && (p.user_id === viewer.id || viewer.role === "admin" || m?.status === "approved" && m.disclosure_consent !== false) ? [[p.user_id, photo.id]] : [];
-  }));
-}
-function avatarJpeg(data) {
-  if (typeof data !== "string" || data.length > 131072) fail4("\uD504\uB85C\uD544 \uC0AC\uC9C4 \uD06C\uAE30\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
-  let bytes;
-  try {
-    bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
-  } catch {
-    fail4("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-  }
-  if (bytes.length > 98304) fail4("\uD504\uB85C\uD544 \uC0AC\uC9C4\uC740 96KB \uC774\uD558\uB85C \uC800\uC7A5\uD574\uC8FC\uC138\uC694.");
-  bytes = cleanJpeg(bytes);
-  let width = 0, height = 0;
-  for (let i = 2; i + 8 < bytes.length; ) {
-    const marker = bytes[i + 1];
-    if (marker === 218) break;
-    const size = bytes[i + 2] << 8 | bytes[i + 3];
-    if ([192, 193, 194].includes(marker)) {
-      height = bytes[i + 5] << 8 | bytes[i + 6];
-      width = bytes[i + 7] << 8 | bytes[i + 8];
-      break;
-    }
-    i += 2 + size;
-  }
-  if (width !== height || width < 32 || width > 512) fail4("\uD504\uB85C\uD544 \uC0AC\uC9C4\uC744 \uB2E4\uC2DC \uC798\uB77C \uC800\uC7A5\uD574\uC8FC\uC138\uC694.");
-  return bytes;
-}
-function createAvatarService(db2) {
-  const bucket = db2.storage?.from("onoff-private-photos");
-  async function result(q) {
-    const { data, error } = await q;
-    if (error) fail4("\uD504\uB85C\uD544 \uC0AC\uC9C4\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
-    return data;
-  }
-  async function discard(path) {
-    try {
-      const { error } = await bucket.remove([path]);
-      if (error) await db2.from("gym_photo_cleanup").upsert({ path }, { onConflict: "path" });
-    } catch {
-      await db2.from("gym_photo_cleanup").upsert({ path }, { onConflict: "path" });
-    }
-  }
-  return { async route(m, path, b) {
-    if (m.status !== "approved") fail4("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
-    if ("id" in b || "userId" in b || "user_id" in b || "path" in b) fail4("\uBCF8\uC778 \uD504\uB85C\uD544\uC5D0\uC11C \uC0AC\uC9C4\uC744 \uBCC0\uACBD\uD574\uC8FC\uC138\uC694.", 403);
-    if (path === "/api/avatars/save") {
-      if (m.disclosure_consent === false) fail4("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC0AC\uC9C4\uC744 \uB4F1\uB85D\uD574\uC8FC\uC138\uC694.", 403);
-      const bytes = avatarJpeg(b.data), id2 = crypto.randomUUID(), storagePath = `avatars/${m.id}/${id2}.jpg`;
-      if (!bucket) fail4("\uC0AC\uC9C4 \uC800\uC7A5 \uC5F0\uACB0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 503);
-      await result(bucket.upload(storagePath, bytes, { contentType: "image/jpeg", cacheControl: "60", upsert: false }));
-      try {
-        await result(db2.rpc("onoff_commit", { actor: m.id, op: "preferences", p: { avatarPhoto: { id: id2, path: storagePath } } }));
-      } catch (e) {
-        await discard(storagePath);
-        throw e;
-      }
-      return { ok: true, id: id2 };
-    }
-    if (path === "/api/avatars/delete") {
-      await result(db2.rpc("onoff_commit", { actor: m.id, op: "preferences", p: { avatarPhoto: null } }));
-      return { ok: true };
-    }
-    if (path === "/api/avatars/urls") {
-      if (!Array.isArray(b.ids) || !b.ids.length || b.ids.length > 24 || b.ids.some((id2) => !uuid2(id2))) fail4("\uD68C\uC6D0 \uC0AC\uC9C4 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      const ids = [...new Set(b.ids)], members = await result(db2.from("gym_members").select("id,status,disclosure_consent,delete_requested_at").in("id", ids));
-      const allowed = members.filter((owner) => !owner.delete_requested_at && (owner.id === m.id || m.role === "admin" || owner.status === "approved" && owner.disclosure_consent !== false)).map((owner) => owner.id);
-      if (!allowed.length || !bucket) return { urls: [], expiresIn: 60 };
-      const prefs = await result(db2.from("gym_preferences").select("user_id,body").in("user_id", allowed));
-      const photos = prefs.flatMap((p) => {
-        const ref = avatarReference(p.user_id, p.body?.avatarPhoto);
-        return ref ? [{ ...ref, userId: p.user_id }] : [];
-      });
-      if (!photos.length) return { urls: [], expiresIn: 60 };
-      const signed = await result(bucket.createSignedUrls(photos.map((p) => p.path), 60));
-      return { urls: photos.flatMap((p) => {
-        const entry = signed.find((s) => s.path === p.path);
-        return entry?.signedUrl ? [{ userId: p.userId, id: p.id, url: entry.signedUrl }] : [];
-      }), expiresIn: 60 };
-    }
-    fail4("\uD504\uB85C\uD544 \uC0AC\uC9C4 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 404);
-  } };
-}
-
-// supabase/functions/onoff-api/member-overview-service.js
-var fail5 = (message, status = 400) => {
-  throw Object.assign(Error(message), { status });
-};
-function createMemberOverviewService(db2) {
-  return { async read(member, url) {
-    if (member.status !== "approved" || member.role !== "admin" || member.delete_requested_at) fail5("\uC6B4\uC601\uC790\uB9CC \uD68C\uC6D0 \uD604\uD669\uC744 \uBCFC \uC218 \uC788\uC5B4\uC694.", 403);
-    const q = url.searchParams, kind = q.get("kind") || "attendance", action = q.get("action") || "summary", p = { kind, action };
-    if (!["attendance", "rm", "named"].includes(kind) || !["summary", "history"].includes(action)) fail5("\uC870\uD68C \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    for (const key of ["date", "month"]) if (q.has(key)) {
-      if (!normalizeDate(q.get(key))) fail5("\uC870\uD68C \uB0A0\uC9DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      p[key] = normalizeDate(q.get(key));
-    }
-    const filter = q.get("filter") || "";
-    if (filter.length > 100) fail5("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    p.filter = filter;
-    if (action === "history") {
-      const id2 = q.get("memberId"), page = q.get("page") || "0";
-      if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id2 || "") || !/^\d{1,6}$/.test(page) || +page > 1e5) fail5("\uD68C\uC6D0\xB7\uD398\uC774\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      p.memberId = id2;
-      p.page = +page;
-    }
-    const { data, error } = await db2.rpc("onoff_member_overview", { actor: member.id, p });
-    if (error) fail5(error.code === "42501" ? "\uC6B4\uC601\uC790\uB9CC \uD68C\uC6D0 \uD604\uD669\uC744 \uBCFC \uC218 \uC788\uC5B4\uC694." : "\uD68C\uC6D0 \uD604\uD669\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : 503);
-    return data;
-  } };
-}
-
-// supabase/functions/onoff-api/photo-history.js
-function personalBoardRecords(imports, m, visible) {
-  return imports.flatMap((i) => i.rows.filter((r) => !r.excluded && r.participants.some((p) => p.memberId === m.id)).map((r) => ({ ...r, id: i.photo_id + ":" + r.id, photoId: i.photo_id, date: i.gym_photos.date, session: i.gym_photos.session, participants: r.participants.map((p) => {
-    const member = visible.find((v) => v.id === p.memberId);
-    return { name: p.memberId === m.id ? m.name : member?.disclosure_consent === true ? member.name : "\uD300\uC6D0", memberId: p.memberId === m.id ? m.id : null };
-  }) })));
-}
-async function readPhotoHistory(db2, member, members) {
-  const { data, error } = await db2.from("gym_board_imports").select("*,gym_photos!inner(date,program,session,active)").eq("status", "published").eq("gym_photos.active", true).contains("rows", JSON.stringify([{ participants: [{ memberId: member.id }] }])).order("updated_at", { ascending: false }).limit(1e3);
-  if (error) throw Object.assign(Error("\uAE30\uC874 \uC0AC\uC9C4 \uAE30\uB85D\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694."), { status: 503 });
-  return personalBoardRecords(data || [], member, members);
-}
-
-// web/attendance-location.js
-var DEFAULT_RECORD_TOOLS = { attendance: { enabled: false, latitude: null, longitude: null, radius: 200 } };
-function distanceMetres(a, b) {
-  const rad = (n) => n * Math.PI / 180, lat = rad(b.latitude - a.latitude), lon = rad(b.longitude - a.longitude), h = Math.sin(lat / 2) ** 2 + Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(lon / 2) ** 2;
-  return 6371e3 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
-}
-function validateAttendanceLocation(config, position, now = Date.now()) {
-  if (!config?.enabled) return;
-  const p = position, c = config;
-  if (!p || ![p.latitude, p.longitude, p.accuracy, p.timestamp, c.latitude, c.longitude, c.radius].every((v) => typeof v === "number" && Number.isFinite(v)) || Math.abs(p.latitude) > 90 || Math.abs(p.longitude) > 180 || p.accuracy < 0 || p.accuracy > 100 || Math.abs(now - p.timestamp) > 12e4) throw Error("\uC815\uD655\uD55C \uD604\uC7AC \uC704\uCE58\uAC00 \uD544\uC694\uD574\uC694. \uC704\uCE58 \uAD8C\uD55C\uC744 \uD5C8\uC6A9\uD558\uACE0 \uCC3D\uAC00\uC5D0\uC11C \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.");
-  if (distanceMetres(c, p) > c.radius) throw Error("\uCCB4\uC721\uAD00 \uADFC\uCC98\uC5D0\uC11C\uB9CC \uCD9C\uC11D\uD560 \uC218 \uC788\uC5B4\uC694. \uCCB4\uC721\uAD00\uC5D0 \uACC4\uC2DC\uBA74 \uC704\uCE58\uB97C \uB2E4\uC2DC \uD655\uC778\uD558\uAC70\uB098 \uC6B4\uC601\uC790\uC5D0\uAC8C \uBB38\uC758\uD574\uC8FC\uC138\uC694.");
-}
-
-// web/meetups.js
-function meetupMessage(instant) {
-  const date = new Date(instant);
-  if (!instant || !Number.isFinite(+date)) return "";
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date).map((x) => [x.type, x.value]));
-  return `\uC6B4\uB3D9 \uBC88\uAC1C ${parts.month}/${parts.day} ${parts.hour}:${parts.minute} \uD568\uAED8 \uC6B4\uB3D9\uD574\uC694`;
-}
-function meetupLifecycle(post, now = Date.now()) {
-  const start = post?.category === "\uC6B4\uB3D9 \uBC88\uAC1C" ? Date.parse(post.starts_at) : NaN;
-  const valid = Number.isFinite(start), closesAt = start + 30 * 60 * 1e3, deletesAt = start + 24 * 60 * 60 * 1e3;
-  return { closed: valid && +now >= closesAt, expired: valid && +now >= deletesAt, closesAt: valid ? closesAt : null, deletesAt: valid ? deletesAt : null };
-}
-
 // web/membership.js
 function memberDays(a, b) {
   return Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 864e5);
@@ -736,6 +306,471 @@ function changeMembership(old, b, today) {
   return p;
 }
 
+// web/meetups.js
+function meetupMessage(instant) {
+  const date = new Date(instant);
+  if (!instant || !Number.isFinite(+date)) return "";
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date).map((x) => [x.type, x.value]));
+  return `\uC6B4\uB3D9 \uBC88\uAC1C ${parts.month}/${parts.day} ${parts.hour}:${parts.minute} \uD568\uAED8 \uC6B4\uB3D9\uD574\uC694`;
+}
+function meetupLifecycle(post, now = Date.now()) {
+  const start = post?.category === "\uC6B4\uB3D9 \uBC88\uAC1C" ? Date.parse(post.starts_at) : NaN;
+  const valid = Number.isFinite(start), closesAt = start + 30 * 60 * 1e3, deletesAt = start + 24 * 60 * 60 * 1e3;
+  return { closed: valid && +now >= closesAt, expired: valid && +now >= deletesAt, closesAt: valid ? closesAt : null, deletesAt: valid ? deletesAt : null };
+}
+
+// supabase/functions/onoff-api/community-views-service.js
+var fail = (message, status) => {
+  throw Object.assign(Error(message), { status });
+};
+function createCommunityViewsService(db2, { now = () => /* @__PURE__ */ new Date() } = {}) {
+  async function result(query) {
+    const { data, error } = await query;
+    if (error) fail(error.code === "42501" ? "\uAC8C\uC2DC\uAE00\uC744 \uC77D\uC744 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : "\uC870\uD68C\uC218\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : 503);
+    return data;
+  }
+  const one = (table, key, value) => result(db2.from(table).select("*").eq(key, value).maybeSingle());
+  async function counts(member, postIds = [], noticeIds = []) {
+    if (!postIds.length && !noticeIds.length) return {};
+    return await result(db2.rpc("onoff_community_view_counts", { actor: member.id, post_ids: postIds, notice_ids: noticeIds })) || {};
+  }
+  async function read(member, { id: id2, kind }) {
+    if (member.status !== "approved" || member.delete_requested_at) fail("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    const item = await one(kind === "notice" ? "gym_notices" : "gym_posts", "id", id2);
+    if (!item || meetupLifecycle(item, now()).expired) fail("\uAC8C\uC2DC\uAE00\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    if (member.role !== "admin" && member.role !== "coach") {
+      const pass = await one("gym_memberships", "user_id", member.id), day = kstDate(now());
+      const attended = pass?.kind === "visits" && pass.remaining_visits === 0 ? await result(db2.from("gym_attendance").select("date").eq("user_id", member.id).eq("date", day).eq("membership_id", pass.id)) : [];
+      if (!membershipState(pass, day, attended.length > 0).active) fail("\uD68C\uC6D0\uAD8C \uC774\uC6A9 \uC0C1\uD0DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.", 403);
+    }
+    if (kind === "post" && member.role !== "admin" && item.author_id !== member.id && item.author_id) {
+      const author = await one("gym_members", "id", item.author_id);
+      if (author?.disclosure_consent === false) fail("\uAC8C\uC2DC\uAE00\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    }
+    if (item.author_id !== member.id) await result(db2.rpc("onoff_commit", { actor: member.id, op: "community-read", p: { id: id2, kind } }));
+    const values = await counts(member, kind === "post" ? [id2] : [], kind === "notice" ? [id2] : []);
+    return { ok: true, viewCount: values[kind + ":" + id2] || 0 };
+  }
+  return { counts, read };
+}
+
+// supabase/functions/onoff-api/request-body.js
+var fail2 = (message, status = 400) => {
+  throw Object.assign(Error(message), { status });
+};
+async function readJsonObject(req, limit = 2e6) {
+  const declared = req.headers.get("Content-Length");
+  if (declared !== null && /^\d+$/.test(declared) && Number(declared) > limit) fail2("\uC694\uCCAD\uC774 \uB108\uBB34 \uCEE4\uC694.", 413);
+  const reader = req.body?.getReader(), chunks = [];
+  let length = 0;
+  if (reader) try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > limit) {
+        await reader.cancel().catch(() => {
+        });
+        fail2("\uC694\uCCAD\uC774 \uB108\uBB34 \uCEE4\uC694.", 413);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  let body;
+  try {
+    body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    fail2("\uC694\uCCAD \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) fail2("\uC694\uCCAD \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  return body;
+}
+
+// supabase/functions/onoff-api/workout-comments-service.js
+var fail3 = (message, status = 400) => {
+  throw Object.assign(Error(message), { status });
+};
+var uuid = (value) => typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
+function createWorkoutCommentsService(db2) {
+  return { async route(member, path, url, body) {
+    if (member.status !== "approved" || member.delete_requested_at) fail3("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uB313\uAE00\uC744 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    const read = path === "/api/workout-comments", source = read ? Object.fromEntries(url.searchParams) : body;
+    const action = read ? source.action || "summary" : { "/api/workout-comments/create": "create", "/api/workout-comments/update": "update", "/api/workout-comments/delete": "delete" }[path];
+    if (!(read ? ["summary", "list"] : ["create", "update", "delete"]).includes(action)) fail3("\uB313\uAE00 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (!normalizeDate(source.date) || !["B/T", "WOD"].includes(source.program)) fail3("\uC218\uC5C5 \uB0A0\uC9DC\uC640 \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    const p = { action, date: normalizeDate(source.date), program: source.program };
+    if (read) {
+      if (source.before !== void 0 || source.beforeId !== void 0) {
+        if (action !== "list" || typeof source.before !== "string" || source.before.length > 40 || !Number.isFinite(Date.parse(source.before)) || !uuid(source.beforeId)) fail3("\uB313\uAE00 \uD398\uC774\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        p.before = source.before;
+        p.beforeId = source.beforeId;
+      }
+    } else {
+      if (!uuid(source.id)) fail3("\uB313\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p.id = source.id;
+      if (action !== "delete") {
+        if (member.disclosure_consent !== true) fail3("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC791\uC131\uD574\uC8FC\uC138\uC694.", 403);
+        if (typeof source.text !== "string" || !source.text.trim() || source.text.length > 500) fail3("\uB313\uAE00\uC740 1~500\uC790\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+        p.text = source.text.trim();
+      }
+      if (action !== "create") {
+        if (!Number.isInteger(source.revision) || source.revision < 0 || source.revision > 2147483647) fail3("\uB313\uAE00 \uBCC0\uACBD \uC0C1\uD0DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        p.revision = source.revision;
+      }
+    }
+    const { data, error } = await db2.rpc("onoff_workout_comments", { actor: member.id, p });
+    if (error) {
+      const status = error.code === "42501" ? 403 : error.code === "P0002" ? 404 : error.code === "40001" || error.code === "23505" ? 409 : ["22023", "22007", "22P02", "23514"].includes(error.code) ? 400 : 503;
+      fail3(status === 503 ? "\uB313\uAE00\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." : error.message, status);
+    }
+    return data;
+  } };
+}
+
+// web/permissions.js
+var COACH_PERMISSIONS = [["workouts.read", "\uBBF8\uACF5\uAC1C \uC218\uC5C5 \uC870\uD68C"], ["workouts.create", "\uC218\uC5C5 \uB4F1\uB85D"], ["workouts.update", "\uC218\uC5C5 \uC218\uC815"], ["workouts.delete", "\uC218\uC5C5 \uC0AD\uC81C"], ["records.create", "\uD68C\uC6D0 \uAE30\uB85D \uC785\uB825"], ["records.update", "\uD68C\uC6D0 \uAE30\uB85D \uC218\uC815"], ["records.delete", "\uD68C\uC6D0 \uAE30\uB85D \uC0AD\uC81C"], ["photos", "\uC624\uB298\uC758 \uAE30\uB85D \uC0AC\uC9C4 \uAD00\uB9AC"], ["videos", "\uC6B4\uB3D9\uC601\uC0C1 \uAD00\uB9AC"], ["rm", "1RM \uC885\uBAA9\uAD00\uB9AC"], ["notices", "\uACF5\uC9C0 \uAD00\uB9AC"], ["banner", "\uBC30\uB108 \uAD00\uB9AC"], ["push", "\uD478\uC2DC \uBC1C\uC1A1\xB7\uC774\uB825"], ["release", "\uACF5\uAC1C\uC2DC\uAC01"], ["tv", "TV \uD654\uBA74 \uC124\uC815"], ["acc.read", "\uBBF8\uACF5\uAC1C ACC \uC870\uD68C"], ["acc.create", "ACC \uB4F1\uB85D"], ["acc.update", "ACC \uC218\uC815"], ["acc.delete", "ACC \uC0AD\uC81C"]];
+function hasPermission(member, key) {
+  return member?.status === "approved" && (member.role === "admin" || member.role === "coach" && Array.isArray(member.coach_permissions) && member.coach_permissions.includes(key));
+}
+
+// supabase/functions/onoff-api/media-service.js
+var fail4 = (message, status = 400) => {
+  throw Object.assign(Error(message), { status });
+};
+function cleanJpeg(bytes) {
+  if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216) fail4("JPEG \uC0AC\uC9C4\uC744 \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+  const parts = [bytes.subarray(0, 2)];
+  let i = 2;
+  while (i < bytes.length) {
+    if (bytes[i] !== 255) fail4("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    const marker = bytes[i + 1];
+    if (marker === 218) {
+      parts.push(bytes.subarray(i));
+      const output = new Uint8Array(bytes.length);
+      let length = 0;
+      for (const part of parts) {
+        output.set(part, length);
+        length += part.length;
+      }
+      return output.slice(0, length);
+    }
+    const size = bytes[i + 2] << 8 | bytes[i + 3];
+    if (size < 2 || i + 2 + size > bytes.length) fail4("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC190\uC0C1\uB410\uC5B4\uC694.");
+    if (!(marker >= 224 && marker <= 239) && marker !== 254) parts.push(bytes.subarray(i, i + 2 + size));
+    i += 2 + size;
+  }
+  fail4("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+}
+function jpegDimensions(bytes, maxSide) {
+  let i = 2, dimensions;
+  while (i + 3 < bytes.length) {
+    if (bytes[i] !== 255) fail4("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    const marker = bytes[i + 1], size = bytes[i + 2] << 8 | bytes[i + 3];
+    if (size < 2 || i + 2 + size > bytes.length) fail4("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC190\uC0C1\uB410\uC5B4\uC694.");
+    if (marker === 218) {
+      if (!dimensions || bytes.at(-2) !== 255 || bytes.at(-1) !== 217) fail4("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC190\uC0C1\uB410\uC5B4\uC694.");
+      return dimensions;
+    }
+    if ([192, 193, 194].includes(marker)) {
+      const height = bytes[i + 5] << 8 | bytes[i + 6], width = bytes[i + 7] << 8 | bytes[i + 8];
+      if (dimensions || size < 8 || bytes[i + 4] !== 8 || !width || !height || width > maxSide || height > maxSide || ![1, 3].includes(bytes[i + 9]) || size !== 8 + 3 * bytes[i + 9]) fail4("\uC0AC\uC9C4 \uD574\uC0C1\uB3C4\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
+      dimensions = { width, height };
+    }
+    i += 2 + size;
+  }
+  fail4("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+}
+var photoPreviewPath = (path) => path.replace(/\.jpg$/, ".preview.jpg");
+function decodeJpeg(data, limit) {
+  if (typeof data !== "string" || data.length > Math.ceil(limit / 3) * 4) fail4("\uC555\uCD95\uB41C \uC0AC\uC9C4 \uD06C\uAE30\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  let bytes;
+  try {
+    bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  } catch {
+    fail4("\uC0AC\uC9C4 \uD30C\uC77C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  }
+  if (bytes.length > limit) fail4("\uC0AC\uC9C4 \uD06C\uAE30\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
+  const clean = cleanJpeg(bytes);
+  jpegDimensions(clean, limit === 65536 ? 480 : 1600);
+  return clean;
+}
+function createMediaService(db2, { now = () => /* @__PURE__ */ new Date() } = {}) {
+  const bucket = db2.storage?.from("onoff-private-photos");
+  async function result(q) {
+    const { data, error } = await q;
+    if (error) fail4(error.code === "42501" ? "\uC0AC\uC9C4 \uC811\uADFC \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : "\uC0AC\uC9C4\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : 503);
+    return data;
+  }
+  async function cleanup() {
+    if (!bucket) return;
+    try {
+      const stale = await result(db2.from("gym_photos").select("id").eq("active", false).lt("created_at", new Date(+now() - 864e5).toISOString()).limit(30));
+      if (stale.length) await result(db2.from("gym_photos").delete().in("id", stale.map((p) => p.id)));
+      const pending = await result(db2.from("gym_photo_cleanup").select("path").limit(30));
+      if (pending.length) {
+        const paths = pending.map((x) => x.path);
+        const { error } = await bucket.remove(paths);
+        if (!error) await result(db2.from("gym_photo_cleanup").delete().in("path", paths));
+      }
+    } catch {
+    }
+  }
+  async function visiblePhotos(m, photos) {
+    if (m?.role === "admin") return photos;
+    const ids = [...new Set(photos.map((p) => p.owner_id).filter((id2) => id2 && id2 !== m?.id))];
+    const owners = ids.length ? await result(db2.from("gym_members").select("id,status,disclosure_consent").in("id", ids)) : [];
+    return photos.filter((p) => !p.owner_id || p.owner_id === m?.id || owners.some((o) => o.id === p.owner_id && o.status === "approved" && o.disclosure_consent !== false));
+  }
+  async function route(m, path, b) {
+    if (m.status !== "approved") fail4("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (path === "/api/photos/upload") {
+      if (m.disclosure_consent === false) fail4("\uC0AC\uC9C4 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC774\uC6A9\uD574\uC8FC\uC138\uC694.", 403);
+      if (!["community", "daily", "notice"].includes(b.kind) || b.kind === "daily" && !hasPermission(m, "photos") || b.kind === "notice" && !hasPermission(m, "notices")) fail4("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      const bytes = decodeJpeg(b.data, 614400), preview = b.previewData === void 0 ? null : decodeJpeg(b.previewData, 65536);
+      await cleanup();
+      const pending = await result(db2.from("gym_photos").select("id").eq("owner_id", m.id).eq("active", false).limit(10));
+      if (pending.length >= 10) fail4("\uBBF8\uC0AC\uC6A9 \uC0AC\uC9C4\uC774 \uB9CE\uC544\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 429);
+      const id2 = crypto.randomUUID(), storagePath = m.id + "/" + id2 + ".jpg", previewPath = preview ? photoPreviewPath(storagePath) : null;
+      await result(db2.from("gym_photos").insert({ id: id2, owner_id: m.id, kind: b.kind, path: storagePath, preview_path: previewPath }));
+      const uploads = await Promise.allSettled([[storagePath, bytes], ...preview ? [[previewPath, preview]] : []].map(([path2, data]) => bucket.upload(path2, data, { contentType: "image/jpeg", cacheControl: "3600", upsert: false })));
+      if (uploads.some((r) => r.status === "rejected" || r.value.error)) {
+        await result(db2.from("gym_photos").delete().eq("id", id2).eq("owner_id", m.id));
+        await cleanup();
+        fail4("\uC0AC\uC9C4 \uC5C5\uB85C\uB4DC \uC2E4\uD328 \xB7 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uBA74 \uC7AC\uC5C5\uB85C\uB4DC\uD569\uB2C8\uB2E4.", 503);
+      }
+      try {
+        await result(db2.from("gym_photos").update({ uploaded: true }).eq("id", id2).eq("owner_id", m.id));
+      } catch (e) {
+        await result(db2.from("gym_photos").delete().eq("id", id2).eq("owner_id", m.id));
+        await cleanup();
+        throw e;
+      }
+      return { id: id2 };
+    }
+    if (path === "/api/photos/preview") {
+      const preview = decodeJpeg(b.previewData, 65536), photo = await result(db2.from("gym_photos").select("id,path,preview_path,owner_id").eq("id", b.id).eq("active", true).eq("uploaded", true).maybeSingle());
+      if (!photo) fail4("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      if (photo.owner_id !== m.id && m.role !== "admin") fail4("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (photo.preview_path) return { ok: true };
+      const previewPath = photoPreviewPath(photo.path);
+      if (previewPath === photo.path) fail4("\uC0AC\uC9C4 \uACBD\uB85C\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      const { error } = await bucket.upload(previewPath, preview, { contentType: "image/jpeg", cacheControl: "3600", upsert: false });
+      if (error && !["409", "Duplicate"].includes(String(error.statusCode || error.status || error.error))) fail4("\uBBF8\uB9AC\uBCF4\uAE30\uB97C \uC900\uBE44\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+      const updated = await result(db2.from("gym_photos").update({ preview_path: previewPath }).eq("id", photo.id).eq("active", true).is("preview_path", null).select("id"));
+      if (!updated?.length) {
+        const current = await result(db2.from("gym_photos").select("id,preview_path").eq("id", photo.id).maybeSingle());
+        if (!current) {
+          await result(db2.from("gym_photo_cleanup").upsert({ path: previewPath }, { onConflict: "path" }));
+          await cleanup();
+        }
+      }
+      return { ok: true };
+    }
+    if (path === "/api/photos/urls") {
+      if (!Array.isArray(b.ids) || b.ids.length < 1 || b.ids.length > 12 || b.ids.some((id2) => typeof id2 !== "string" || !/^[-a-f0-9]{36}$/i.test(id2))) fail4("\uC0AC\uC9C4 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      const photos = await visiblePhotos(m, await result(db2.from("gym_photos").select("id,path,preview_path,owner_id").eq("active", true).in("id", [...new Set(b.ids)])));
+      if (!photos.length) return { urls: [] };
+      const source = (p) => b.variant === "preview" && p.preview_path ? p.preview_path : p.path;
+      const { data, error } = await bucket.createSignedUrls(photos.map(source), 60);
+      if (error) fail4("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+      return { urls: photos.flatMap((p) => {
+        const signed = data.find((x) => x.path === source(p));
+        return signed?.signedUrl ? [{ id: p.id, url: signed.signedUrl, variant: source(p) === p.preview_path ? "preview" : "full" }] : [];
+      }), expiresIn: 60 };
+    }
+    if (path === "/api/photos/program") {
+      if (!hasPermission(m, "photos")) fail4("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      return result(db2.rpc("onoff_photo_program", { actor: m.id, photo_id: b.id, target_program: b.program }));
+    }
+    if (path === "/api/photos/url") {
+      const photo = await result(db2.from("gym_photos").select("*").eq("id", b.id).eq("active", true).maybeSingle());
+      if (!photo || !(await visiblePhotos(m, [photo])).length) fail4("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      const { data, error } = await bucket.createSignedUrl(b.variant === "preview" && photo.preview_path ? photo.preview_path : photo.path, 60);
+      if (error) fail4("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+      return { url: data.signedUrl, variant: b.variant === "preview" && photo.preview_path ? "preview" : "full", expiresIn: 60 };
+    }
+    if (path === "/api/photos/attach") {
+      if (b.kind !== "daily") fail4("\uC0AC\uC9C4 \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!hasPermission(m, "photos")) fail4("\uC0AC\uC9C4 \uAD00\uB9AC \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      return result(db2.rpc("onoff_attach_photos", { actor: m.id, p: b }));
+    }
+    if (path === "/api/photos/delete") {
+      const photo = await result(db2.from("gym_photos").select("*").eq("id", b.id).maybeSingle());
+      if (!photo) fail4("\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      if (photo.active ? photo.kind === "daily" ? !hasPermission(m, "photos") : photo.kind === "notice" ? !hasPermission(m, "notices") : m.role !== "admin" : photo.owner_id !== m.id) fail4("\uC0AC\uC9C4 \uC0AD\uC81C \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 403);
+      await result(db2.from("gym_photos").delete().eq("id", photo.id));
+      await cleanup();
+      return { ok: true };
+    }
+    fail4("\uC0AC\uC9C4 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 404);
+  }
+  async function list(date, postIds, noticeIds = [], member) {
+    if (!bucket) return [];
+    const fields = "id,kind,post_id,notice_id,date,program,session,owner_id,preview_path";
+    const [daily, community, notices] = await Promise.all([result(db2.from("gym_photos").select(fields).eq("active", true).eq("kind", "daily").eq("date", date)), postIds.length ? result(db2.from("gym_photos").select(fields).eq("active", true).in("post_id", postIds)) : [], noticeIds.length ? result(db2.from("gym_photos").select(fields).eq("active", true).in("notice_id", noticeIds)) : []]);
+    return (await visiblePhotos(member, [...daily, ...community, ...notices])).map(({ owner_id, preview_path, ...photo }) => ({ ...photo, hasPreview: !!preview_path, canPreparePreview: owner_id === member?.id || member?.role === "admin" }));
+  }
+  return { route, list, cleanup };
+}
+
+// supabase/functions/onoff-api/avatar-service.js
+var fail5 = (message, status = 400) => {
+  throw Object.assign(Error(message), { status });
+};
+var uuid2 = (v) => typeof v === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
+function avatarReference(owner, value) {
+  return uuid2(owner) && uuid2(value?.id) && value.path === `avatars/${owner}/${value.id}.jpg` ? value : null;
+}
+function avatarSnapshot(preferences, members, viewer) {
+  const owners = new Map(members.map((m) => [m.id, m]));
+  return Object.fromEntries(preferences.flatMap((p) => {
+    const photo = avatarReference(p.user_id, p.body?.avatarPhoto), m = owners.get(p.user_id);
+    return photo && (p.user_id === viewer.id || viewer.role === "admin" || m?.status === "approved" && m.disclosure_consent !== false) ? [[p.user_id, photo.id]] : [];
+  }));
+}
+function avatarJpeg(data) {
+  if (typeof data !== "string" || data.length > 131072) fail5("\uD504\uB85C\uD544 \uC0AC\uC9C4 \uD06C\uAE30\uB97C \uC904\uC5EC\uC8FC\uC138\uC694.");
+  let bytes;
+  try {
+    bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  } catch {
+    fail5("\uC0AC\uC9C4 \uD615\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+  }
+  if (bytes.length > 98304) fail5("\uD504\uB85C\uD544 \uC0AC\uC9C4\uC740 96KB \uC774\uD558\uB85C \uC800\uC7A5\uD574\uC8FC\uC138\uC694.");
+  bytes = cleanJpeg(bytes);
+  let width = 0, height = 0;
+  for (let i = 2; i + 8 < bytes.length; ) {
+    const marker = bytes[i + 1];
+    if (marker === 218) break;
+    const size = bytes[i + 2] << 8 | bytes[i + 3];
+    if ([192, 193, 194].includes(marker)) {
+      height = bytes[i + 5] << 8 | bytes[i + 6];
+      width = bytes[i + 7] << 8 | bytes[i + 8];
+      break;
+    }
+    i += 2 + size;
+  }
+  if (width !== height || width < 32 || width > 512) fail5("\uD504\uB85C\uD544 \uC0AC\uC9C4\uC744 \uB2E4\uC2DC \uC798\uB77C \uC800\uC7A5\uD574\uC8FC\uC138\uC694.");
+  return bytes;
+}
+function createAvatarService(db2) {
+  const bucket = db2.storage?.from("onoff-private-photos");
+  async function result(q) {
+    const { data, error } = await q;
+    if (error) fail5("\uD504\uB85C\uD544 \uC0AC\uC9C4\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    return data;
+  }
+  async function discard(path) {
+    try {
+      const { error } = await bucket.remove([path]);
+      if (error) await db2.from("gym_photo_cleanup").upsert({ path }, { onConflict: "path" });
+    } catch {
+      await db2.from("gym_photo_cleanup").upsert({ path }, { onConflict: "path" });
+    }
+  }
+  return { async route(m, path, b) {
+    if (m.status !== "approved") fail5("\uC2B9\uC778\uB41C \uD68C\uC6D0\uB9CC \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if ("id" in b || "userId" in b || "user_id" in b || "path" in b) fail5("\uBCF8\uC778 \uD504\uB85C\uD544\uC5D0\uC11C \uC0AC\uC9C4\uC744 \uBCC0\uACBD\uD574\uC8FC\uC138\uC694.", 403);
+    if (path === "/api/avatars/save") {
+      if (m.disclosure_consent === false) fail5("\uAC1C\uC778\uC124\uC815\uC5D0\uC11C \uD68C\uC6D0 \uAC04 \uACF5\uAC1C\uC5D0 \uB3D9\uC758\uD55C \uB4A4 \uC0AC\uC9C4\uC744 \uB4F1\uB85D\uD574\uC8FC\uC138\uC694.", 403);
+      const bytes = avatarJpeg(b.data), id2 = crypto.randomUUID(), storagePath = `avatars/${m.id}/${id2}.jpg`;
+      if (!bucket) fail5("\uC0AC\uC9C4 \uC800\uC7A5 \uC5F0\uACB0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 503);
+      await result(bucket.upload(storagePath, bytes, { contentType: "image/jpeg", cacheControl: "60", upsert: false }));
+      try {
+        await result(db2.rpc("onoff_commit", { actor: m.id, op: "preferences", p: { avatarPhoto: { id: id2, path: storagePath } } }));
+      } catch (e) {
+        await discard(storagePath);
+        throw e;
+      }
+      return { ok: true, id: id2 };
+    }
+    if (path === "/api/avatars/delete") {
+      await result(db2.rpc("onoff_commit", { actor: m.id, op: "preferences", p: { avatarPhoto: null } }));
+      return { ok: true };
+    }
+    if (path === "/api/avatars/urls") {
+      if (!Array.isArray(b.ids) || !b.ids.length || b.ids.length > 24 || b.ids.some((id2) => !uuid2(id2))) fail5("\uD68C\uC6D0 \uC0AC\uC9C4 \uBAA9\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      const ids = [...new Set(b.ids)], members = await result(db2.from("gym_members").select("id,status,disclosure_consent,delete_requested_at").in("id", ids));
+      const allowed = members.filter((owner) => !owner.delete_requested_at && (owner.id === m.id || m.role === "admin" || owner.status === "approved" && owner.disclosure_consent !== false)).map((owner) => owner.id);
+      if (!allowed.length || !bucket) return { urls: [], expiresIn: 60 };
+      const prefs = await result(db2.from("gym_preferences").select("user_id,body").in("user_id", allowed));
+      const photos = prefs.flatMap((p) => {
+        const ref = avatarReference(p.user_id, p.body?.avatarPhoto);
+        return ref ? [{ ...ref, userId: p.user_id }] : [];
+      });
+      if (!photos.length) return { urls: [], expiresIn: 60 };
+      const signed = await result(bucket.createSignedUrls(photos.map((p) => p.path), 60));
+      return { urls: photos.flatMap((p) => {
+        const entry = signed.find((s) => s.path === p.path);
+        return entry?.signedUrl ? [{ userId: p.userId, id: p.id, url: entry.signedUrl }] : [];
+      }), expiresIn: 60 };
+    }
+    fail5("\uD504\uB85C\uD544 \uC0AC\uC9C4 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 404);
+  } };
+}
+
+// supabase/functions/onoff-api/member-overview-service.js
+var fail6 = (message, status = 400) => {
+  throw Object.assign(Error(message), { status });
+};
+function createMemberOverviewService(db2) {
+  return { async read(member, url) {
+    if (member.status !== "approved" || member.role !== "admin" || member.delete_requested_at) fail6("\uC6B4\uC601\uC790\uB9CC \uD68C\uC6D0 \uD604\uD669\uC744 \uBCFC \uC218 \uC788\uC5B4\uC694.", 403);
+    const q = url.searchParams, kind = q.get("kind") || "attendance", action = q.get("action") || "summary", p = { kind, action };
+    if (!["attendance", "rm", "named"].includes(kind) || !["summary", "history"].includes(action)) fail6("\uC870\uD68C \uC885\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    for (const key of ["date", "month"]) if (q.has(key)) {
+      if (!normalizeDate(q.get(key))) fail6("\uC870\uD68C \uB0A0\uC9DC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p[key] = normalizeDate(q.get(key));
+    }
+    const filter = q.get("filter") || "";
+    if (filter.length > 100) fail6("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    p.filter = filter;
+    if (action === "history") {
+      const id2 = q.get("memberId"), page = q.get("page") || "0";
+      if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id2 || "") || !/^\d{1,6}$/.test(page) || +page > 1e5) fail6("\uD68C\uC6D0\xB7\uD398\uC774\uC9C0\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      p.memberId = id2;
+      p.page = +page;
+    }
+    const { data, error } = await db2.rpc("onoff_member_overview", { actor: member.id, p });
+    if (error) fail6(error.code === "42501" ? "\uC6B4\uC601\uC790\uB9CC \uD68C\uC6D0 \uD604\uD669\uC744 \uBCFC \uC218 \uC788\uC5B4\uC694." : "\uD68C\uC6D0 \uD604\uD669\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : 503);
+    return data;
+  } };
+}
+
+// supabase/functions/onoff-api/photo-history.js
+function personalBoardRecords(imports, m, visible) {
+  return imports.flatMap((i) => i.rows.filter((r) => !r.excluded && r.participants.some((p) => p.memberId === m.id)).map((r) => ({ ...r, id: i.photo_id + ":" + r.id, photoId: i.photo_id, date: i.gym_photos.date, session: i.gym_photos.session, participants: r.participants.map((p) => {
+    const member = visible.find((v) => v.id === p.memberId);
+    return { name: p.memberId === m.id ? m.name : member?.disclosure_consent === true ? member.name : "\uD300\uC6D0", memberId: p.memberId === m.id ? m.id : null };
+  }) })));
+}
+async function readPhotoHistory(db2, member, members) {
+  const { data, error } = await db2.from("gym_board_imports").select("*,gym_photos!inner(date,program,session,active)").eq("status", "published").eq("gym_photos.active", true).contains("rows", JSON.stringify([{ participants: [{ memberId: member.id }] }])).order("updated_at", { ascending: false }).limit(1e3);
+  if (error) throw Object.assign(Error("\uAE30\uC874 \uC0AC\uC9C4 \uAE30\uB85D\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694."), { status: 503 });
+  return personalBoardRecords(data || [], member, members);
+}
+
+// web/attendance-location.js
+var DEFAULT_RECORD_TOOLS = { attendance: { enabled: false, latitude: null, longitude: null, radius: 200 } };
+function distanceMetres(a, b) {
+  const rad = (n) => n * Math.PI / 180, lat = rad(b.latitude - a.latitude), lon = rad(b.longitude - a.longitude), h = Math.sin(lat / 2) ** 2 + Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(lon / 2) ** 2;
+  return 6371e3 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
+}
+function validateAttendanceLocation(config, position, now = Date.now()) {
+  if (!config?.enabled) return;
+  const p = position, c = config;
+  if (!p || ![p.latitude, p.longitude, p.accuracy, p.timestamp, c.latitude, c.longitude, c.radius].every((v) => typeof v === "number" && Number.isFinite(v)) || Math.abs(p.latitude) > 90 || Math.abs(p.longitude) > 180 || p.accuracy < 0 || p.accuracy > 100 || Math.abs(now - p.timestamp) > 12e4) throw Error("\uC815\uD655\uD55C \uD604\uC7AC \uC704\uCE58\uAC00 \uD544\uC694\uD574\uC694. \uC704\uCE58 \uAD8C\uD55C\uC744 \uD5C8\uC6A9\uD558\uACE0 \uCC3D\uAC00\uC5D0\uC11C \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.");
+  if (distanceMetres(c, p) > c.radius) throw Error("\uCCB4\uC721\uAD00 \uADFC\uCC98\uC5D0\uC11C\uB9CC \uCD9C\uC11D\uD560 \uC218 \uC788\uC5B4\uC694. \uCCB4\uC721\uAD00\uC5D0 \uACC4\uC2DC\uBA74 \uC704\uCE58\uB97C \uB2E4\uC2DC \uD655\uC778\uD558\uAC70\uB098 \uC6B4\uC601\uC790\uC5D0\uAC8C \uBB38\uC758\uD574\uC8FC\uC138\uC694.");
+}
+
 // web/participation-access.js
 function participationAccess({ viewer, author, post, pass, today, attendedToday = false, now = Date.now() }) {
   const deny = (code, message, action = "") => ({ allowed: false, code, message, action });
@@ -754,7 +789,7 @@ function participationAccess({ viewer, author, post, pass, today, attendedToday 
 }
 
 // supabase/functions/onoff-api/named-service.js
-var fail6 = (message, status = 400) => {
+var fail7 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 var uuid3 = (x) => typeof x === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(x);
@@ -763,42 +798,42 @@ var validText = (x, min, max) => typeof x === "string" && x.trim().length >= min
 function createNamedService(db2) {
   async function rpc(name, p) {
     const { data, error } = await db2.rpc(name, p);
-    if (error) fail6(error.code === "42501" ? "\uC774 \uAE30\uB2A5\uC758 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : error.code === "23505" ? "\uC774\uBBF8 \uB4F1\uB85D\uB41C \uC885\uBAA9 \uB610\uB294 \uBD84\uB958\uC608\uC694." : "\uC694\uCCAD\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : error.code === "23505" ? 409 : 400);
+    if (error) fail7(error.code === "42501" ? "\uC774 \uAE30\uB2A5\uC758 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : error.code === "23505" ? "\uC774\uBBF8 \uB4F1\uB85D\uB41C \uC885\uBAA9 \uB610\uB294 \uBD84\uB958\uC608\uC694." : "\uC694\uCCAD\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", error.code === "42501" ? 403 : error.code === "23505" ? 409 : 400);
     return data;
   }
   return { snapshot: (m) => rpc("onoff_named_snapshot", { actor: m.id }), async route(m, path, b) {
-    if (m.status !== "approved") fail6("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (m.status !== "approved") fail7("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     if (path === "/api/named-wods/comparison") {
-      if (!id(b.wodId)) fail6("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!id(b.wodId)) fail7("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       return rpc("onoff_named_comparison", { actor: m.id, wod_id: b.wodId });
     }
     let p;
     if (path === "/api/named-wods/selection") {
-      if (!Array.isArray(b.ids) || b.ids.length > 250 || b.ids.some((x) => !id(x))) fail6("\uC885\uBAA9 \uC120\uD0DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!Array.isArray(b.ids) || b.ids.length > 250 || b.ids.some((x) => !id(x))) fail7("\uC885\uBAA9 \uC120\uD0DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "selection", ids: [...new Set(b.ids)] };
     } else if (path === "/api/named-wods/record") {
-      if (!uuid3(b.id) || !id(b.wodId) || !/^\d{4}-\d{2}-\d{2}$/.test(b.date || "") || !validText(b.note ?? "", 0, 150)) fail6("\uC885\uBAA9\xB7\uB0A0\uC9DC\xB7\uBA54\uBAA8\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid3(b.id) || !id(b.wodId) || !/^\d{4}-\d{2}-\d{2}$/.test(b.date || "") || !validText(b.note ?? "", 0, 150)) fail7("\uC885\uBAA9\xB7\uB0A0\uC9DC\xB7\uBA54\uBAA8\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const time = Number.isInteger(b.seconds) && b.seconds >= 1 && b.seconds <= 59999, rounds = Number.isInteger(b.rounds) && b.rounds >= 0 && b.rounds <= 9999 && Number.isInteger(b.reps) && b.reps >= 0 && b.reps <= 99999 && b.rounds + b.reps > 0;
-      if (!time && !rounds) fail6("\uC2DC\uAC04 \uB610\uB294 \uB77C\uC6B4\uB4DC\xB7\uD69F\uC218\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!time && !rounds) fail7("\uC2DC\uAC04 \uB610\uB294 \uB77C\uC6B4\uB4DC\xB7\uD69F\uC218\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "record", id: b.id, wodId: b.wodId, date: b.date, note: (b.note || "").trim(), ...time ? { seconds: b.seconds } : { rounds: b.rounds, reps: b.reps } };
     } else if (path === "/api/named-wods/record/delete") {
-      if (!uuid3(b.id)) fail6("\uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid3(b.id)) fail7("\uAE30\uB85D\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "record-delete", id: b.id };
     } else {
-      if (m.role !== "admin") fail6("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (m.role !== "admin") fail7("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       if (path === "/api/named-wods/catalogue") {
-        if (b.id && !id(b.id) || !validText(b.name, 1, 80) || !validText(b.description ?? "", 0, 1e4) || !id(b.categoryId) || !["time", "rounds"].includes(b.recordType) || typeof b.isDefault !== "boolean" || typeof b.active !== "boolean") fail6("\uC885\uBAA9 \uC124\uC815\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (b.id && !id(b.id) || !validText(b.name, 1, 80) || !validText(b.description ?? "", 0, 1e4) || !id(b.categoryId) || !["time", "rounds"].includes(b.recordType) || typeof b.isDefault !== "boolean" || typeof b.active !== "boolean") fail7("\uC885\uBAA9 \uC124\uC815\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p = { action: "catalogue", ...b.id ? { id: b.id } : {}, name: b.name.trim(), description: b.description || "", categoryId: b.categoryId, recordType: b.recordType, isDefault: b.isDefault, active: b.active };
       } else if (path === "/api/named-wods/catalogue/delete") {
-        if (!id(b.id)) fail6("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (!id(b.id)) fail7("\uC885\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p = { action: "catalogue-delete", id: b.id };
       } else if (path === "/api/named-wods/category") {
-        if (b.id && !id(b.id) || !validText(b.label, 1, 40)) fail6("\uBD84\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (b.id && !id(b.id) || !validText(b.label, 1, 40)) fail7("\uBD84\uB958\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p = { action: "category", ...b.id ? { id: b.id } : {}, label: b.label.trim() };
       } else if (path === "/api/named-wods/category/delete") {
-        if (!id(b.id) || !id(b.targetId) || b.id === b.targetId) fail6("\uC62E\uAE38 \uBD84\uB958\uB97C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
+        if (!id(b.id) || !id(b.targetId) || b.id === b.targetId) fail7("\uC62E\uAE38 \uBD84\uB958\uB97C \uC120\uD0DD\uD574\uC8FC\uC138\uC694.");
         p = { action: "category-delete", id: b.id, targetId: b.targetId };
-      } else fail6("NAMED WOD \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+      } else fail7("NAMED WOD \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
     }
     return rpc("onoff_named_mutate", { actor: m.id, p });
   } };
@@ -811,7 +846,7 @@ var validGender = (value) => value === "male" || value === "female";
 var PRIVACY_VERSION = "privacy-2026-11-05";
 
 // supabase/functions/onoff-api/points-service.js
-var fail7 = (message, status = 400) => {
+var fail8 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 var uuid4 = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
@@ -819,11 +854,11 @@ var integer2 = (n, min, max) => Number.isSafeInteger(n) && n >= min && n <= max;
 function createPointsService(db2, { now = () => /* @__PURE__ */ new Date() } = {}) {
   const read = async (q) => {
     const { data, error } = await q;
-    if (error) fail7("\uD3EC\uC778\uD2B8 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
+    if (error) fail8("\uD3EC\uC778\uD2B8 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC5B4\uC694.", 503);
     return data;
   };
   async function snapshot(m) {
-    if (m?.status !== "approved") fail7("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (m?.status !== "approved") fail8("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     const [cfg, account, coupons, products, ledger, rules, methods] = await Promise.all([
       read(db2.from("gym_point_config").select("enabled,attendance_points,record_points,max_balance").eq("singleton", true).maybeSingle()),
       read(db2.from("gym_point_accounts").select("balance").eq("user_id", m.id).maybeSingle()),
@@ -836,67 +871,67 @@ function createPointsService(db2, { now = () => /* @__PURE__ */ new Date() } = {
     return { enabled: !!cfg?.enabled, attendancePoints: cfg?.attendance_points || 0, recordPoints: cfg?.record_points || 0, balance: Number(account?.balance || 0), maxBalance: cfg?.max_balance == null ? null : Number(cfg.max_balance), rules: rules || [], methods: methods || [], coupons: (coupons || []).map((c) => ({ ...c, expired: !!c.expires_at && Date.parse(c.expires_at) <= +now() })), products: products || [], ledger: ledger || [] };
   }
   async function route(m, path, b) {
-    if (m?.status !== "approved") fail7("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
+    if (m?.status !== "approved") fail8("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uD6C4 \uC774\uC6A9\uD560 \uC218 \uC788\uC5B4\uC694.", 403);
     if (path === "/api/points") return snapshot(m);
     const isAdmin = m.role === "admin";
-    if (["/api/points/admin", "/api/points/settings", "/api/points/product", "/api/points/product/delete", "/api/points/rule", "/api/points/rule/delete", "/api/points/grant", "/api/points/deduct", "/api/points/reset", "/api/points/method", "/api/points/method/delete"].includes(path) && !isAdmin) fail7("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+    if (["/api/points/admin", "/api/points/settings", "/api/points/product", "/api/points/product/delete", "/api/points/rule", "/api/points/rule/delete", "/api/points/grant", "/api/points/deduct", "/api/points/reset", "/api/points/method", "/api/points/method/delete"].includes(path) && !isAdmin) fail8("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
     if (path === "/api/points/admin") {
       const cfg = await read(db2.from("gym_point_config").select("pin_hash").eq("singleton", true).maybeSingle());
       const [base, coupons, members, accounts] = await Promise.all([snapshot(m), read(db2.from("gym_point_coupons").select("id,user_id,name,price,total,remaining,created_at,last_used_at,expires_at").order("created_at", { ascending: false }).limit(100)), read(db2.from("gym_members").select("id,name,status")), read(db2.from("gym_point_accounts").select("user_id,balance"))]);
       return { ...base, pinConfigured: !!cfg?.pin_hash, members: members.filter((m2) => m2.status === "approved").map((m2) => ({ id: m2.id, name: m2.name, balance: Number(accounts.find((a) => a.user_id === m2.id)?.balance || 0) })), issued: (coupons || []).map((c) => ({ ...c, expired: !!c.expires_at && Date.parse(c.expires_at) <= +now(), memberName: members.find((m2) => m2.id === c.user_id)?.name || "\uD68C\uC6D0" })) };
     }
     if (path === "/api/points/reset") {
-      if (!uuid4(b.requestId) || b.confirmed !== true) fail7("\uCD08\uAE30\uD654 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid4(b.requestId) || b.confirmed !== true) fail8("\uCD08\uAE30\uD654 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       const { data: data2, error: error2 } = await db2.rpc("onoff_point_reset", { actor: m.id, request_id: b.requestId });
-      if (error2) fail7(error2.code === "42501" ? "\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694." : "\uD3EC\uC778\uD2B8 \uCD08\uAE30\uD654 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error2.code === "42501" ? 403 : 503);
+      if (error2) fail8(error2.code === "42501" ? "\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694." : "\uD3EC\uC778\uD2B8 \uCD08\uAE30\uD654 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error2.code === "42501" ? 403 : 503);
       return data2;
     }
     let p;
     if (path === "/api/points/settings") {
-      if (typeof b.enabled !== "boolean" || b.pin && (typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin))) fail7("\uC801\uB9BD \uC124\uC815\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (typeof b.enabled !== "boolean" || b.pin && (typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin))) fail8("\uC801\uB9BD \uC124\uC815\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "settings", enabled: b.enabled, pin: b.pin || "" };
       for (const key of ["attendancePoints", "recordPoints"]) if (key in b) {
-        if (!integer2(b[key], 0, 1e6)) fail7("\uC801\uB9BD\uC561\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (!integer2(b[key], 0, 1e6)) fail8("\uC801\uB9BD\uC561\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p[key] = b[key];
       }
       if ("maxBalance" in b) {
-        if (b.maxBalance !== null && !integer2(b.maxBalance, 1, 9e12)) fail7("\uCD1D \uBCF4\uC720 \uD3EC\uC778\uD2B8 \uC0C1\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+        if (b.maxBalance !== null && !integer2(b.maxBalance, 1, 9e12)) fail8("\uCD1D \uBCF4\uC720 \uD3EC\uC778\uD2B8 \uC0C1\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
         p.maxBalance = b.maxBalance;
       }
     } else if (path === "/api/points/rule") {
-      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !b.methodId && !["attendance", "record", "manual"].includes(b.kind) || b.methodId && (typeof b.methodId !== "string" || b.methodId.length > 80) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || !integer2(b.amount, 0, 1e6)) fail7("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !b.methodId && !["attendance", "record", "manual"].includes(b.kind) || b.methodId && (typeof b.methodId !== "string" || b.methodId.length > 80) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || !integer2(b.amount, 0, 1e6)) fail8("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "rule-save", id: b.id || "", ...b.methodId ? { methodId: b.methodId } : { kind: b.kind }, name: b.name.trim(), amount: b.amount };
     } else if (path === "/api/points/rule/delete") {
-      if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail7("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail8("\uC801\uB9BD \uD56D\uBAA9\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "rule-delete", id: b.id };
     } else if (path === "/api/points/method") {
-      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !["manual", "attendance", "record"].includes(b.kind) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60) fail7("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && (typeof b.id !== "string" || b.id.length > 80) || !["manual", "attendance", "record"].includes(b.kind) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60) fail8("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "method-save", id: b.id || "", name: b.name.trim(), kind: b.kind };
     } else if (path === "/api/points/method/delete") {
-      if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail7("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (typeof b.id !== "string" || !b.id || b.id.length > 80) fail8("\uC801\uB9BD \uBC29\uC2DD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "method-delete", id: b.id };
     } else if (path === "/api/points/deduct") {
-      if (!uuid4(b.memberId) || !uuid4(b.requestId) || !integer2(b.amount, 1, 1e6) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200) fail7("\uCC28\uAC10 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid4(b.memberId) || !uuid4(b.requestId) || !integer2(b.amount, 1, 1e6) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200) fail8("\uCC28\uAC10 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "deduct", memberId: b.memberId, requestId: b.requestId, amount: b.amount, reason: b.reason.trim() };
     } else if (path === "/api/points/grant") {
-      if (!uuid4(b.memberId) || !uuid4(b.requestId) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200 || b.ruleId && (typeof b.ruleId !== "string" || b.ruleId.length > 80) || !b.ruleId && !integer2(b.amount, 1, 1e6)) fail7("\uC9C0\uAE09 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid4(b.memberId) || !uuid4(b.requestId) || typeof b.reason !== "string" || !b.reason.trim() || b.reason.length > 200 || b.ruleId && (typeof b.ruleId !== "string" || b.ruleId.length > 80) || !b.ruleId && !integer2(b.amount, 1, 1e6)) fail8("\uC9C0\uAE09 \uB300\uC0C1\xB7\uD3EC\uC778\uD2B8\xB7\uC0AC\uC720\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "grant", memberId: b.memberId, requestId: b.requestId, ruleId: b.ruleId || null, reason: b.reason.trim(), ...!b.ruleId ? { amount: b.amount } : {} };
     } else if (path === "/api/points/product") {
-      if (b.id && !uuid4(b.id) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || typeof b.description !== "string" || b.description.length > 300 || !integer2(b.price, 1, 1e9) || !integer2(b.uses, 1, 1e3)) fail7("\uC0C1\uD488 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.id && !uuid4(b.id) || typeof b.name !== "string" || !b.name.trim() || b.name.trim().length > 60 || typeof b.description !== "string" || b.description.length > 300 || !integer2(b.price, 1, 1e9) || !integer2(b.uses, 1, 1e3)) fail8("\uC0C1\uD488 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "product-save", id: b.id || "", name: b.name.trim(), description: b.description, price: b.price, uses: b.uses };
     } else if (path === "/api/points/product/delete") {
-      if (!uuid4(b.id)) fail7("\uC0C1\uD488\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid4(b.id)) fail8("\uC0C1\uD488\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "product-delete", id: b.id };
     } else if (path === "/api/points/exchange") {
-      if (!uuid4(b.productId) || !uuid4(b.requestId) || !integer2(b.expectedPrice, 1, 1e9) || !integer2(b.expectedUses, 1, 1e3)) fail7("\uAD50\uD658 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid4(b.productId) || !uuid4(b.requestId) || !integer2(b.expectedPrice, 1, 1e9) || !integer2(b.expectedUses, 1, 1e3)) fail8("\uAD50\uD658 \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "exchange", productId: b.productId, requestId: b.requestId, expectedPrice: b.expectedPrice, expectedUses: b.expectedUses };
     } else if (path === "/api/points/use") {
-      if (!uuid4(b.couponId) || !uuid4(b.requestId) || typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin)) fail7("\uCFE0\uD3F0\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (!uuid4(b.couponId) || !uuid4(b.requestId) || typeof b.pin !== "string" || !/^\d{4}$/.test(b.pin)) fail8("\uCFE0\uD3F0\uACFC 4\uC790\uB9AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
       p = { action: "use", couponId: b.couponId, requestId: b.requestId, pin: b.pin };
-    } else fail7("\uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    } else fail8("\uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
     const { data, error } = await db2.rpc("onoff_points", { actor: m.id, p });
-    if (error) fail7(error.code === "42501" ? "\uC774 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD560 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : error.code === "P0001" ? error.message : "\uD3EC\uC778\uD2B8 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : error.code === "P0001" ? 400 : 503);
-    if (data?.ok === false) fail7(data.error, data.status || 400);
+    if (error) fail8(error.code === "42501" ? "\uC774 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD560 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694." : error.code === "P0001" ? error.message : "\uD3EC\uC778\uD2B8 \uC694\uCCAD\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : error.code === "P0001" ? 400 : 503);
+    if (data?.ok === false) fail8(data.error, data.status || 400);
     return data;
   }
   return { snapshot, route };
@@ -1030,51 +1065,51 @@ var avatarEmoji = (value) => validAvatar(value) ? value : "\u{1F3CB}\uFE0F";
 
 // supabase/functions/onoff-api/account-service.js
 var photoPaths = (paths) => [...new Set(paths.flatMap((path) => [path, photoPreviewPath(path)]))];
-var fail8 = (message, status = 400) => {
+var fail9 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 function createAccountService(db2, { reauthenticate } = {}) {
   return { async removeByAdmin(member, b) {
-    if (member.role !== "admin" || member.status !== "approved" || member.id === b.id) fail8("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+    if (member.role !== "admin" || member.status !== "approved" || member.id === b.id) fail9("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
     const args = { actor: member.id, target: b.id, request_id: b.requestId };
     const prepared = await db2.rpc("onoff_account_delete_prepare", { ...args, confirmed_name: b.confirmedName });
-    if (prepared.error) fail8(prepared.error.code === "42501" ? "\uACC4\uC815 \uC0AD\uC81C \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uC0AD\uC81C\uD560 \uC218 \uC5C6\uC5B4\uC694." : "\uD68C\uC6D0 \uC774\uB984\uACFC \uC0AD\uC81C \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", prepared.error.code === "42501" ? 403 : 409);
+    if (prepared.error) fail9(prepared.error.code === "42501" ? "\uACC4\uC815 \uC0AD\uC81C \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uC0AD\uC81C\uD560 \uC218 \uC5C6\uC5B4\uC694." : "\uD68C\uC6D0 \uC774\uB984\uACFC \uC0AD\uC81C \uC694\uCCAD\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", prepared.error.code === "42501" ? 403 : 409);
     if (!prepared.data?.already) {
       const paths = photoPaths(prepared.data?.paths || []);
       if (paths.length) {
         const bucket = db2.storage?.from("onoff-private-photos");
-        if (!bucket) fail8("\uC0AC\uC9C4 \uC0AD\uC81C \uC5F0\uACB0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 503);
+        if (!bucket) fail9("\uC0AC\uC9C4 \uC0AD\uC81C \uC5F0\uACB0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", 503);
         for (let i = 0; i < paths.length; i += 100) {
           const removed = await bucket.remove(paths.slice(i, i + 100));
-          if (removed.error) fail8("\uC0AC\uC9C4 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uACC4\uC815 \uC0AD\uC81C\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+          if (removed.error) fail9("\uC0AC\uC9C4 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uACC4\uC815 \uC0AD\uC81C\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
         }
       }
       const deleted = await db2.auth.admin.deleteUser(b.id, false);
-      if (deleted.error) fail8("\uACC4\uC815 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+      if (deleted.error) fail9("\uACC4\uC815 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
     }
     const completed = await db2.rpc("onoff_account_delete_complete", args);
-    if (completed.error) fail8("\uACC4\uC815 \uC0AD\uC81C \uC644\uB8CC \uD655\uC778\uC744 \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    if (completed.error) fail9("\uACC4\uC815 \uC0AD\uC81C \uC644\uB8CC \uD655\uC778\uC744 \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
     return { ok: true, deleted: true };
   }, async withdraw(member, b) {
-    if (b.confirmed !== true || typeof b.password !== "string" || !b.password || b.password.length > 128) fail8("\uD0C8\uD1F4 \uB3D9\uC758\uC640 \uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-    if (!member.email || !reauthenticate) fail8("\uC774\uBA54\uC77C \uB85C\uADF8\uC778\uC744 \uB2E4\uC2DC \uD655\uC778\uD574\uC8FC\uC138\uC694.", 401);
+    if (b.confirmed !== true || typeof b.password !== "string" || !b.password || b.password.length > 128) fail9("\uD0C8\uD1F4 \uB3D9\uC758\uC640 \uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (!member.email || !reauthenticate) fail9("\uC774\uBA54\uC77C \uB85C\uADF8\uC778\uC744 \uB2E4\uC2DC \uD655\uC778\uD574\uC8FC\uC138\uC694.", 401);
     const session = await reauthenticate(member.email, b.password);
-    if (!session || session.user?.id !== member.id || !session.accessToken) fail8("\uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.", 403);
+    if (!session || session.user?.id !== member.id || !session.accessToken) fail9("\uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.", 403);
     const prepared = await db2.rpc("onoff_withdraw_prepare", { actor: member.id });
-    if (prepared.error) fail8(prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uB2E4\uB978 \uC2B9\uC778\uB41C \uC6B4\uC601\uC790\uC5D0\uAC8C \uAD8C\uD55C\uC744 \uB118\uAE34 \uB4A4 \uD0C8\uD1F4\uD560 \uC218 \uC788\uC5B4\uC694." : "\uD0C8\uD1F4 \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", prepared.error.code === "23514" ? 409 : 503);
+    if (prepared.error) fail9(prepared.error.code === "23514" ? "\uB9C8\uC9C0\uB9C9 \uC6B4\uC601\uC790\uB294 \uB2E4\uB978 \uC2B9\uC778\uB41C \uC6B4\uC601\uC790\uC5D0\uAC8C \uAD8C\uD55C\uC744 \uB118\uAE34 \uB4A4 \uD0C8\uD1F4\uD560 \uC218 \uC788\uC5B4\uC694." : "\uD0C8\uD1F4 \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", prepared.error.code === "23514" ? 409 : 503);
     if (db2.storage?.from) {
       const photos = await db2.from("gym_photos").select("path").eq("owner_id", member.id);
-      if (photos.error) fail8("\uC0AC\uC9C4 \uC0AD\uC81C \uC900\uBE44\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+      if (photos.error) fail9("\uC0AC\uC9C4 \uC0AD\uC81C \uC900\uBE44\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
       const paths = photoPaths((photos.data || []).map((x) => x.path));
       for (let i = 0; i < paths.length; i += 100) {
         const removed2 = await db2.storage.from("onoff-private-photos").remove(paths.slice(i, i + 100));
-        if (removed2.error) fail8("\uC0AC\uC9C4 \uC0AD\uC81C\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+        if (removed2.error) fail9("\uC0AC\uC9C4 \uC0AD\uC81C\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
       }
     }
     const revoked = await db2.auth.admin.signOut(session.accessToken, "global");
-    if (revoked.error) fail8("\uB85C\uADF8\uC778 \uC5F0\uACB0 \uD574\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    if (revoked.error) fail9("\uB85C\uADF8\uC778 \uC5F0\uACB0 \uD574\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
     const removed = await db2.auth.admin.deleteUser(member.id, false);
-    if (removed.error) fail8("\uACC4\uC815 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
+    if (removed.error) fail9("\uACC4\uC815 \uC0AD\uC81C\uB97C \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uD0C8\uD1F4\uB97C \uC7AC\uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.", 503);
     return { ok: true, deleted: true };
   } };
 }
@@ -1189,7 +1224,7 @@ async function pushDigest(value) {
 }
 
 // supabase/functions/onoff-api/push-service.js
-var fail9 = (message, status = 400) => {
+var fail10 = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
 var same = (a, b) => {
@@ -1203,7 +1238,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
 } } = {}) {
   async function result(q) {
     const { data, error } = await q;
-    if (error) fail9(error.code === "42501" ? "\uC54C\uB9BC \uC694\uCCAD \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : "\uC54C\uB9BC \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : 400);
+    if (error) fail10(error.code === "42501" ? "\uC54C\uB9BC \uC694\uCCAD \uAD8C\uD55C\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694." : "\uC54C\uB9BC \uC694\uCCAD\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694.", error.code === "42501" ? 403 : 400);
     return data;
   }
   const one = (table, key, value) => result(db2.from(table).select("*").eq(key, value).maybeSingle());
@@ -1216,14 +1251,14 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
   }
   async function access(req) {
     const code = req.headers.get("X-OnOff-Push-Test") || "";
-    if (!/^[a-f0-9]{32}$/.test(code)) fail9("\uC720\uD6A8\uD55C \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C \uB610\uB294 \uCF54\uB4DC\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.", 401);
+    if (!/^[a-f0-9]{32}$/.test(code)) fail10("\uC720\uD6A8\uD55C \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C \uB610\uB294 \uCF54\uB4DC\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.", 401);
     const hash = await pushDigest(code), test = await one("gym_push_tests", "hash", hash);
-    if (!test || Date.parse(test.expires) <= +now()) fail9("\uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB410\uC5B4\uC694.", 401);
+    if (!test || Date.parse(test.expires) <= +now()) fail10("\uD478\uC2DC \uD14C\uC2A4\uD2B8 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB410\uC5B4\uC694.", 401);
     return { hash, test };
   }
   async function subscribe(actor, testHash, b) {
     const sub = validateSubscription(b.subscription);
-    if (!sub) fail9("\uC54C\uB9BC \uAD6C\uB3C5 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+    if (!sub) fail10("\uC54C\uB9BC \uAD6C\uB3C5 \uC815\uBCF4\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.");
     const id2 = await pushDigest(sub.endpoint), preferences = { notices: b.preferences?.notices !== false, workouts: b.preferences?.workouts !== false, approvals: b.preferences?.approvals !== false, memberships: b.preferences?.memberships !== false };
     await result(db2.rpc("onoff_push_subscribe", { actor, test_code: testHash, sub_id: id2, sub_body: sub, prefs: preferences }));
     return { ok: true, id: id2 };
@@ -1303,7 +1338,7 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
   async function publicRoute(req, path, b) {
     if (path === "/api/push/dispatch") {
       const secret = await setting("pushCronSecret");
-      if (!secret || !same(req.headers.get("X-OnOff-Worker"), secret)) fail9("\uC54C\uB9BC \uBC1C\uC1A1 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 401);
+      if (!secret || !same(req.headers.get("X-OnOff-Worker"), secret)) fail10("\uC54C\uB9BC \uBC1C\uC1A1 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.", 401);
       await maintenance();
       return dispatch();
     }
@@ -1320,14 +1355,14 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
       const job = await result(db2.rpc("onoff_push_compose", { actor: null, test_code: hash, p: { mode: "test", title: b.title || "ONOFF \uD478\uC2DC \uD14C\uC2A4\uD2B8", body: b.body || "\uC571\uC744 \uB2EB\uC740 \uC0C1\uD0DC\uC758 \uC54C\uB9BC \uC218\uC2E0\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.", subscriptionId: id2, delayed: b.delayed === true } }));
       return { ok: true, job, queued: true };
     }
-    fail9("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    fail10("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
   }
   async function memberRoute(member, path, b) {
     if (["/api/push/compose", "/api/push/history"].includes(path)) {
-      if (!hasPermission(member, "push")) fail9("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
+      if (!hasPermission(member, "push")) fail10("\uC6B4\uC601\uC790 \uAD8C\uD55C\uC774 \uD544\uC694\uD574\uC694.", 403);
       if (path.endsWith("/history")) return { jobs: await result(db2.rpc("onoff_push_history", { actor: member.id })) };
-      if (!["test", "all"].includes(b.mode)) fail9("\uBC1C\uC1A1 \uB300\uC0C1\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      if (b.mode === "test" && !b.endpoint) fail9("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
+      if (!["test", "all"].includes(b.mode)) fail10("\uBC1C\uC1A1 \uB300\uC0C1\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+      if (b.mode === "test" && !b.endpoint) fail10("\uC774 \uAE30\uAE30\uC5D0\uC11C \uC54C\uB9BC\uC744 \uBA3C\uC800 \uCF1C\uC8FC\uC138\uC694.");
       const job = await result(db2.rpc("onoff_push_compose", { actor: member.id, test_code: null, p: { mode: b.mode, title: "ONOFF", body: b.body, subscriptionId: await pushDigest(b.endpoint || ""), delayed: b.mode === "test" } }));
       return { ok: true, queued: true, job };
     }
@@ -1340,8 +1375,8 @@ function createPushService(db2, { now = () => /* @__PURE__ */ new Date(), pushFe
       await result(db2.from("gym_push_subscriptions").delete().eq("id", id2).eq("user_id", member.id));
       return { ok: true };
     }
-    if (path === "/api/push/test") fail9("\uAC1C\uC778\uC124\uC815\uC758 \uC2DC\uD5D8 \uBC1C\uC1A1\uC740 \uC885\uB8CC\uB410\uC5B4\uC694. \uBCC4\uB3C4 \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uD654\uBA74\uC744 \uC0AC\uC6A9\uD574\uC8FC\uC138\uC694.", 410);
-    fail9("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
+    if (path === "/api/push/test") fail10("\uAC1C\uC778\uC124\uC815\uC758 \uC2DC\uD5D8 \uBC1C\uC1A1\uC740 \uC885\uB8CC\uB410\uC5B4\uC694. \uBCC4\uB3C4 \uD478\uC2DC \uD14C\uC2A4\uD2B8 \uD654\uBA74\uC744 \uC0AC\uC6A9\uD574\uC8FC\uC138\uC694.", 410);
+    fail10("\uC54C\uB9BC \uC694\uCCAD\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
   }
   return { status, dispatch, enqueue, publicRoute, memberRoute };
 }
@@ -1358,6 +1393,7 @@ var text = (v, min, max, label) => {
 };
 function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch, now = () => /* @__PURE__ */ new Date() } = {}) {
   const workoutComments = createWorkoutCommentsService(db2);
+  const communityViews = createCommunityViewsService(db2, { now });
   const overview = createMemberOverviewService(db2), profilePhotos = createAvatarService(db2);
   const media = createMediaService(db2, { now }), points = createPointsService(db2, { now });
   const push = createPushService(db2, { now, maintenance: () => media.cleanup() }), account = createAccountService(db2, { reauthenticate }), named = createNamedService(db2);
@@ -1518,6 +1554,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
         return !meetupLifecycle(p, now()).expired && (staff || author?.disclosure_consent !== false || p.author_id === m.id);
       }));
     }
+    const viewCounts = canRead ? await communityViews.counts(m, posts.map((p) => p.id), noticeRows.map((n) => n.id)) : {};
     const pointBalances = staff ? await rows("gym_point_accounts") : [];
     const rankingOwners = new Set(memberRows.filter((x) => x.status === "approved" && x.disclosure_consent === true).map((x) => x.id));
     const records = [...new Map([...ownRecords, ...selectedRecords].map((r) => [r.id, r])).values()], names = new Map(memberRows.map((x) => [x.id, x.name])), rank = /* @__PURE__ */ new Map(), avatars = /* @__PURE__ */ new Map();
@@ -1563,12 +1600,12 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
       members: staff ? memberRows.map((x) => ({ ...x, pointBalance: Number(pointBalances.find((a) => a.user_id === x.id)?.balance || 0), avatarEmoji: avatars.get(x.id) || avatarEmoji(), note: notes.find((n) => n.user_id === x.id)?.note || "" })) : [],
       workouts: Object.fromEntries(ws.map((w) => [w.key, w.body])),
       publishedDates: [...new Set(ws.filter((w) => Date.parse(w.release_at) <= +now()).map((w) => w.date))],
-      notices: canRead ? noticeRows.map((n) => ({ ...n, category: "\uACF5\uC9C0\uC0AC\uD56D", author: names.get(n.author_id) || "\uC6B4\uC601\uC790", serverNotice: true, date: kstDate(new Date(n.created_at)), comments: [], joined: [] })) : [],
+      notices: canRead ? noticeRows.map((n) => ({ ...n, viewCount: viewCounts["notice:" + n.id] || 0, category: "\uACF5\uC9C0\uC0AC\uD56D", author: names.get(n.author_id) || "\uC6B4\uC601\uC790", serverNotice: true, date: kstDate(new Date(n.created_at)), comments: [], joined: [] })) : [],
       records: records.filter((r) => staff || r.user_id === m.id || memberRows.find((x) => x.id === r.user_id)?.disclosure_consent !== false).map((r) => ({ ...r.body, id: r.id, memberId: r.user_id, name: names.get(r.user_id) || "\uD68C\uC6D0", avatarEmoji: avatars.get(r.user_id) || avatarEmoji(), rank: rank.get(r.user_id) !== false && rankingOwners.has(r.user_id) })),
       photos: canRead ? await media.list(viewDate, posts.map((p) => p.id), noticeRows.map((n) => n.id), m) : [],
       rms: rms.map((r) => ({ ...r.body, id: r.id, memberId: r.user_id })),
       preferences: prefs?.body || {},
-      posts: posts.map((p) => ({ ...p, viewerJoined: joins.some((j) => j.post_id === p.id && j.user_id === m.id), joinAccess: participationAccess({ viewer: m, author: memberRows.find((x) => x.id === p.author_id), post: p, pass, today: day, attendedToday: att.some((a) => a.date === day && a.membership_id === pass?.id), now: now() }), authorId: p.author_id, author: names.get(p.author_id) || "\uD68C\uC6D0", date: kstDate(new Date(p.created_at)), joined: [], joinedIds: joins.filter((j) => j.post_id === p.id && memberRows.find((x) => x.id === j.user_id)?.disclosure_consent !== false).map((j) => j.user_id), joinedNames: Object.fromEntries(joins.filter((j) => j.post_id === p.id && memberRows.find((x) => x.id === j.user_id)?.disclosure_consent !== false).map((j) => [j.user_id, names.get(j.user_id) || "\uD68C\uC6D0"])), comments: comments.filter((c) => c.post_id === p.id && memberRows.find((x) => x.id === c.author_id)?.disclosure_consent !== false).map((c) => ({ ...c, authorId: c.author_id, author: names.get(c.author_id) || "\uD68C\uC6D0" })) })),
+      posts: posts.map((p) => ({ ...p, viewCount: viewCounts["post:" + p.id] || 0, viewerJoined: joins.some((j) => j.post_id === p.id && j.user_id === m.id), joinAccess: participationAccess({ viewer: m, author: memberRows.find((x) => x.id === p.author_id), post: p, pass, today: day, attendedToday: att.some((a) => a.date === day && a.membership_id === pass?.id), now: now() }), authorId: p.author_id, author: names.get(p.author_id) || "\uD68C\uC6D0", date: kstDate(new Date(p.created_at)), joined: [], joinedIds: joins.filter((j) => j.post_id === p.id && memberRows.find((x) => x.id === j.user_id)?.disclosure_consent !== false).map((j) => j.user_id), joinedNames: Object.fromEntries(joins.filter((j) => j.post_id === p.id && memberRows.find((x) => x.id === j.user_id)?.disclosure_consent !== false).map((j) => [j.user_id, names.get(j.user_id) || "\uD68C\uC6D0"])), comments: comments.filter((c) => c.post_id === p.id && memberRows.find((x) => x.id === c.author_id)?.disclosure_consent !== false).map((c) => ({ ...c, authorId: c.author_id, author: names.get(c.author_id) || "\uD68C\uC6D0" })) })),
       tv: hasPermission(m, "tv") ? await tvSettings() : void 0,
       push: await push.status(m),
       historyLimit: 1e3
@@ -1731,9 +1768,7 @@ function createHandler(db2, { verifyUser, reauthenticate, fetchCalendar = fetch,
     }
     if (path === "/api/community/read") {
       if (!uuid5(b.id) || !["post", "notice"].includes(b.kind)) bad("\uC77D\uC740 \uAC8C\uC2DC\uAE00\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
-      const item = await one(b.kind === "notice" ? "gym_notices" : "gym_posts", "id", b.id);
-      if (!item || meetupLifecycle(item, now()).expired) bad("\uAC8C\uC2DC\uAE00\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694.", 404);
-      return commit(m.id, "community-read", { id: b.id, kind: b.kind });
+      return communityViews.read(m, { id: b.id, kind: b.kind });
     }
     if (path === "/api/meetups") {
       if (!uuid5(b.id) || b.category && b.category !== "\uC6B4\uB3D9 \uBC88\uAC1C" || typeof b.startsAt !== "string" || b.startsAt.length > 40 || !Number.isFinite(Date.parse(b.startsAt)) || new Date(b.startsAt).getUTCFullYear() < 1900 || "bannerPinned" in b && typeof b.bannerPinned !== "boolean" || "sendPush" in b && typeof b.sendPush !== "boolean") bad("\uC6B4\uB3D9 \uC2DC\uC791 \uB0A0\uC9DC\xB7\uC2DC\uAC04\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
